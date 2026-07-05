@@ -1,34 +1,78 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { dataUrl } from "@/lib/basePath";
+import {
+  composeBuilderView,
+  type BuilderOptions,
+  type BuilderScope,
+} from "@/lib/builder/compose";
 import type { BuilderPayload, BuilderSlip } from "@/lib/builder/types";
 import BuilderSlipCard from "@/components/builder/BuilderSlipCard";
+
+const DEFAULT_MAX_LEGS = 8;
 
 export default function BuilderPage() {
   const [data, setData] = useState<BuilderPayload | null>(null);
   const [error, setError] = useState(false);
   const [targetId, setTargetId] = useState("2-1");
+  const [scope, setScope] = useState<BuilderScope>("today");
+  const [matchId, setMatchId] = useState<number | undefined>();
+  const [maxLegs, setMaxLegs] = useState(DEFAULT_MAX_LEGS);
 
   useEffect(() => {
     fetch(dataUrl("/builder.json"), { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setData)
+      .then((payload: BuilderPayload) => {
+        setData(payload);
+        if (payload.fixtures[0]) setMatchId(payload.fixtures[0].id);
+      })
       .catch(() => setError(true));
   }, []);
 
-  const selected: BuilderSlip | null =
-    data?.builders[targetId] ?? null;
+  const options: BuilderOptions = useMemo(
+    () => ({
+      scope,
+      matchId: scope === "single" ? matchId : undefined,
+      maxLegs,
+    }),
+    [scope, matchId, maxLegs]
+  );
+
+  const composed = useMemo(() => {
+    if (!data) return null;
+    return composeBuilderView(data.legs, options);
+  }, [data, options]);
+
+  const selected: BuilderSlip | null = composed?.builders[targetId] ?? null;
+  const liveOdds = (data?.bet365LiveLegs ?? 0) > 0;
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Bet Builder</h1>
-        <p className="text-sm text-muted">
-          Pre-built Bet365-style accumulators from the safest statistical legs —
-          shots, fouls, cards, tackles & team markets. Built to hit your target
-          odds while maximising landing probability.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#126e51]/40 bg-[#126e51]/10 px-3 py-1 text-xs font-bold text-[#3ecf8e]">
+            Bet365 only
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">Bet365 Builder</h1>
+          <p className="max-w-2xl text-sm text-muted">
+            Pre-built Bet365 bet builders from the safest statistical legs —
+            shots, fouls, cards, tackles & team markets. Odds are calibrated to
+            Bet365&apos;s pricing ladder
+            {liveOdds ? " with live Bet365 prices where available" : ""}.
+          </p>
+        </div>
+        {data && (
+          <p className="text-xs text-muted">
+            {data.legs.length} legs · {data.fixtures.length} fixtures
+            {liveOdds && (
+              <>
+                {" "}
+                · <span className="text-[#3ecf8e]">{data.bet365LiveLegs} live</span>
+              </>
+            )}
+          </p>
+        )}
       </div>
 
       {error && (
@@ -43,36 +87,116 @@ export default function BuilderPage() {
 
       {data && (
         <>
-          {data.todaysPick && (
+          <section className="rounded-2xl border border-edge bg-surface p-4 sm:p-5">
+            <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-muted">
+              Builder options
+            </h2>
+
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <p className="mb-2 text-xs font-semibold text-muted">Scope</p>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["single", "One game"],
+                      ["today", "Today's games"],
+                      ["multi", "Multi-game"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setScope(id)}
+                      className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                        scope === id
+                          ? "border-[#126e51] bg-[#126e51]/15 text-[#3ecf8e]"
+                          : "border-edge bg-background text-muted hover:border-[#126e51]/40"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {scope === "single" && (
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-muted">Match</p>
+                  <select
+                    value={matchId ?? ""}
+                    onChange={(e) => setMatchId(Number(e.target.value))}
+                    className="w-full rounded-xl border border-edge bg-background px-3 py-2 text-sm"
+                  >
+                    {data.fixtures.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.home} v {f.away}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <p className="mb-2 text-xs font-semibold text-muted">
+                  Max legs: {maxLegs}
+                </p>
+                <input
+                  type="range"
+                  min={1}
+                  max={15}
+                  value={maxLegs}
+                  onChange={(e) => setMaxLegs(Number(e.target.value))}
+                  className="w-full accent-[#126e51]"
+                />
+                <div className="mt-1 flex justify-between text-[10px] text-muted">
+                  <span>1</span>
+                  <span>15</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="mt-4 text-xs text-muted">
+              {scope === "single" &&
+                "All legs from a single fixture — same-game Bet365 builder."}
+              {scope === "today" &&
+                "Legs from fixtures kicking off today only."}
+              {scope === "multi" &&
+                "Cross-fixture builder across all upcoming World Cup games."}
+            </p>
+          </section>
+
+          {composed?.todaysPick && (
             <section>
               <h2 className="mb-3 text-lg font-bold">
                 <span className="text-gold">★</span> Today&apos;s Pick
               </h2>
               <p className="mb-4 text-xs text-muted">
-                Highest-confidence slip for today — targeting 88%+ combined
-                probability from tournament form and player matchup history.
+                Highest-confidence Bet365 slip for your scope — targeting 88%+
+                combined probability from tournament form and player matchup
+                history.
               </p>
-              <BuilderSlipCard slip={data.todaysPick} highlight />
+              <BuilderSlipCard slip={composed.todaysPick} highlight liveOdds={liveOdds} />
             </section>
           )}
 
           <section>
             <h2 className="mb-3 text-lg font-bold">Build by odds target</h2>
             <p className="mb-4 text-xs text-muted">
-              Select your desired combined odds — we fill the builder with the
-              safest available legs from upcoming World Cup fixtures (
-              {data.legPoolSize} candidates analysed).
+              Select your desired combined Bet365 odds — we fill the builder with
+              the safest available legs from your scope (
+              {filterCount(data.legs, options)} candidates).
             </p>
 
             <div className="mb-5 flex flex-wrap gap-2">
               {data.targets.map((t) => (
                 <button
                   key={t.id}
+                  type="button"
                   onClick={() => setTargetId(t.id)}
                   className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
                     targetId === t.id
-                      ? "border-accent bg-accent/15 text-accent"
-                      : "border-edge bg-surface text-muted hover:border-accent/40 hover:text-foreground"
+                      ? "border-[#126e51] bg-[#126e51]/15 text-[#3ecf8e]"
+                      : "border-edge bg-surface text-muted hover:border-[#126e51]/40 hover:text-foreground"
                   }`}
                 >
                   {t.label}
@@ -81,12 +205,12 @@ export default function BuilderPage() {
             </div>
 
             {selected ? (
-              <BuilderSlipCard slip={selected} />
+              <BuilderSlipCard slip={selected} liveOdds={liveOdds} />
             ) : (
               <p className="rounded-xl border border-edge bg-surface p-6 text-sm text-muted">
-                Not enough high-confidence legs to build a slip at this odds
-                target right now. Try a higher odds band or check back after
-                lineups are confirmed.
+                Not enough high-confidence legs to build a Bet365 slip at this
+                odds target for your scope. Try a higher odds band, increase max
+                legs, or widen scope to multi-game.
               </p>
             )}
           </section>
@@ -99,21 +223,41 @@ export default function BuilderPage() {
                 matchups (FotMob).
               </li>
               <li>
-                Lower odds targets use fewer, safer legs; higher targets add
-                more high-hit-rate selections.
+                Leg odds use Bet365&apos;s fractional ladder — calibrated from
+                historical hit rates, or live Bet365 prices when the export API
+                key is configured.
               </li>
               <li>
-                Player props include shots, SOT, fouls, tackles & cards. Team
-                props cover shots, fouls & cards.
+                Player props: shots, SOT, fouls, tackles & cards. Team props:
+                shots, fouls & cards.
               </li>
-              <li>
-                Prices are estimated from historical hit rates — check Bet365
-                for live builder odds before placing.
-              </li>
+              <li>Bet365 only — no other bookmakers in this section.</li>
             </ul>
           </section>
         </>
       )}
     </main>
   );
+}
+
+function filterCount(
+  legs: BuilderPayload["legs"],
+  options: BuilderOptions
+): number {
+  if (options.scope === "single" && options.matchId != null) {
+    return legs.filter((l) => l.matchId === options.matchId).length;
+  }
+  if (options.scope === "today") {
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    const d = now.getUTCDate();
+    return legs.filter((leg) => {
+      const k = new Date(leg.kickoff);
+      return (
+        k.getUTCFullYear() === y && k.getUTCMonth() === m && k.getUTCDate() === d
+      );
+    }).length;
+  }
+  return legs.length;
 }

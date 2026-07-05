@@ -1,4 +1,9 @@
 import { toFractional } from "@/lib/format";
+import { bet365DecimalOdds, snapBet365Decimal } from "./bet365";
+import type { Bet365OddsSource } from "./bet365";
+import type { LegCategory } from "./types";
+
+export { snapBet365Decimal, bet365DecimalOdds } from "./bet365";
 
 /** Shrink extreme small-sample rates toward a prior. */
 export function effectiveHitRate(rate: number, sample: number): number {
@@ -8,21 +13,10 @@ export function effectiveHitRate(rate: number, sample: number): number {
   return Math.min(0.94, Math.max(0.52, shrunk));
 }
 
-/** Estimate Bet365-style decimal price from historical hit rate. */
-export function estimateDecimalOdds(hitRate: number, sample = 3): number {
-  const r = effectiveHitRate(hitRate, sample);
-  const fair = 1 / r;
-  return Math.round(Math.max(1.08, fair * 0.9) * 100) / 100;
-}
-
-export function fractionalFromDecimal(decimal: number): string {
-  return toFractional(decimal);
-}
-
 export function combineOdds(legs: { decimalOdds: number }[]): number {
   if (!legs.length) return 1;
-  return (
-    Math.round(legs.reduce((acc, l) => acc * l.decimalOdds, 1) * 100) / 100
+  return snapBet365Decimal(
+    legs.reduce((acc, l) => acc * l.decimalOdds, 1)
   );
 }
 
@@ -39,3 +33,30 @@ export const ODDS_TARGETS = [
   { id: "20-1", label: "20/1", decimalMin: 18, decimalMax: 23 },
   { id: "50-1", label: "50/1", decimalMin: 45, decimalMax: 55 },
 ] as const;
+
+export function applyBet365Price(
+  hitRate: number,
+  sample: number,
+  category: LegCategory,
+  liveDecimal?: number
+): {
+  decimalOdds: number;
+  fractionalOdds: string;
+  oddsSource: Bet365OddsSource;
+} {
+  const rate = effectiveHitRate(hitRate, sample);
+  if (liveDecimal && liveDecimal > 1) {
+    const decimalOdds = snapBet365Decimal(liveDecimal);
+    return {
+      decimalOdds,
+      fractionalOdds: toFractional(decimalOdds),
+      oddsSource: "bet365_live",
+    };
+  }
+  const decimalOdds = bet365DecimalOdds(rate, category);
+  return {
+    decimalOdds,
+    fractionalOdds: toFractional(decimalOdds),
+    oddsSource: "bet365_calibrated",
+  };
+}

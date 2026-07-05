@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/", label: "Odds & Arbs", icon: "◎" },
-  { href: "/builder", label: "Bet Builder", icon: "◈" },
+  { href: "/builder", label: "Bet365 Builder", icon: "◈" },
   { href: "/stats", label: "Player Stats", icon: "▤" },
   { href: "/matches", label: "Matchups", icon: "⚔" },
 ];

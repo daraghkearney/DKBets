@@ -35,6 +35,8 @@ jobs:
 
       - name: Export live data
         run: npm run export:data
+        env:
+          ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
 
       - name: Build static site
         run: npm run build

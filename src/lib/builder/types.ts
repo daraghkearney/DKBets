@@ -23,6 +23,8 @@ export interface BuilderLeg {
   sample: number;
   decimalOdds: number;
   fractionalOdds: string;
+  /** Bet365 live or calibrated to Bet365 ladder */
+  oddsSource: "bet365_live" | "bet365_calibrated";
 }
 
 export interface BuilderSlip {
@@ -43,9 +45,15 @@ export interface OddsTarget {
 }
 
 export interface BuilderPayload {
-  todaysPick: BuilderSlip | null;
-  builders: Record<string, BuilderSlip | null>;
+  /** Full leg pool — client composes slips with scope / max-legs filters */
+  legs: BuilderLeg[];
+  fixtures: Array<{
+    id: number;
+    home: string;
+    away: string;
+    kickoff: string;
+  }>;
   targets: OddsTarget[];
-  legPoolSize: number;
+  bet365LiveLegs: number;
   generatedAt: string;
 }

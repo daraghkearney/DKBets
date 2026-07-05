@@ -1,10 +1,11 @@
+import { toFractional } from "@/lib/format";
 import {
+  applyBet365Price,
   combineOdds,
   combineProbability,
   effectiveHitRate,
-  estimateDecimalOdds,
-  fractionalFromDecimal,
 } from "./odds";
+import { legOddsKey } from "./bet365";
 import type { BuilderLeg, LegCategory } from "./types";
 import type { MatchDetailPayload, PickStat, PlayerTournamentStats } from "@/lib/stats/types";
 
@@ -73,21 +74,35 @@ export function parseTeamMatchLines(
 }
 
 function mkLeg(
-  partial: Omit<BuilderLeg, "decimalOdds" | "fractionalOdds" | "id" | "hitRate"> & {
+  partial: Omit<
+    BuilderLeg,
+    "decimalOdds" | "fractionalOdds" | "id" | "hitRate" | "oddsSource"
+  > & {
     hitRate: number;
     sample: number;
-  }
+  },
+  liveOdds?: Map<string, number>
 ): BuilderLeg {
   const hitRate = effectiveHitRate(partial.hitRate, partial.sample);
-  const decimalOdds = estimateDecimalOdds(partial.hitRate, partial.sample);
+  const key = legOddsKey(
+    partial.matchId,
+    partial.playerName,
+    partial.market
+  );
+  const live = liveOdds?.get(key);
+  const priced = applyBet365Price(
+    partial.hitRate,
+    partial.sample,
+    partial.category,
+    live
+  );
   const { hitRate: _r, sample, ...rest } = partial;
   return {
     ...rest,
     hitRate,
     sample,
     id: `${partial.matchId}-${partial.market}`.replace(/\s+/g, "-").slice(0, 80),
-    decimalOdds,
-    fractionalOdds: fractionalFromDecimal(decimalOdds),
+    ...priced,
   };
 }
 
@@ -96,22 +111,26 @@ function pickToLeg(
   matchLabel: string,
   matchId: number,
   kickoff: string,
-  category: LegCategory
+  category: LegCategory,
+  liveOdds?: Map<string, number>
 ): BuilderLeg {
   const market = pick.label;
-  return mkLeg({
-    type: "player",
-    label: pick.label,
-    market,
-    matchLabel,
-    matchId,
-    kickoff,
-    playerName: pick.playerName,
-    teamName: pick.teamName,
-    category,
-    hitRate: pick.rate,
-    sample: pick.sample,
-  });
+  return mkLeg(
+    {
+      type: "player",
+      label: pick.label,
+      market,
+      matchLabel,
+      matchId,
+      kickoff,
+      playerName: pick.playerName,
+      teamName: pick.teamName,
+      category,
+      hitRate: pick.rate,
+      sample: pick.sample,
+    },
+    liveOdds
+  );
 }
 
 function categoryFromLabel(label: string): LegCategory {
@@ -128,7 +147,8 @@ function playerPropLegs(
   player: PlayerTournamentStats,
   matchLabel: string,
   matchId: number,
-  kickoff: string
+  kickoff: string,
+  liveOdds?: Map<string, number>
 ): BuilderLeg[] {
   const legs: BuilderLeg[] = [];
   const lines = player.lines;
@@ -172,19 +192,22 @@ function playerPropLegs(
     const rate = hits / sample;
     if (sample < 2 || rate < 0.55) continue;
     legs.push(
-      mkLeg({
-        type: "player",
-        label: tpl.market,
-        market: tpl.market,
-        matchLabel,
-        matchId,
-        kickoff,
-        playerName: player.name,
-        teamName: player.teamName,
-        category: tpl.cat,
-        hitRate: rate,
-        sample,
-      })
+      mkLeg(
+        {
+          type: "player",
+          label: tpl.market,
+          market: tpl.market,
+          matchLabel,
+          matchId,
+          kickoff,
+          playerName: player.name,
+          teamName: player.teamName,
+          category: tpl.cat,
+          hitRate: rate,
+          sample,
+        },
+        liveOdds
+      )
     );
   }
   return legs;
@@ -195,7 +218,8 @@ function teamPropLegs(
   history: TeamMatchLine[],
   matchLabel: string,
   matchId: number,
-  kickoff: string
+  kickoff: string,
+  liveOdds?: Map<string, number>
 ): BuilderLeg[] {
   if (history.length < 2) return [];
   const legs: BuilderLeg[] = [];
@@ -233,24 +257,30 @@ function teamPropLegs(
     const rate = hits / sample;
     if (rate < 0.6) continue;
     legs.push(
-      mkLeg({
-        type: "team",
-        label: tpl.market,
-        market: tpl.market,
-        matchLabel,
-        matchId,
-        kickoff,
-        teamName,
-        category: tpl.cat,
-        hitRate: rate,
-        sample,
-      })
+      mkLeg(
+        {
+          type: "team",
+          label: tpl.market,
+          market: tpl.market,
+          matchLabel,
+          matchId,
+          kickoff,
+          teamName,
+          category: tpl.cat,
+          hitRate: rate,
+          sample,
+        },
+        liveOdds
+      )
     );
   }
   return legs;
 }
 
-export function legsFromMatchDetail(detail: MatchDetailPayload): BuilderLeg[] {
+export function legsFromMatchDetail(
+  detail: MatchDetailPayload,
+  liveOdds?: Map<string, number>
+): BuilderLeg[] {
   const { fixture } = detail;
   const matchLabel = `${fixture.home} v ${fixture.away}`;
   const legs: BuilderLeg[] = [];
@@ -272,7 +302,8 @@ export function legsFromMatchDetail(detail: MatchDetailPayload): BuilderLeg[] {
           matchLabel,
           fixture.id,
           fixture.kickoff,
-          categoryFromLabel(pick.label)
+          categoryFromLabel(pick.label),
+          liveOdds
         )
       );
     }
@@ -284,7 +315,13 @@ export function legsFromMatchDetail(detail: MatchDetailPayload): BuilderLeg[] {
     if (mu.b.stats) players.set(mu.b.stats.playerId, mu.b.stats);
   }
   for (const p of players.values()) {
-    for (const leg of playerPropLegs(p, matchLabel, fixture.id, fixture.kickoff)) {
+    for (const leg of playerPropLegs(
+      p,
+      matchLabel,
+      fixture.id,
+      fixture.kickoff,
+      liveOdds
+    )) {
       add(leg);
     }
   }
@@ -295,12 +332,13 @@ export function legsFromMatchDetail(detail: MatchDetailPayload): BuilderLeg[] {
 export function legsFromTeamHistory(
   teamName: string,
   history: TeamMatchLine[],
-  fixtures: Array<{ id: number; home: string; away: string; kickoff: string }>
+  fixtures: Array<{ id: number; home: string; away: string; kickoff: string }>,
+  liveOdds?: Map<string, number>
 ): BuilderLeg[] {
   const fx = fixtures.find((f) => f.home === teamName || f.away === teamName);
   if (!fx) return [];
   const matchLabel = `${fx.home} v ${fx.away}`;
-  return teamPropLegs(teamName, history, matchLabel, fx.id, fx.kickoff);
+  return teamPropLegs(teamName, history, matchLabel, fx.id, fx.kickoff, liveOdds);
 }
 
 export function dedupeLegs(legs: BuilderLeg[]): BuilderLeg[] {
@@ -325,7 +363,7 @@ export function slipFromLegs(
     title,
     legs,
     combinedDecimal,
-    combinedFractional: fractionalFromDecimal(combinedDecimal),
+    combinedFractional: toFractional(combinedDecimal),
     combinedProbability: combineProbability(legs),
     targetLabel,
   };

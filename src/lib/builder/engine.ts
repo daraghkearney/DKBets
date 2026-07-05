@@ -2,11 +2,8 @@ import { getMatchDetails } from "@/lib/stats/fotmob";
 import { loadFixtures, loadMatchDetail } from "@/lib/stats/engine";
 import { parseFixtures } from "@/lib/stats/parse";
 import { getLeagueOverview } from "@/lib/stats/store";
-import {
-  buildAllTargets,
-  buildTodaysPick,
-  ODDS_TARGETS,
-} from "./compose";
+import { fetchBet365LiveOdds } from "./bet365";
+import { ODDS_TARGETS } from "./compose";
 import {
   dedupeLegs,
   legsFromMatchDetail,
@@ -19,19 +16,19 @@ import type { BuilderPayload } from "./types";
 
 export async function loadBuilderPayload(): Promise<BuilderPayload> {
   const fixtures = await loadFixtures();
+  const fixtureIds = fixtures.map((f) => f.id);
+  const liveOdds = await fetchBet365LiveOdds(fixtureIds);
+
   const allLegs: import("./types").BuilderLeg[] = [];
 
   for (const fx of fixtures) {
     const detail = await loadMatchDetail(fx.id);
-    if (detail) allLegs.push(...legsFromMatchDetail(detail));
+    if (detail) allLegs.push(...legsFromMatchDetail(detail, liveOdds));
   }
 
   const league = (await getLeagueOverview()) as any;
   const finished = parseFixtures(league).filter((f) => f.finished);
-  const teamHist = new Map<
-    string,
-    ReturnType<typeof parseTeamMatchLines>
-  >();
+  const teamHist = new Map<string, ReturnType<typeof parseTeamMatchLines>>();
 
   for (const fx of finished.slice(-40)) {
     try {
@@ -54,17 +51,23 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
   for (const team of upcomingTeams) {
     const hist = teamHist.get(team) ?? [];
     if (hist.length >= 2) {
-      allLegs.push(...legsFromTeamHistory(team, hist, fixtures));
+      allLegs.push(...legsFromTeamHistory(team, hist, fixtures, liveOdds));
     }
   }
 
   const pool = dedupeLegs(allLegs);
+  const bet365LiveLegs = pool.filter((l) => l.oddsSource === "bet365_live").length;
 
   return {
-    todaysPick: buildTodaysPick(pool),
-    builders: buildAllTargets(pool),
+    legs: pool,
+    fixtures: fixtures.map((f) => ({
+      id: f.id,
+      home: f.home,
+      away: f.away,
+      kickoff: f.kickoff,
+    })),
     targets: [...ODDS_TARGETS],
-    legPoolSize: pool.length,
+    bet365LiveLegs,
     generatedAt: new Date().toISOString(),
   };
 }
