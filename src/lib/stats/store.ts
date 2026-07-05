@@ -3,6 +3,7 @@ import {
   parseFixtures,
   parseLineupSide,
   parseMatchPlayerLines,
+  parsePlayerMeta,
   sumLines,
   per90,
   type RawFixture,
@@ -29,31 +30,20 @@ export async function ensurePlayerIndex(): Promise<Map<number, PlayerTournamentS
 
   const results = await pool(finishedIds, 4, async (id) => {
     const raw = (await getMatchDetails(id, true)) as any;
-    return parseMatchPlayerLines(id, raw);
+    return {
+      lines: parseMatchPlayerLines(id, raw),
+      meta: parsePlayerMeta(raw),
+    };
   });
 
-  for (const map of results) {
-    if (!map) continue;
-    for (const [pid, line] of map) {
+  for (const result of results) {
+    if (!result) continue;
+    for (const [pid, line] of result.lines) {
       if (!linesByPlayer.has(pid)) linesByPlayer.set(pid, []);
       linesByPlayer.get(pid)!.push(line);
     }
-  }
-
-  // Enrich names from matchDetails playerStats on a subset
-  for (const id of finishedIds.slice(-20)) {
-    try {
-      const raw = (await getMatchDetails(id, true)) as any;
-      const ps = raw?.content?.playerStats ?? {};
-      for (const p of Object.values(ps) as any[]) {
-        meta.set(Number(p.id), {
-          name: p.name,
-          teamId: p.teamId,
-          teamName: p.teamName,
-        });
-      }
-    } catch {
-      /* skip */
+    for (const [pid, m] of result.meta) {
+      meta.set(pid, m);
     }
   }
 

@@ -84,6 +84,26 @@ export function parseMatchPlayerLines(
   return out;
 }
 
+/** Player name/team from matchDetails.content.playerStats. */
+export function parsePlayerMeta(
+  payload: any
+): Map<number, { name: string; teamId: number; teamName: string }> {
+  const meta = new Map<number, { name: string; teamId: number; teamName: string }>();
+  const ps = payload?.content?.playerStats;
+  if (!ps || typeof ps !== "object") return meta;
+
+  for (const p of Object.values(ps) as any[]) {
+    const id = Number(p.id);
+    if (!id || !p.name) continue;
+    meta.set(id, {
+      name: p.name,
+      teamId: Number(p.teamId) || 0,
+      teamName: p.teamName ?? "",
+    });
+  }
+  return meta;
+}
+
 export function emptyTotals(): StatTotals {
   return {
     matches: 0,
