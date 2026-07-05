@@ -121,7 +121,7 @@ export function buildPicks(
     picks.push({
       label: tpl.label(aName, bName),
       playerId: focusStats?.playerId ?? 0,
-      playerName: focusName,
+      playerName: focusStats?.name ?? focusName,
       teamName: focusTeam,
       h2hHits,
       h2hSample,

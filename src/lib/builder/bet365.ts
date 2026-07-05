@@ -140,14 +140,19 @@ export function findLivePrice(
   if (!liveOdds || !playerName) return undefined;
 
   const target = normPlayer(playerName);
-  const exact = liveOdds.get(liveOddsLookupKey(matchId, playerName, category));
-  if (exact !== undefined) return exact;
-
   const candidates: { player: string; price: number }[] = [];
+
   for (const [key, price] of liveOdds) {
-    const [mid, player, cat] = key.split("|");
-    if (Number(mid) !== matchId || cat !== category) continue;
-    if (playersMatch(player, target)) candidates.push({ player, price });
+    const parts = key.split("|");
+    if (parts.length < 3) continue;
+    const mid = Number(parts[0]);
+    const cat = parts[parts.length - 1];
+    if (mid !== matchId || cat !== category) continue;
+
+    const apiPlayer = normPlayer(parts.slice(1, -1).join("|"));
+    if (apiPlayer === target || playersMatch(apiPlayer, target)) {
+      candidates.push({ player: apiPlayer, price });
+    }
   }
 
   if (candidates.length === 0) return undefined;
@@ -156,7 +161,6 @@ export function findLivePrice(
   const targetParts = target.split(" ").filter(Boolean);
   const targetLast = targetParts[targetParts.length - 1] ?? "";
 
-  // Same first name, different surnames (e.g. Gabriel vs Gabriel Martinelli) — require last name
   if (targetParts.length >= 2 && targetLast) {
     const byLast = candidates.filter((c) => {
       const parts = c.player.split(" ").filter(Boolean);
@@ -165,7 +169,6 @@ export function findLivePrice(
     if (byLast.length === 1) return byLast[0]!.price;
   }
 
-  // Mononym in stats (e.g. Bet365 "Gabriel") — exact token only, never a longer API name
   if (targetParts.length === 1) {
     const exactMononym = candidates.filter((c) => c.player === target);
     if (exactMononym.length === 1) return exactMononym[0]!.price;
@@ -211,14 +214,24 @@ function normTeam(team: string): string {
     .trim();
 }
 
-export function normPlayer(name: string): string {
+/** Strip Bet365 line/market suffixes from player labels ("Haaland 2", "Magalhaes Booked"). */
+function stripBet365PlayerLabel(name: string): string {
   return name
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, " ")
+    .replace(/\s+\d+$/, "")
+    .replace(/\s+(booked|sent off|1st card)$/i, "")
     .trim();
+}
+
+export function normPlayer(name: string): string {
+  return stripBet365PlayerLabel(
+    name
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /** Parse decimal or UK fractional odds (e.g. "2/9" → 1.222). */
@@ -284,10 +297,11 @@ function extractPlayerName(label: string, rowName?: string): string {
       tail.includes("foul") ||
       tail.includes("card")
     ) {
-      return dashSplit[0]!.trim();
+      return stripBet365PlayerLabel(dashSplit[0]!.trim());
     }
   }
-  return label.trim() || combined.replace(/\s[-–—]\s.*$/, "").trim();
+  const raw = label.trim() || combined.replace(/\s[-–—]\s.*$/, "").trim();
+  return stripBet365PlayerLabel(raw);
 }
 
 function isOnePlusLine(label: string, rowName?: string, hdp?: number): boolean {
