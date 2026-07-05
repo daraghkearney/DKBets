@@ -49,6 +49,18 @@ const TEMPLATES: PickTemplate[] = [
     focus: "b",
   },
   {
+    label: (a) => `${a} 1+ tackles`,
+    testA: (l) => l.tackles >= 1,
+    testB: () => false,
+    focus: "a",
+  },
+  {
+    label: (_, b) => `${b} 1+ tackles`,
+    testA: () => false,
+    testB: (l) => l.tackles >= 1,
+    focus: "b",
+  },
+  {
     label: (a) => `${a} to be carded (yellow+)`,
     testA: (l) => l.yellowCards + l.redCards >= 1,
     testB: () => false,

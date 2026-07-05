@@ -13,6 +13,7 @@ import {
   loadPlayerLeaderboard,
   loadUpcomingWithProps,
 } from "../src/lib/stats/engine";
+import { loadBuilderPayload } from "../src/lib/builder/engine";
 
 const ROOT = path.join(process.cwd(), "public", "data");
 
@@ -79,6 +80,10 @@ async function main() {
       console.warn(`  skip match ${id}:`, e);
     }
   }
+
+  console.log("  builder: composing bet builders …");
+  const builder = await loadBuilderPayload();
+  await writeJson("builder.json", builder);
 
   console.log("Done.");
 }
