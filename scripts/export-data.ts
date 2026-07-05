@@ -2,7 +2,7 @@
  * Pre-fetch live data into public/data/ for static GitHub Pages deploys.
  * Run before `next build` when output: 'export'.
  */
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import { buildLiveSnapshot } from "../src/lib/data/live";
 import { buildSimulatedSnapshot } from "../src/lib/data/simulator";
@@ -84,6 +84,14 @@ async function main() {
   console.log("  builder: composing bet builders …");
   const builder = await loadBuilderPayload();
   await writeJson("builder.json", builder);
+
+  try {
+    const cacheFile = path.join(process.cwd(), ".cache", "bet365-live-odds.json");
+    const raw = await readFile(cacheFile, "utf8");
+    await writeJson("bet365-prices.json", JSON.parse(raw));
+  } catch {
+    /* no price cache this run */
+  }
 
   console.log("Done.");
 }

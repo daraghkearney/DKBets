@@ -1,5 +1,6 @@
 import { loadFixtures, loadMatchDetail } from "@/lib/stats/engine";
 import {
+  BET365_CACHE_VERSION,
   loadCachedBet365Odds,
   saveCachedBet365Odds,
   shouldRefreshBet365Odds,
@@ -8,6 +9,27 @@ import { fetchBet365LiveOdds } from "./bet365";
 import { ODDS_TARGETS } from "./compose";
 import { dedupeLegs, legsFromMatchDetail } from "./legs";
 import type { BuilderPayload } from "./types";
+
+const DEPLOYED_PRICES_URL =
+  process.env.BET365_PRICES_URL ??
+  "https://daraghkearney.github.io/DKBets/data/bet365-prices.json";
+
+async function loadDeployedBet365Prices(): Promise<Map<string, number> | null> {
+  try {
+    const res = await fetch(DEPLOYED_PRICES_URL, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      version?: number;
+      prices?: [string, number][];
+    };
+    if (data.version !== BET365_CACHE_VERSION || !data.prices?.length) return null;
+    return new Map(data.prices);
+  } catch {
+    return null;
+  }
+}
 
 async function resolveLiveOdds(
   fixtures: { id: number; home: string; away: string }[]
@@ -22,19 +44,41 @@ async function resolveLiveOdds(
       );
       return cached;
     }
-    console.warn(
-      "  bet365 live: cache missing or invalid on push deploy — fetching from API"
-    );
+
+    const relaxed = await loadCachedBet365Odds({ ignoreAge: true });
+    if (relaxed?.size) {
+      console.warn(
+        `  bet365 live: using expired cache (${relaxed.size}) on push — skipped API`
+      );
+      return relaxed;
+    }
+
+    console.warn("  bet365 live: no cache on push — fetching from API");
   }
 
   const liveOdds = await fetchBet365LiveOdds(fixtures);
   if (liveOdds.size > 0) {
     await saveCachedBet365Odds(liveOdds);
-  } else {
-    console.warn(
-      "  bet365 live: no prices parsed from API — not falling back to old cache (would show wrong odds)"
-    );
+    return liveOdds;
   }
+
+  const fallback = await loadCachedBet365Odds({ ignoreAge: true });
+  if (fallback?.size) {
+    console.warn(
+      `  bet365 live: API returned nothing — using last good cache (${fallback.size} prices)`
+    );
+    return fallback;
+  }
+
+  const deployed = await loadDeployedBet365Prices();
+  if (deployed?.size) {
+    console.warn(
+      `  bet365 live: loaded ${deployed.size} prices from last deployed site snapshot`
+    );
+    return deployed;
+  }
+
+  console.warn("  bet365 live: no prices available (API empty and no cache)");
   return liveOdds;
 }
 
@@ -46,7 +90,7 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
   );
 
   if (apiConfigured) {
-    console.log(`  bet365 live prices fetched: ${liveOdds.size}`);
+    console.log(`  bet365 live price map size: ${liveOdds.size}`);
   }
 
   const allLegs: import("./types").BuilderLeg[] = [];
@@ -59,6 +103,7 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
   }
 
   const pool = dedupeLegs(allLegs);
+  console.log(`  bet365 builder legs built: ${pool.length} (from ${liveOdds.size} prices)`);
 
   return {
     legs: pool,
@@ -72,6 +117,7 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
     bet365LiveLegs: pool.length,
     bet365LiveAvailable: pool.length > 0,
     bet365ApiConfigured: apiConfigured,
+    bet365PriceCount: liveOdds.size,
     generatedAt: new Date().toISOString(),
   };
 }

@@ -59,5 +59,7 @@ export interface BuilderPayload {
   bet365LiveAvailable: boolean;
   /** True when ODDS_API_IO_KEY was present at export time */
   bet365ApiConfigured: boolean;
+  /** Raw live price map size at export (debug) */
+  bet365PriceCount?: number;
   generatedAt: string;
 }
