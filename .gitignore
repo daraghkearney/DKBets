@@ -17,6 +17,7 @@
 /.next/
 /out/
 /public/data/
+/.cache/
 
 # production
 /build

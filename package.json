@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "export:data": "tsx scripts/export-data.ts",
+    "probe:odds-api": "tsx scripts/probe-odds-api.ts",
     "build": "next build",
     "build:pages": "npm run export:data && npm run build",
     "start": "next start",

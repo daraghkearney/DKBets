@@ -4,8 +4,13 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      refresh_odds:
+        description: Fetch fresh Bet365 odds from odds-api.io (~3 API calls)
+        type: boolean
+        default: true
   schedule:
-    # Hourly refresh — 15-min was burning odds-api.io rate limit (94+ lost/hr)
+    # Hourly Bet365 refresh — ~3 odds-api.io calls/run (free tier: 100/hr)
     - cron: "0 * * * *"
 
 permissions:
@@ -23,6 +28,8 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      REFRESH_BET365_ODDS: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.refresh_odds) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,8 +40,21 @@ jobs:
           node-version: "20"
           cache: npm
 
+      - name: Restore Bet365 odds cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/bet365-live-odds.json
+          key: bet365-live-${{ hashFiles('src/lib/builder/bet365.ts') }}
+          restore-keys: bet365-live-
+
       - name: Install
         run: npm ci
+
+      - name: Probe odds-api.io quota
+        if: env.REFRESH_BET365_ODDS == 'true'
+        run: npm run probe:odds-api
+        env:
+          ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
 
       - name: Export live data
         run: npm run export:data
