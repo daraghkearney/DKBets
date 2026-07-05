@@ -1,6 +1,6 @@
 import { ODDS_TARGETS } from "./odds";
 import { slipFromLegs } from "./legs";
-import type { BuilderLeg, BuilderSlip, OddsTarget } from "./types";
+import type { BuilderComposedView, BuilderLeg, BuilderSlip, OddsTarget } from "./types";
 
 export type BuilderScope = "single" | "today" | "multi";
 
@@ -191,7 +191,8 @@ function maxAchievableOdds(candidates: BuilderLeg[], maxLegs: number): number {
 export function buildForTarget(
   pool: BuilderLeg[],
   target: OddsTarget,
-  maxLegs: number
+  maxLegs: number,
+  scope: BuilderScope = "multi"
 ): BuilderSlip | null {
   const minRate = minRateForTarget(target, pool.length);
   const filtered = pool.filter(
@@ -203,8 +204,12 @@ export function buildForTarget(
   const ceiling = maxAchievableOdds(candidates, maxLegs);
   if (ceiling < target.decimalMin) return null;
 
+  const useCombo = scope !== "multi" && candidates.length <= 28;
   let chosen =
-    tryBuildCombo(candidates, target, maxLegs) ??
+    (useCombo ? tryBuildCombo(candidates, target, maxLegs) : null) ??
+    (scope === "multi"
+      ? tryBuildPerMatch(candidates, target, maxLegs)
+      : null) ??
     tryBuildGreedy(candidates, target, maxLegs) ??
     tryBuildPerMatch(candidates, target, maxLegs);
 
@@ -234,7 +239,8 @@ export function buildTodaysPick(
 ): BuilderSlip | null {
   const candidates = pool
     .filter((l) => l.sample >= 2 && l.hitRate >= 0.75)
-    .sort((a, b) => b.hitRate - a.hitRate || b.sample - a.sample);
+    .sort((a, b) => b.hitRate - a.hitRate || b.sample - a.sample)
+    .slice(0, pool.length > 40 ? 24 : pool.length);
 
   if (!candidates.length) return null;
 
@@ -293,11 +299,12 @@ export function buildTodaysPick(
 
 export function buildAllTargets(
   pool: BuilderLeg[],
-  maxLegs: number
+  maxLegs: number,
+  scope: BuilderScope = "multi"
 ): Record<string, BuilderSlip | null> {
   const out: Record<string, BuilderSlip | null> = {};
   for (const target of ODDS_TARGETS) {
-    out[target.id] = buildForTarget(pool, target, maxLegs);
+    out[target.id] = buildForTarget(pool, target, maxLegs, scope);
   }
   return out;
 }
@@ -310,15 +317,57 @@ export function maxOddsInScope(pool: BuilderLeg[], maxLegs: number): number {
 export function composeBuilderView(
   pool: BuilderLeg[],
   options: BuilderOptions
-): {
-  todaysPick: BuilderSlip | null;
-  builders: Record<string, BuilderSlip | null>;
-} {
+): BuilderComposedView {
   const scoped = filterLegsByScope(pool, options);
   return {
     todaysPick: buildTodaysPick(scoped, options.maxLegs),
-    builders: buildAllTargets(scoped, options.maxLegs),
+    builders: buildAllTargets(scoped, options.maxLegs, options.scope),
   };
 }
 
+/** Pre-compose common scope/max-legs combos at export time. */
+export function precomputeBuilderViews(
+  pool: BuilderLeg[],
+  fixtures: Array<{ id: number }>,
+  maxLegsValues: number[] = [8]
+): import("./types").BuilderPrecomputed {
+  const byMaxLegs: import("./types").BuilderPrecomputed["byMaxLegs"] = {};
+
+  for (const maxLegs of maxLegsValues) {
+    const key = String(maxLegs);
+    const single: Record<string, BuilderComposedView> = {};
+    for (const fx of fixtures) {
+      single[String(fx.id)] = composeBuilderView(pool, {
+        scope: "single",
+        matchId: fx.id,
+        maxLegs,
+      });
+    }
+    byMaxLegs[key] = {
+      today: composeBuilderView(pool, { scope: "today", maxLegs }),
+      multi: composeBuilderView(pool, { scope: "multi", maxLegs }),
+      single,
+    };
+  }
+
+  return { byMaxLegs };
+}
+
+export function lookupPrecomputedView(
+  precomputed: import("./types").BuilderPrecomputed | undefined,
+  options: BuilderOptions
+): BuilderComposedView | null {
+  if (!precomputed) return null;
+  const bucket =
+    precomputed.byMaxLegs[String(options.maxLegs)] ??
+    precomputed.byMaxLegs["8"];
+  if (!bucket) return null;
+  if (options.scope === "single" && options.matchId != null) {
+    return bucket.single[String(options.matchId)] ?? null;
+  }
+  if (options.scope === "today") return bucket.today;
+  return bucket.multi;
+}
+
+export type { BuilderComposedView } from "./types";
 export { ODDS_TARGETS };

@@ -44,9 +44,28 @@ export interface OddsTarget {
   decimalMax: number;
 }
 
+export interface BuilderComposedView {
+  todaysPick: BuilderSlip | null;
+  builders: Record<string, BuilderSlip | null>;
+}
+
+/** Pre-built slips keyed by maxLegs → scope (instant client scope switching). */
+export interface BuilderPrecomputed {
+  byMaxLegs: Record<
+    string,
+    {
+      today: BuilderComposedView;
+      multi: BuilderComposedView;
+      single: Record<string, BuilderComposedView>;
+    }
+  >;
+}
+
 export interface BuilderPayload {
   /** Full leg pool — client composes slips with scope / max-legs filters */
   legs: BuilderLeg[];
+  /** Pre-composed views for common max-legs values (avoids heavy client work). */
+  precomputed?: BuilderPrecomputed;
   fixtures: Array<{
     id: number;
     home: string;

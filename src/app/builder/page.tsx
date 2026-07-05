@@ -1,12 +1,14 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { dataUrl } from "@/lib/basePath";
 import {
   composeBuilderView,
   filterLegsByScope,
+  lookupPrecomputedView,
   maxOddsInScope,
   ODDS_TARGETS,
+  type BuilderComposedView,
   type BuilderOptions,
   type BuilderScope,
 } from "@/lib/builder/compose";
@@ -22,7 +24,9 @@ export default function BuilderPage() {
   const [scope, setScope] = useState<BuilderScope>("today");
   const [matchId, setMatchId] = useState<number | undefined>();
   const [maxLegs, setMaxLegs] = useState(DEFAULT_MAX_LEGS);
-  const [isPending, startTransition] = useTransition();
+  const [runtimeComposed, setRuntimeComposed] =
+    useState<BuilderComposedView | null>(null);
+  const [computing, setComputing] = useState(false);
 
   useEffect(() => {
     fetch(dataUrl("/builder.json"), { cache: "no-store" })
@@ -43,22 +47,39 @@ export default function BuilderPage() {
     [scope, matchId, maxLegs]
   );
 
-  const composed = useMemo(() => {
-    if (!data) return null;
-    return composeBuilderView(data.legs, options);
-  }, [data, options]);
-  const deferredComposed = useDeferredValue(composed);
-  const showPending = isPending || deferredComposed !== composed;
-
-  const selected: BuilderSlip | null = deferredComposed?.builders[targetId] ?? null;
-  const scopedLegs = useMemo(() => {
-    if (!data) return [];
-    return filterLegsByScope(data.legs, options);
-  }, [data, options]);
-  const scopeMaxOdds = useMemo(
-    () => (scopedLegs.length ? maxOddsInScope(scopedLegs, maxLegs) : 0),
-    [scopedLegs, maxLegs]
+  const cachedView = useMemo(
+    () => (data ? lookupPrecomputedView(data.precomputed, options) : null),
+    [data, options]
   );
+
+  useEffect(() => {
+    if (!data || cachedView) {
+      setRuntimeComposed(null);
+      setComputing(false);
+      return;
+    }
+
+    setComputing(true);
+    const timer = window.setTimeout(() => {
+      setRuntimeComposed(composeBuilderView(data.legs, options));
+      setComputing(false);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [data, options, cachedView]);
+
+  const composed = cachedView ?? runtimeComposed;
+
+  const selected: BuilderSlip | null = composed?.builders[targetId] ?? null;
+  const scopedLegCount = useMemo(() => {
+    if (!data) return 0;
+    return filterLegsByScope(data.legs, options).length;
+  }, [data, options]);
+  const scopeMaxOdds = useMemo(() => {
+    if (!data) return 0;
+    const scoped = filterLegsByScope(data.legs, options);
+    return scoped.length ? maxOddsInScope(scoped, maxLegs) : 0;
+  }, [data, options, maxLegs]);
   const activeTarget = ODDS_TARGETS.find((t) => t.id === targetId);
   const liveAvailable = data?.bet365LiveAvailable ?? false;
   const apiConfigured = data?.bet365ApiConfigured ?? false;
@@ -125,11 +146,7 @@ export default function BuilderPage() {
                     <button
                       key={id}
                       type="button"
-                      onClick={() =>
-                        startTransition(() => {
-                          setScope(id);
-                        })
-                      }
+                      onClick={() => setScope(id)}
                       className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
                         scope === id
                           ? "border-[#126e51] bg-[#126e51]/15 text-[#3ecf8e]"
@@ -188,7 +205,7 @@ export default function BuilderPage() {
             </p>
           </section>
 
-          {deferredComposed?.todaysPick && (
+          {composed?.todaysPick && (
             <section>
               <h2 className="mb-3 text-lg font-bold">
                 <span className="text-gold">★</span> Today&apos;s Pick
@@ -198,19 +215,23 @@ export default function BuilderPage() {
                 combined probability from tournament form and player matchup
                 history.
               </p>
-              <BuilderSlipCard slip={deferredComposed.todaysPick} highlight liveOdds={liveAvailable} />
+              <BuilderSlipCard
+                slip={composed.todaysPick}
+                highlight
+                liveOdds={liveAvailable}
+              />
             </section>
           )}
 
           <section>
             <h2 className="mb-3 text-lg font-bold">Build by odds target</h2>
-            {showPending && (
+            {computing && (
               <p className="mb-3 text-xs text-muted">Updating builder…</p>
             )}
             <p className="mb-4 text-xs text-muted">
               Select your desired combined Bet365 odds — we fill the builder with
-              the safest available legs from your scope (
-              {filterCount(data.legs, options)} live Bet365 legs in scope).
+              the safest available legs from your scope ({scopedLegCount} live
+              Bet365 legs in scope).
             </p>
 
             <div className="mb-5 flex flex-wrap gap-2">
@@ -234,20 +255,24 @@ export default function BuilderPage() {
               <BuilderSlipCard slip={selected} liveOdds={liveAvailable} />
             ) : (
               <p className="rounded-xl border border-edge bg-surface p-6 text-sm text-muted">
-                {activeTarget && scopeMaxOdds > 0 && scopeMaxOdds < activeTarget.decimalMin ? (
+                {activeTarget &&
+                scopeMaxOdds > 0 &&
+                scopeMaxOdds < activeTarget.decimalMin ? (
                   <>
                     This scope can only combine to about{" "}
                     <span className="text-foreground">
                       {scopeMaxOdds.toFixed(2)} decimal
                     </span>{" "}
-                    ({maxLegs} legs max) — not enough for {activeTarget.label}. Try{" "}
-                    <strong className="text-foreground">Multi-game</strong> scope, increase max
-                    legs, or pick a lower odds band.
+                    ({maxLegs} legs max) — not enough for {activeTarget.label}.
+                    Try{" "}
+                    <strong className="text-foreground">Multi-game</strong>{" "}
+                    scope, increase max legs, or pick a lower odds band.
                   </>
                 ) : (
                   <>
-                    Not enough live Bet365 legs with strong hit rates to build this slip. Try
-                    increasing max legs or widening scope to Multi-game.
+                    Not enough live Bet365 legs with strong hit rates to build
+                    this slip. Try increasing max legs or widening scope to
+                    Multi-game.
                   </>
                 )}
               </p>
@@ -266,8 +291,8 @@ export default function BuilderPage() {
                 estimate or calibrate prices.
               </li>
               <li>
-                Player props: shots, SOT, fouls committed, to be fouled, tackles
-                & cards.
+                Player props: shots, SOT, fouls committed, to be fouled,
+                tackles & cards.
               </li>
               <li>Bet365 only — no other bookmakers in this section.</li>
             </ul>
@@ -276,27 +301,4 @@ export default function BuilderPage() {
       )}
     </main>
   );
-}
-
-function filterCount(
-  legs: BuilderPayload["legs"],
-  options: BuilderOptions
-): number {
-  let pool = legs;
-  if (options.scope === "single" && options.matchId != null) {
-    return pool.filter((l) => l.matchId === options.matchId).length;
-  }
-  if (options.scope === "today") {
-    const now = new Date();
-    const y = now.getUTCFullYear();
-    const m = now.getUTCMonth();
-    const d = now.getUTCDate();
-    return pool.filter((leg) => {
-      const k = new Date(leg.kickoff);
-      return (
-        k.getUTCFullYear() === y && k.getUTCMonth() === m && k.getUTCDate() === d
-      );
-    }).length;
-  }
-  return pool.length;
 }

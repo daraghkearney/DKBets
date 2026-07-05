@@ -14,6 +14,7 @@ import {
   loadUpcomingWithProps,
 } from "../src/lib/stats/engine";
 import { loadBuilderPayload } from "../src/lib/builder/engine";
+import { precomputeBuilderViews } from "../src/lib/builder/compose";
 
 const ROOT = path.join(process.cwd(), "public", "data");
 
@@ -83,6 +84,11 @@ async function main() {
 
   console.log("  builder: composing bet builders …");
   const builder = await loadBuilderPayload();
+  builder.precomputed = precomputeBuilderViews(
+    builder.legs,
+    builder.fixtures,
+    [8]
+  );
   await writeJson("builder.json", builder);
 
   try {
