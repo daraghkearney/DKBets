@@ -1,9 +1,9 @@
 import { toFractional } from "@/lib/format";
 import {
-  applyBet365Price,
   combineOdds,
   combineProbability,
   effectiveHitRate,
+  priceFromBet365Live,
 } from "./odds";
 import { findLivePrice, normPlayer } from "./bet365";
 import type { BuilderLeg, LegCategory } from "./types";
@@ -82,19 +82,17 @@ function mkLeg(
     sample: number;
   },
   liveOdds?: Map<string, number>
-): BuilderLeg {
-  const hitRate = effectiveHitRate(partial.hitRate, partial.sample);
+): BuilderLeg | null {
   const live = findLivePrice(
     liveOdds,
     partial.matchId,
     partial.playerName,
     partial.category
   );
-  const priced = applyBet365Price(
-    hitRate,
-    partial.category,
-    live
-  );
+  if (!live) return null;
+
+  const hitRate = effectiveHitRate(partial.hitRate, partial.sample);
+  const priced = priceFromBet365Live(live);
   const { hitRate: _r, sample, ...rest } = partial;
   return {
     ...rest,
@@ -112,7 +110,7 @@ function pickToLeg(
   kickoff: string,
   category: LegCategory,
   liveOdds?: Map<string, number>
-): BuilderLeg {
+): BuilderLeg | null {
   const market = pick.label;
   return mkLeg(
     {
@@ -134,7 +132,8 @@ function pickToLeg(
 
 function categoryFromLabel(label: string): LegCategory {
   if (label.includes("shots on target") || label.includes("SoT")) return "sot";
-  if (label.includes("fouls won") || label.includes("Fouled")) return "foulsWon";
+  if (label.includes("fouls won") || label.includes("Fouled") || label.includes("fouled"))
+    return "foulsWon";
   if (label.includes("fouls") || label.includes("Foul")) return "fouls";
   if (label.includes("tackle")) return "tackles";
   if (label.includes("card")) return "cards";
@@ -175,7 +174,7 @@ function playerPropLegs(
     },
     {
       cat: "foulsWon",
-      market: `${player.name} — 1+ Fouls Won`,
+      market: `${player.name} — To Be Fouled (1+)`,
       test: (l) => l.foulsWon >= 1,
     },
     {
@@ -190,88 +189,23 @@ function playerPropLegs(
     const sample = lines.length;
     const rate = hits / sample;
     if (sample < 2 || rate < 0.55) continue;
-    legs.push(
-      mkLeg(
-        {
-          type: "player",
-          label: tpl.market,
-          market: tpl.market,
-          matchLabel,
-          matchId,
-          kickoff,
-          playerName: player.name,
-          teamName: player.teamName,
-          category: tpl.cat,
-          hitRate: rate,
-          sample,
-        },
-        liveOdds
-      )
+    const leg = mkLeg(
+      {
+        type: "player",
+        label: tpl.market,
+        market: tpl.market,
+        matchLabel,
+        matchId,
+        kickoff,
+        playerName: player.name,
+        teamName: player.teamName,
+        category: tpl.cat,
+        hitRate: rate,
+        sample,
+      },
+      liveOdds
     );
-  }
-  return legs;
-}
-
-function teamPropLegs(
-  teamName: string,
-  history: TeamMatchLine[],
-  matchLabel: string,
-  matchId: number,
-  kickoff: string,
-  liveOdds?: Map<string, number>
-): BuilderLeg[] {
-  if (history.length < 2) return [];
-  const legs: BuilderLeg[] = [];
-
-  const templates: Array<{
-    cat: LegCategory;
-    market: string;
-    test: (l: TeamMatchLine) => boolean;
-  }> = [
-    {
-      cat: "team",
-      market: `${teamName} — 2+ Team Shots on Target`,
-      test: (l) => l.shotsOnTarget >= 2,
-    },
-    {
-      cat: "team",
-      market: `${teamName} — 8+ Team Shots`,
-      test: (l) => l.shots >= 8,
-    },
-    {
-      cat: "team",
-      market: `${teamName} — 1+ Team Cards`,
-      test: (l) => l.yellowCards >= 1,
-    },
-    {
-      cat: "team",
-      market: `${teamName} — 8+ Team Fouls`,
-      test: (l) => l.fouls >= 8,
-    },
-  ];
-
-  for (const tpl of templates) {
-    const hits = history.filter(tpl.test).length;
-    const sample = history.length;
-    const rate = hits / sample;
-    if (rate < 0.6) continue;
-    legs.push(
-      mkLeg(
-        {
-          type: "team",
-          label: tpl.market,
-          market: tpl.market,
-          matchLabel,
-          matchId,
-          kickoff,
-          teamName,
-          category: tpl.cat,
-          hitRate: rate,
-          sample,
-        },
-        liveOdds
-      )
-    );
+    if (leg) legs.push(leg);
   }
   return legs;
 }
@@ -285,8 +219,9 @@ export function legsFromMatchDetail(
   const legs: BuilderLeg[] = [];
   const seen = new Set<string>();
 
-  const add = (leg: BuilderLeg) => {
-    const key = `${leg.matchId}-${leg.market}`;
+  const add = (leg: BuilderLeg | null) => {
+    if (!leg) return;
+    const key = `${leg.matchId}|${normPlayer(leg.playerName ?? leg.market)}|${leg.category}`;
     if (seen.has(key)) return;
     seen.add(key);
     legs.push(leg);
@@ -328,16 +263,9 @@ export function legsFromMatchDetail(
   return legs;
 }
 
-export function legsFromTeamHistory(
-  teamName: string,
-  history: TeamMatchLine[],
-  fixtures: Array<{ id: number; home: string; away: string; kickoff: string }>,
-  liveOdds?: Map<string, number>
-): BuilderLeg[] {
-  const fx = fixtures.find((f) => f.home === teamName || f.away === teamName);
-  if (!fx) return [];
-  const matchLabel = `${fx.home} v ${fx.away}`;
-  return teamPropLegs(teamName, history, matchLabel, fx.id, fx.kickoff, liveOdds);
+/** Team props excluded until live Bet365 team markets are wired. */
+export function legsFromTeamHistory(): BuilderLeg[] {
+  return [];
 }
 
 export function dedupeLegs(legs: BuilderLeg[]): BuilderLeg[] {
@@ -345,19 +273,7 @@ export function dedupeLegs(legs: BuilderLeg[]): BuilderLeg[] {
   for (const leg of legs) {
     const key = `${leg.matchId}|${normPlayer(leg.playerName ?? leg.market)}|${leg.category}`;
     const hit = map.get(key);
-    if (!hit) {
-      map.set(key, leg);
-      continue;
-    }
-    const prefer =
-      leg.oddsSource === "bet365_live" && hit.oddsSource !== "bet365_live"
-        ? leg
-        : hit.oddsSource === "bet365_live" && leg.oddsSource !== "bet365_live"
-          ? hit
-          : leg.hitRate > hit.hitRate
-            ? leg
-            : hit;
-    map.set(key, prefer);
+    if (!hit || leg.hitRate > hit.hitRate) map.set(key, leg);
   }
   return [...map.values()].sort((a, b) => b.hitRate - a.hitRate || b.sample - a.sample);
 }

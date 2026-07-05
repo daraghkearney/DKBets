@@ -57,20 +57,22 @@ export default function BuilderPage() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Bet365 Builder</h1>
           <p className="max-w-2xl text-sm text-muted">
-            Pre-built Bet365 bet builders from the safest statistical legs —
-            shots, fouls, cards, tackles & team markets.
-            {liveAvailable
-              ? `${data?.bet365LiveLegs ?? 0} legs matched to live Bet365 prices (Bet Builder ladder when API differs).`
-              : apiConfigured
-                ? " Live Bet365 prices could not be loaded — using Bet Builder ladder estimates."
-                : " Odds use the Bet365 Bet Builder pricing ladder."}
+            Stats pick the legs — live Bet365 odds price them. We only add
+            selections that have a current Bet365 price from odds-api.io; hit
+            rates come from tournament form and player matchups (FotMob).
+            {!apiConfigured &&
+              " Add ODDS_API_IO_KEY in GitHub Actions secrets to enable live odds."}
+            {apiConfigured && !liveAvailable &&
+              " No live Bet365 prices matched right now — check back closer to kickoff."}
+            {liveAvailable &&
+              ` ${data?.bet365LiveLegs ?? 0} legs with live Bet365 prices.`}
           </p>
         </div>
         {data && (
           <p className="text-xs text-muted">
             {liveAvailable
-              ? `${data.bet365LiveLegs} live-matched`
-              : `${data.legs.length} legs`}
+              ? `${data.bet365LiveLegs} live Bet365 legs`
+              : "0 live legs"}
             {" · "}
             {data.fixtures.length} fixtures
           </p>
@@ -186,8 +188,7 @@ export default function BuilderPage() {
             <p className="mb-4 text-xs text-muted">
               Select your desired combined Bet365 odds — we fill the builder with
               the safest available legs from your scope (
-              {filterCount(data.legs, options)} candidates
-              {liveAvailable ? " (live where matched)" : ""}).
+              {filterCount(data.legs, options)} live Bet365 legs in scope).
             </p>
 
             <div className="mb-5 flex flex-wrap gap-2">
@@ -211,9 +212,8 @@ export default function BuilderPage() {
               <BuilderSlipCard slip={selected} liveOdds={liveAvailable} />
             ) : (
               <p className="rounded-xl border border-edge bg-surface p-6 text-sm text-muted">
-                Not enough high-confidence legs to build a Bet365 slip at this
-                odds target for your scope. Try a higher odds band, increase max
-                legs, or widen scope to multi-game.
+                Not enough live Bet365 legs with strong hit rates to build this
+                slip. Try a higher odds band, increase max legs, or widen scope.
               </p>
             )}
           </section>
@@ -222,17 +222,16 @@ export default function BuilderPage() {
             <p className="font-semibold text-foreground">How it works</p>
             <ul className="mt-2 list-inside list-disc space-y-1">
               <li>
-                Each leg is scored from World Cup stats plus career player
-                matchups (FotMob).
+                Hit rates rank legs by how often the stat lands (World Cup +
+                career H2H). Only legs with a live Bet365 price are included.
               </li>
               <li>
-                Leg odds use live Bet365 prices when they match the Bet Builder
-                ladder; otherwise the BB-calibrated price is used (standalone API
-                props can differ from Bet Builder).
+                All odds are live Bet365 prices via odds-api.io — we never
+                estimate or calibrate prices.
               </li>
               <li>
-                Player props: shots, SOT, fouls, tackles & cards. Team props:
-                shots, fouls & cards.
+                Player props: shots, SOT, fouls committed, to be fouled, tackles
+                & cards.
               </li>
               <li>Bet365 only — no other bookmakers in this section.</li>
             </ul>

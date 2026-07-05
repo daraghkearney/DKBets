@@ -23,8 +23,8 @@ export interface BuilderLeg {
   sample: number;
   decimalOdds: number;
   fractionalOdds: string;
-  /** Bet365 live or calibrated to Bet365 ladder */
-  oddsSource: "bet365_live" | "bet365_calibrated";
+  /** Live Bet365 price from odds-api.io — we never estimate odds in this section */
+  oddsSource: "bet365_live";
 }
 
 export interface BuilderSlip {

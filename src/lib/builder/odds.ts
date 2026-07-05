@@ -1,11 +1,10 @@
 import { toFractional } from "@/lib/format";
-import { bet365DecimalOdds, snapBet365Decimal } from "./bet365";
-import type { Bet365OddsSource } from "./bet365";
+import { snapBet365Decimal } from "./bet365";
 import type { LegCategory } from "./types";
 
-export { snapBet365Decimal, bet365DecimalOdds } from "./bet365";
+export { snapBet365Decimal } from "./bet365";
 
-/** Shrink extreme small-sample rates toward a prior. */
+/** Shrink extreme small-sample rates toward a prior (selection only — not pricing). */
 export function effectiveHitRate(rate: number, sample: number): number {
   const prior = 0.68;
   const k = 4;
@@ -34,33 +33,16 @@ export const ODDS_TARGETS = [
   { id: "50-1", label: "50/1", decimalMin: 45, decimalMax: 55 },
 ] as const;
 
-export function applyBet365Price(
-  effectiveRate: number,
-  category: LegCategory,
-  liveDecimal?: number
-): {
+/** Price a leg from live Bet365 decimal odds only — no estimates. */
+export function priceFromBet365Live(liveDecimal: number): {
   decimalOdds: number;
   fractionalOdds: string;
-  oddsSource: Bet365OddsSource;
+  oddsSource: "bet365_live";
 } {
-  const calibrated = snapBet365Decimal(bet365DecimalOdds(effectiveRate, category));
-
-  if (liveDecimal && liveDecimal > 1) {
-    const live = snapBet365Decimal(liveDecimal);
-    // odds-api.io standalone props often differ from Bet365 Bet Builder — only trust live when close to BB ladder
-    const ratio = live / calibrated;
-    const useLive = ratio >= 0.97 && ratio <= 1.08;
-    const decimalOdds = useLive ? live : calibrated;
-    return {
-      decimalOdds,
-      fractionalOdds: toFractional(decimalOdds),
-      oddsSource: useLive ? "bet365_live" : "bet365_calibrated",
-    };
-  }
-
+  const decimalOdds = Math.round(liveDecimal * 1000) / 1000;
   return {
-    decimalOdds: calibrated,
-    fractionalOdds: toFractional(calibrated),
-    oddsSource: "bet365_calibrated",
+    decimalOdds,
+    fractionalOdds: toFractional(decimalOdds),
+    oddsSource: "bet365_live",
   };
 }

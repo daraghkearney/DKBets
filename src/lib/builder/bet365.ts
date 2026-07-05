@@ -42,6 +42,9 @@ const PROP_MARKET_HINTS = [
   "player shot",
   "player tackle",
   "player foul",
+  "fouled",
+  "to be fouled",
+  "fouls won",
   "player card",
   "player booking",
   "other player prop",
@@ -93,7 +96,7 @@ export function bet365FractionalOdds(rate: number, category: LegCategory): strin
   return toFractional(bet365DecimalOdds(rate, category));
 }
 
-export type Bet365OddsSource = "bet365_live" | "bet365_calibrated";
+export type Bet365OddsSource = "bet365_live";
 
 export function liveOddsLookupKey(
   matchId: number,
@@ -160,7 +163,7 @@ function parseDecimal(value: unknown): number | undefined {
 
 function categoryFromMarketName(name: string): LegCategory | null {
   const n = name.toLowerCase();
-  if (n.includes("foul") && n.includes("won")) return "foulsWon";
+  if (n.includes("fouled") || (n.includes("foul") && n.includes("won"))) return "foulsWon";
   if (n.includes("shot") && (n.includes("target") || n.includes("on target")))
     return "sot";
   if (n.includes("shot")) return "shots";
@@ -172,7 +175,12 @@ function categoryFromMarketName(name: string): LegCategory | null {
 
 function categoryFromSelectionLabel(label: string, rowName?: string): LegCategory | null {
   const text = `${label} ${rowName ?? ""}`.toLowerCase();
-  if (text.includes("foul") && text.includes("won")) return "foulsWon";
+  if (
+    text.includes("to be fouled") ||
+    text.includes("fouled") ||
+    (text.includes("foul") && text.includes("won"))
+  )
+    return "foulsWon";
   if (text.includes("foul") && (text.includes("commit") || text.includes("concede")))
     return "fouls";
   if (text.includes("shot") && (text.includes("target") || text.includes("on target")))
@@ -230,7 +238,7 @@ function storeLivePrice(
   const existing = out.get(key);
   // Prefer 0.5 line (1+) over any previously stored higher line
   if (existing && hdp !== undefined && hdp > 0.5) return;
-  out.set(key, snapBet365Decimal(decimal));
+  out.set(key, Math.round(decimal * 1000) / 1000);
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
