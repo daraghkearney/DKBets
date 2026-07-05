@@ -55,31 +55,38 @@ export function snapBet365Decimal(decimal: number): number {
   return Math.round((1 + n / d) * 1000) / 1000;
 }
 
-/** Calibrated Bet365 decimal price from hit rate (fallback when live unavailable). */
+/** Bet365 Bet Builder banker curves — high hit-rate props price much shorter than fair odds. */
+const BB_BANKER: Partial<
+  Record<LegCategory, { floor: number; base: number; slope: number; cap: number }>
+> = {
+  shots: { floor: 0.78, base: 0.9, slope: 1.25, cap: 0.975 },
+  sot: { floor: 0.68, base: 0.78, slope: 0.85, cap: 0.9 },
+  fouls: { floor: 0.78, base: 0.82, slope: 0.85, cap: 0.86 },
+  foulsWon: { floor: 0.72, base: 0.78, slope: 0.65, cap: 0.86 },
+  tackles: { floor: 0.78, base: 0.82, slope: 0.85, cap: 0.86 },
+};
+
+function standardImplied(rate: number, category: LegCategory): number {
+  return Math.min(
+    MAX_IMPLIED[category] ?? 0.88,
+    rate * (MARGIN[category] ?? 0.96)
+  );
+}
+
+/** Calibrated Bet365 decimal price from hit rate (Bet Builder ladder). */
 export function bet365DecimalOdds(rate: number, category: LegCategory): number {
   const clamped = Math.min(0.99, Math.max(0.52, rate));
+  const banker = BB_BANKER[category];
 
-  if (category === "shots" && clamped >= 0.78) {
-    const implied = Math.min(0.975, 0.9 + (clamped - 0.78) * 1.25);
+  if (banker && clamped >= banker.floor) {
+    const implied = Math.min(
+      banker.cap,
+      banker.base + (clamped - banker.floor) * banker.slope
+    );
     return snapBet365Decimal(1 / implied);
   }
 
-  if (category === "tackles" && clamped >= 0.78) {
-    const implied = Math.min(0.86, 0.82 + (clamped - 0.78) * 0.85);
-    return snapBet365Decimal(1 / implied);
-  }
-
-  // Strikers with high SOT hit rates price as bankers in Bet Builder (e.g. Haaland 1+ SOT).
-  if (category === "sot" && clamped >= 0.68) {
-    const implied = Math.min(0.9, 0.78 + (clamped - 0.68) * 0.85);
-    return snapBet365Decimal(1 / implied);
-  }
-
-  const implied = Math.min(
-    MAX_IMPLIED[category] ?? 0.88,
-    clamped * (MARGIN[category] ?? 0.96)
-  );
-  return snapBet365Decimal(1 / implied);
+  return snapBet365Decimal(1 / standardImplied(clamped, category));
 }
 
 export function bet365FractionalOdds(rate: number, category: LegCategory): string {
@@ -153,6 +160,7 @@ function parseDecimal(value: unknown): number | undefined {
 
 function categoryFromMarketName(name: string): LegCategory | null {
   const n = name.toLowerCase();
+  if (n.includes("foul") && n.includes("won")) return "foulsWon";
   if (n.includes("shot") && (n.includes("target") || n.includes("on target")))
     return "sot";
   if (n.includes("shot")) return "shots";
@@ -164,9 +172,11 @@ function categoryFromMarketName(name: string): LegCategory | null {
 
 function categoryFromSelectionLabel(label: string, rowName?: string): LegCategory | null {
   const text = `${label} ${rowName ?? ""}`.toLowerCase();
+  if (text.includes("foul") && text.includes("won")) return "foulsWon";
+  if (text.includes("foul") && (text.includes("commit") || text.includes("concede")))
+    return "fouls";
   if (text.includes("shot") && (text.includes("target") || text.includes("on target")))
     return "sot";
-  if (text.includes("foul") && text.includes("won")) return "foulsWon";
   if (text.includes("foul")) return "fouls";
   if (text.includes("tackle")) return "tackles";
   if (text.includes("card") || text.includes("booked") || text.includes("booking"))
