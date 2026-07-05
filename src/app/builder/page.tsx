@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { dataUrl } from "@/lib/basePath";
 import {
   composeBuilderView,
+  filterLegsByScope,
+  maxOddsInScope,
+  ODDS_TARGETS,
   type BuilderOptions,
   type BuilderScope,
 } from "@/lib/builder/compose";
@@ -45,6 +48,15 @@ export default function BuilderPage() {
   }, [data, options]);
 
   const selected: BuilderSlip | null = composed?.builders[targetId] ?? null;
+  const scopedLegs = useMemo(() => {
+    if (!data) return [];
+    return filterLegsByScope(data.legs, options);
+  }, [data, options]);
+  const scopeMaxOdds = useMemo(
+    () => (scopedLegs.length ? maxOddsInScope(scopedLegs, maxLegs) : 0),
+    [scopedLegs, maxLegs]
+  );
+  const activeTarget = ODDS_TARGETS.find((t) => t.id === targetId);
   const liveAvailable = data?.bet365LiveAvailable ?? false;
   const apiConfigured = data?.bet365ApiConfigured ?? false;
 
@@ -212,8 +224,22 @@ export default function BuilderPage() {
               <BuilderSlipCard slip={selected} liveOdds={liveAvailable} />
             ) : (
               <p className="rounded-xl border border-edge bg-surface p-6 text-sm text-muted">
-                Not enough live Bet365 legs with strong hit rates to build this
-                slip. Try a higher odds band, increase max legs, or widen scope.
+                {activeTarget && scopeMaxOdds > 0 && scopeMaxOdds < activeTarget.decimalMin ? (
+                  <>
+                    This scope can only combine to about{" "}
+                    <span className="text-foreground">
+                      {scopeMaxOdds.toFixed(2)} decimal
+                    </span>{" "}
+                    ({maxLegs} legs max) — not enough for {activeTarget.label}. Try{" "}
+                    <strong className="text-foreground">Multi-game</strong> scope, increase max
+                    legs, or pick a lower odds band.
+                  </>
+                ) : (
+                  <>
+                    Not enough live Bet365 legs with strong hit rates to build this slip. Try
+                    increasing max legs or widening scope to Multi-game.
+                  </>
+                )}
               </p>
             )}
           </section>

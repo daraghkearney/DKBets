@@ -23,13 +23,17 @@ function canAdd(chosen: BuilderLeg[], leg: BuilderLeg): boolean {
   return !chosen.some((c) => legConflict(c, leg));
 }
 
-function minRateForTarget(target: OddsTarget): number {
-  if (target.decimalMax <= 2.5) return 0.78;
-  if (target.decimalMax <= 4) return 0.72;
-  if (target.decimalMax <= 7) return 0.68;
-  if (target.decimalMax <= 13) return 0.62;
-  if (target.decimalMax <= 24) return 0.58;
-  return 0.55;
+function minRateForTarget(target: OddsTarget, poolSize: number): number {
+  let min: number;
+  if (target.decimalMax <= 2.5) min = 0.78;
+  else if (target.decimalMax <= 4) min = 0.65;
+  else if (target.decimalMax <= 7) min = 0.62;
+  else if (target.decimalMax <= 13) min = 0.58;
+  else if (target.decimalMax <= 24) min = 0.55;
+  else min = 0.52;
+
+  if (poolSize <= 20) min = Math.max(0.58, min - 0.04);
+  return min;
 }
 
 function minSampleForTarget(target: OddsTarget): number {
@@ -110,7 +114,7 @@ function tryBuildCombo(
   target: OddsTarget,
   maxLegs: number
 ): BuilderLeg[] | null {
-  const pool = candidates.slice(0, 22);
+  const pool = candidates.slice(0, Math.min(40, candidates.length));
   let best: BuilderLeg[] | null = null;
   let bestDist = Infinity;
 
@@ -137,23 +141,36 @@ function tryBuildCombo(
   return best;
 }
 
+function maxAchievableOdds(candidates: BuilderLeg[], maxLegs: number): number {
+  const sorted = [...candidates].sort((a, b) => b.decimalOdds - a.decimalOdds);
+  const chosen: BuilderLeg[] = [];
+  for (const leg of sorted) {
+    if (chosen.length >= maxLegs) break;
+    if (!canAdd(chosen, leg)) continue;
+    chosen.push(leg);
+  }
+  return chosen.length ? combinedDecimal(chosen) : 1;
+}
+
 /** Greedy + combo acca to land near the target odds window. */
 export function buildForTarget(
   pool: BuilderLeg[],
   target: OddsTarget,
   maxLegs: number
 ): BuilderSlip | null {
+  const minRate = minRateForTarget(target, pool.length);
   const filtered = pool.filter(
-    (l) =>
-      l.hitRate >= minRateForTarget(target) &&
-      l.sample >= minSampleForTarget(target)
+    (l) => l.hitRate >= minRate && l.sample >= minSampleForTarget(target)
   );
   const candidates = sortForTarget(filtered, target);
   if (!candidates.length) return null;
 
+  const ceiling = maxAchievableOdds(candidates, maxLegs);
+  if (ceiling < target.decimalMin) return null;
+
   let chosen =
-    tryBuildGreedy(candidates, target, maxLegs) ??
-    tryBuildCombo(candidates, target, maxLegs);
+    tryBuildCombo(candidates, target, maxLegs) ??
+    tryBuildGreedy(candidates, target, maxLegs);
 
   if (!chosen && target.decimalMin >= 9) {
     const alt = sortForTarget(
@@ -247,6 +264,10 @@ export function buildAllTargets(
     out[target.id] = buildForTarget(pool, target, maxLegs);
   }
   return out;
+}
+
+export function maxOddsInScope(pool: BuilderLeg[], maxLegs: number): number {
+  return maxAchievableOdds(pool, maxLegs);
 }
 
 /** Compose full builder view client-side from exported leg pool. */
