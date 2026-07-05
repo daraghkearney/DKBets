@@ -1,10 +1,12 @@
 {
-  "name": "dkbets-tmp",
+  "name": "dkbets",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "export:data": "tsx scripts/export-data.ts",
     "build": "next build",
+    "build:pages": "npm run export:data && npm run build",
     "start": "next start",
     "lint": "eslint"
   },
@@ -21,6 +23,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
+    "tsx": "^4.23.0",
     "typescript": "^5"
   }
 }

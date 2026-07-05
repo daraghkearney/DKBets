@@ -1,65 +1,111 @@
-import Image from "next/image";
+"use client";
+
+import { useMemo, useState } from "react";
+import ArbAlerts from "@/components/ArbAlerts";
+import ArbTable from "@/components/ArbTable";
+import BookmakerFilter from "@/components/BookmakerFilter";
+import Guide from "@/components/Guide";
+import OddsToolbar from "@/components/OddsToolbar";
+import OddsGrid from "@/components/OddsGrid";
+import StakeCalculator from "@/components/StakeCalculator";
+import StandoutPicks from "@/components/StandoutPicks";
+import WatchList from "@/components/WatchList";
+import { findArbs, findNearArbs } from "@/lib/arb";
+import { BOOKMAKER_IDS } from "@/lib/bookmakers";
+import type { Currency, OddsFormat } from "@/lib/format";
+import type { ArbOpportunity, BookmakerId } from "@/lib/types";
+import { useOdds } from "@/lib/useOdds";
+
+const REFRESH_MS = 10_000;
 
 export default function Home() {
+  const { snapshot, error, refreshing, lastUpdated, secondsToRefresh, refresh } =
+    useOdds(REFRESH_MS);
+
+  const [oddsFormat, setOddsFormat] = useState<OddsFormat>("decimal");
+  const [currency, setCurrency] = useState<Currency>("EUR");
+  const [enabled, setEnabled] = useState<BookmakerId[]>([...BOOKMAKER_IDS]);
+  const [calcArb, setCalcArb] = useState<ArbOpportunity | null>(null);
+
+  const arbs = useMemo(
+    () => (snapshot ? findArbs(snapshot.matches, enabled) : []),
+    [snapshot, enabled]
+  );
+  const nearArbs = useMemo(
+    () => (snapshot ? findNearArbs(snapshot.matches, enabled) : []),
+    [snapshot, enabled]
+  );
+
+  const toggleBookmaker = (id: BookmakerId) => {
+    setEnabled((prev) => {
+      if (prev.includes(id)) {
+        // Need at least two bookmakers for an arb to exist
+        if (prev.length <= 2) return prev;
+        return prev.filter((b) => b !== id);
+      }
+      return [...prev, id];
+    });
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <div className="min-h-screen">
+      <OddsToolbar
+        snapshot={snapshot}
+        lastUpdated={lastUpdated}
+        secondsToRefresh={secondsToRefresh}
+        refreshing={refreshing}
+        error={error}
+        onRefresh={refresh}
+        oddsFormat={oddsFormat}
+        setOddsFormat={setOddsFormat}
+        currency={currency}
+        setCurrency={setCurrency}
+      />
+
+      <main className="mx-auto flex max-w-7xl flex-col gap-10 px-4 py-8 sm:px-6">
+        {!snapshot ? (
+          <div className="flex flex-col items-center gap-3 py-24 text-muted">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-edge border-t-accent" />
+            <p className="text-sm">Pulling live World Cup odds…</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <BookmakerFilter enabled={enabled} onToggle={toggleBookmaker} />
+              <ArbAlerts arbs={arbs} thresholdPct={1} onSelect={setCalcArb} />
+            </div>
+
+            <StandoutPicks
+              arbs={arbs}
+              oddsFormat={oddsFormat}
+              onCalculate={setCalcArb}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+
+            <ArbTable
+              arbs={arbs}
+              oddsFormat={oddsFormat}
+              onCalculate={setCalcArb}
+            />
+
+            <WatchList nearArbs={nearArbs} oddsFormat={oddsFormat} />
+
+            <OddsGrid
+              matches={snapshot.matches}
+              enabled={enabled}
+              oddsFormat={oddsFormat}
+            />
+
+            <Guide />
+          </>
+        )}
       </main>
+
+      <StakeCalculator
+        arb={calcArb}
+        currency={currency}
+        oddsFormat={oddsFormat}
+        onClose={() => setCalcArb(null)}
+      />
     </div>
   );
 }
