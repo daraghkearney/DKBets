@@ -5,7 +5,8 @@ import {
   effectiveHitRate,
   priceFromBet365Live,
 } from "./odds";
-import { findLivePrice, normPlayer } from "./bet365";
+import { findLiveQuote, normPlayer } from "./bet365";
+import type { Bet365LiveMap } from "./bet365-live";
 import type { BuilderLeg, LegCategory } from "./types";
 import type { MatchDetailPayload, PickStat, PlayerTournamentStats } from "@/lib/stats/types";
 
@@ -81,18 +82,19 @@ function mkLeg(
     hitRate: number;
     sample: number;
   },
-  liveOdds?: Map<string, number>
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
 ): BuilderLeg | null {
-  const live = findLivePrice(
+  const quote = findLiveQuote(
     liveOdds,
     partial.matchId,
     partial.playerName,
     partial.category
   );
-  if (!live) return null;
+  if (!quote) return null;
 
   const hitRate = effectiveHitRate(partial.hitRate, partial.sample);
-  const priced = priceFromBet365Live(live);
+  const priced = priceFromBet365Live(quote.price);
   const { hitRate: _r, sample, ...rest } = partial;
   return {
     ...rest,
@@ -100,6 +102,9 @@ function mkLeg(
     sample,
     id: `${partial.matchId}-${partial.market}`.replace(/\s+/g, "-").slice(0, 80),
     ...priced,
+    bet365Link: quote.link,
+    bet365SelectionId: quote.selectionId,
+    bet365EventUrl: eventUrls?.get(partial.matchId),
   };
 }
 
@@ -109,7 +114,8 @@ function pickToLeg(
   matchId: number,
   kickoff: string,
   category: LegCategory,
-  liveOdds?: Map<string, number>
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
 ): BuilderLeg | null {
   const market = pick.label;
   return mkLeg(
@@ -126,7 +132,8 @@ function pickToLeg(
       hitRate: pick.rate,
       sample: pick.sample,
     },
-    liveOdds
+    liveOdds,
+    eventUrls
   );
 }
 
@@ -146,7 +153,8 @@ function playerPropLegs(
   matchLabel: string,
   matchId: number,
   kickoff: string,
-  liveOdds?: Map<string, number>
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
 ): BuilderLeg[] {
   const legs: BuilderLeg[] = [];
   const lines = player.lines;
@@ -203,7 +211,8 @@ function playerPropLegs(
         hitRate: rate,
         sample,
       },
-      liveOdds
+      liveOdds,
+      eventUrls
     );
     if (leg) legs.push(leg);
   }
@@ -212,7 +221,8 @@ function playerPropLegs(
 
 export function legsFromMatchDetail(
   detail: MatchDetailPayload,
-  liveOdds?: Map<string, number>
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
 ): BuilderLeg[] {
   const { fixture } = detail;
   const matchLabel = `${fixture.home} v ${fixture.away}`;
@@ -237,7 +247,8 @@ export function legsFromMatchDetail(
           fixture.id,
           fixture.kickoff,
           categoryFromLabel(pick.label),
-          liveOdds
+          liveOdds,
+          eventUrls
         )
       );
     }
@@ -254,7 +265,8 @@ export function legsFromMatchDetail(
       matchLabel,
       fixture.id,
       fixture.kickoff,
-      liveOdds
+      liveOdds,
+      eventUrls
     )) {
       add(leg);
     }

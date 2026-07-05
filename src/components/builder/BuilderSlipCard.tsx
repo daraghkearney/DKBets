@@ -1,6 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { formatKickoff, formatPct } from "@/lib/format";
+import {
+  bet365LinkHint,
+  bet365LinkLabel,
+  buildBet365SlipLink,
+} from "@/lib/builder/bet365-links";
 import type { BuilderSlip } from "@/lib/builder/types";
 
 export default function BuilderSlipCard({
@@ -12,7 +18,20 @@ export default function BuilderSlipCard({
   highlight?: boolean;
   liveOdds?: boolean;
 }) {
+  const [copied, setCopied] = useState(false);
   const liveLegCount = slip.legs.filter((l) => l.oddsSource === "bet365_live").length;
+  const bet365Link = buildBet365SlipLink(slip);
+
+  async function copyLink() {
+    if (!bet365Link) return;
+    try {
+      await navigator.clipboard.writeText(bet365Link.href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
 
   return (
     <div
@@ -54,6 +73,27 @@ export default function BuilderSlipCard({
         )}
       </p>
 
+      {bet365Link && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <a
+            href={bet365Link.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#126e51] px-4 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-90"
+          >
+            {bet365LinkLabel(bet365Link)}
+          </a>
+          <button
+            type="button"
+            onClick={copyLink}
+            className="rounded-xl border border-[#126e51]/40 px-4 py-2.5 text-sm font-semibold text-[#3ecf8e] transition-colors hover:border-[#126e51]"
+          >
+            {copied ? "Copied!" : "Copy Bet365 link"}
+          </button>
+          <p className="w-full text-[11px] text-muted">{bet365LinkHint(bet365Link)}</p>
+        </div>
+      )}
+
       <ol className="mt-4 flex flex-col gap-2">
         {slip.legs.map((leg, i) => (
           <li
@@ -76,6 +116,16 @@ export default function BuilderSlipCard({
               <div className="text-right text-xs">
                 <p className="tabular font-bold">{leg.fractionalOdds}</p>
                 <p className="text-muted">{formatPct(leg.hitRate, 0)} hit rate</p>
+                {leg.bet365Link && (
+                  <a
+                    href={leg.bet365Link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-block text-[#3ecf8e] underline"
+                  >
+                    Bet365
+                  </a>
+                )}
               </div>
             </div>
           </li>

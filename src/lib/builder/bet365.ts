@@ -5,6 +5,7 @@
  */
 
 import { toFractional } from "@/lib/format";
+import type { Bet365LiveBundle, Bet365LiveMap, Bet365LiveQuote } from "./bet365-live";
 import type { LegCategory } from "./types";
 
 export interface FixtureRef {
@@ -131,8 +132,57 @@ export function liveOddsLookupKey(
   return `${matchId}|${normPlayer(playerName)}|${category}`;
 }
 
+export type { Bet365LiveBundle, Bet365LiveMap, Bet365LiveQuote } from "./bet365-live";
+
+export function findLiveQuote(
+  liveOdds: Bet365LiveMap | undefined,
+  matchId: number,
+  playerName: string | undefined,
+  category: LegCategory
+): Bet365LiveQuote | undefined {
+  const price = findLivePrice(liveOdds, matchId, playerName, category);
+  if (price === undefined || !liveOdds || !playerName) return undefined;
+
+  const target = normPlayer(playerName);
+  const candidates: { player: string; quote: Bet365LiveQuote }[] = [];
+
+  for (const [key, quote] of liveOdds) {
+    const parts = key.split("|");
+    if (parts.length < 3) continue;
+    const mid = Number(parts[0]);
+    const cat = parts[parts.length - 1];
+    if (mid !== matchId || cat !== category) continue;
+
+    const apiPlayer = normPlayer(parts.slice(1, -1).join("|"));
+    if (apiPlayer === target || playersMatch(apiPlayer, target)) {
+      candidates.push({ player: apiPlayer, quote });
+    }
+  }
+
+  if (candidates.length === 0) return { price };
+  if (candidates.length === 1) return candidates[0]!.quote;
+
+  const targetParts = target.split(" ").filter(Boolean);
+  const targetLast = targetParts[targetParts.length - 1] ?? "";
+
+  if (targetParts.length >= 2 && targetLast) {
+    const byLast = candidates.filter((c) => {
+      const parts = c.player.split(" ").filter(Boolean);
+      return parts[parts.length - 1] === targetLast;
+    });
+    if (byLast.length === 1) return byLast[0]!.quote;
+  }
+
+  if (targetParts.length === 1) {
+    const exactMononym = candidates.filter((c) => c.player === target);
+    if (exactMononym.length === 1) return exactMononym[0]!.quote;
+  }
+
+  return { price };
+}
+
 export function findLivePrice(
-  liveOdds: Map<string, number> | undefined,
+  liveOdds: Bet365LiveMap | undefined,
   matchId: number,
   playerName: string | undefined,
   category: LegCategory
@@ -142,7 +192,7 @@ export function findLivePrice(
   const target = normPlayer(playerName);
   const candidates: { player: string; price: number }[] = [];
 
-  for (const [key, price] of liveOdds) {
+  for (const [key, quote] of liveOdds) {
     const parts = key.split("|");
     if (parts.length < 3) continue;
     const mid = Number(parts[0]);
@@ -151,7 +201,7 @@ export function findLivePrice(
 
     const apiPlayer = normPlayer(parts.slice(1, -1).join("|"));
     if (apiPlayer === target || playersMatch(apiPlayer, target)) {
-      candidates.push({ player: apiPlayer, price });
+      candidates.push({ player: apiPlayer, price: quote.price });
     }
   }
 
@@ -313,24 +363,64 @@ function isOnePlusLine(label: string, rowName?: string, hdp?: number): boolean {
   return true;
 }
 
-function storeLivePrice(
-  out: Map<string, number>,
+function extractRowLink(row: any): string | undefined {
+  for (const key of ["link", "url", "href", "deepLink", "deep_link", "betLink"]) {
+    const value = row?.[key];
+    if (typeof value === "string" && value.startsWith("http")) return value;
+  }
+  return undefined;
+}
+
+function extractSelectionId(row: any, apiEventId?: number): string | undefined {
+  for (const key of ["selectionId", "selection_id", "sid", "fid", "bs"]) {
+    const value = row?.[key];
+    if (typeof value === "string" && /^\d+-\d+$/.test(value)) return value;
+  }
+
+  const eventId = row?.eventId ?? row?.event_id ?? apiEventId;
+  const marketId = row?.marketId ?? row?.market_id ?? row?.mid ?? row?.oid;
+  if (eventId != null && marketId != null) {
+    return `${eventId}-${marketId}`;
+  }
+
+  const id = row?.id;
+  if (typeof id === "string" && /^\d+-\d+$/.test(id)) return id;
+  if (typeof id === "number" && apiEventId != null) return `${apiEventId}-${id}`;
+
+  return undefined;
+}
+
+function extractEventUrl(data: any): string | undefined {
+  const urls = data?.urls;
+  if (urls && typeof urls === "object") {
+    const direct = urls.Bet365 ?? urls.bet365;
+    if (typeof direct === "string" && direct.startsWith("http")) return direct;
+  }
+  return undefined;
+}
+
+function storeLiveQuote(
+  out: Bet365LiveMap,
   matchId: number,
   playerName: string,
   category: LegCategory,
   decimal: number,
-  hdp?: number
+  meta: { hdp?: number; link?: string; selectionId?: string } = {}
 ): void {
   if (!playerName) return;
   const key = liveOddsLookupKey(matchId, playerName, category);
   const existing = out.get(key);
   const rounded = Math.round(decimal * 1000) / 1000;
-  // Prefer 0.5 line (1+) over any previously stored higher line
+  const { hdp, link, selectionId } = meta;
+
   if (existing !== undefined && hdp !== undefined && hdp > 0.5) return;
-  // Bet Builder 1+ uses the main shortened line — keep shorter decimal when the API
-  // lists the same player under multiple prop markets (e.g. alt foul lines).
-  if (existing !== undefined && rounded >= existing) return;
-  out.set(key, rounded);
+  if (existing !== undefined && rounded >= existing.price) return;
+
+  out.set(key, {
+    price: rounded,
+    link: link ?? existing?.link,
+    selectionId: selectionId ?? existing?.selectionId,
+  });
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -426,16 +516,19 @@ async function fetchOddsMulti(
 /** Optional live Bet365 player props via odds-api.io (set ODDS_API_IO_KEY in CI). */
 export async function fetchBet365LiveOdds(
   fixtures: FixtureRef[]
-): Promise<Map<string, number>> {
+): Promise<Bet365LiveBundle> {
   const key = process.env.ODDS_API_IO_KEY;
-  if (!key || fixtures.length === 0) return new Map();
+  const empty: Bet365LiveBundle = { quotes: new Map(), eventUrls: new Map() };
+  if (!key || fixtures.length === 0) return empty;
 
-  const out = new Map<string, number>();
+  const quotes: Bet365LiveMap = new Map();
+  const eventUrls = new Map<number, string>();
+
   try {
     const eventMap = await resolveOddsApiEvents(key, fixtures);
     if (eventMap.size === 0) {
       console.warn("  bet365 live: no odds-api.io events matched for World Cup fixtures");
-      return out;
+      return empty;
     }
 
     await sleep(API_DELAY_MS);
@@ -455,26 +548,32 @@ export async function fetchBet365LiveOdds(
         const fotmobId =
           apiToFotmob.get(apiEventId) ??
           [...eventMap.entries()].find(([, apiId]) => apiId === apiEventId)?.[0];
-        if (fotmobId) parseOddsApiResponse(data, fotmobId, out);
+        if (fotmobId) {
+          const eventUrl = extractEventUrl(data);
+          if (eventUrl) eventUrls.set(fotmobId, eventUrl);
+          parseOddsApiResponse(data, fotmobId, apiEventId, quotes);
+        }
       }
     }
   } catch (e) {
     console.warn("  bet365 live fetch failed:", e);
   }
-  return out;
+
+  return { quotes, eventUrls };
 }
 
 function parseOddsApiResponse(
   data: any,
   fotmobMatchId: number,
-  out: Map<string, number>
+  apiEventId: number,
+  out: Bet365LiveMap
 ): void {
   const bet365 = data?.bookmakers?.Bet365 ?? data?.bookmakers?.bet365;
   if (!Array.isArray(bet365)) return;
 
   let propMarkets = 0;
   for (const market of bet365) {
-    if (parseOddsApiMarket(market, fotmobMatchId, out)) propMarkets += 1;
+    if (parseOddsApiMarket(market, fotmobMatchId, apiEventId, out)) propMarkets += 1;
   }
   if (process.env.REFRESH_BET365_ODDS !== "false") {
     console.log(
@@ -486,7 +585,8 @@ function parseOddsApiResponse(
 function parseOddsApiMarket(
   market: any,
   fotmobMatchId: number,
-  out: Map<string, number>
+  apiEventId: number,
+  out: Bet365LiveMap
 ): boolean {
   const marketName = String(market?.name ?? market?.marketName ?? "");
   const rows = market?.odds ?? market?.outcomes ?? market?.selections ?? [];
@@ -504,6 +604,11 @@ function parseOddsApiMarket(
     const player = extractPlayerName(label || rowName, rowName || undefined);
     const hdp = Number(row?.hdp ?? row?.handicap ?? row?.line);
     const hasHdp = Number.isFinite(hdp);
+    const meta = {
+      hdp: hasHdp ? hdp : undefined,
+      link: extractRowLink(row) ?? extractRowLink(market),
+      selectionId: extractSelectionId(row, apiEventId),
+    };
 
     if (!isOnePlusLine(label, rowName, hasHdp ? hdp : undefined)) continue;
 
@@ -513,22 +618,27 @@ function parseOddsApiMarket(
       categoryFromCanonicalMarket(marketName) ?? categoryFromCanonicalMarket(rowName);
 
     if (over && (!hasHdp || hdp <= 0.5)) {
-      storeLivePrice(out, fotmobMatchId, player, category, over, hasHdp ? hdp : 0.5);
+      storeLiveQuote(out, fotmobMatchId, player, category, over, {
+        ...meta,
+        hdp: hasHdp ? hdp : 0.5,
+      });
       matched = true;
       continue;
     }
 
     if (yes && category === "cards") {
-      storeLivePrice(out, fotmobMatchId, player, category, yes);
+      storeLiveQuote(out, fotmobMatchId, player, category, yes, meta);
       matched = true;
       continue;
     }
 
-    // Some Bet365 rows use price on canonical markets instead of over/under
     if (canonicalSource) {
       const price = parseDecimal(row?.price ?? row?.odds ?? row?.decimal);
       if (price && (!hasHdp || hdp <= 0.5)) {
-        storeLivePrice(out, fotmobMatchId, player, category, price, hasHdp ? hdp : 0.5);
+        storeLiveQuote(out, fotmobMatchId, player, category, price, {
+          ...meta,
+          hdp: hasHdp ? hdp : 0.5,
+        });
         matched = true;
       }
     }

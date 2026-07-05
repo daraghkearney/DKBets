@@ -25,6 +25,12 @@ export interface BuilderLeg {
   fractionalOdds: string;
   /** Live Bet365 price from odds-api.io — we never estimate odds in this section */
   oddsSource: "bet365_live";
+  /** Direct Bet365 deep link for this selection (when odds-api.io provides one). */
+  bet365Link?: string;
+  /** Bet365 internal id pair for sportsbookredirect (eventId-marketId). */
+  bet365SelectionId?: string;
+  /** Bet365 match page URL from odds-api.io. */
+  bet365EventUrl?: string;
 }
 
 export interface BuilderSlip {

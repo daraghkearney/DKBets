@@ -44,7 +44,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/bet365-live-odds.json
-          key: bet365-live-v4
+          key: bet365-live-v5
           restore-keys: bet365-live-v
 
       - name: Install

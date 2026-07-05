@@ -75,7 +75,7 @@ async function main() {
 
     dump.push({
       market: marketName,
-      rows: rows.map((r: Record<string, unknown>) => ({
+        rows: rows.map((r: Record<string, unknown>) => ({
         label: r.label,
         name: r.name,
         hdp: r.hdp ?? r.handicap ?? r.line,
@@ -83,6 +83,9 @@ async function main() {
         under: r.under,
         yes: r.yes,
         price: r.price ?? r.odds ?? r.decimal,
+        link: r.link ?? r.url ?? r.href,
+        selectionId: r.selectionId ?? r.selection_id ?? r.sid ?? r.id,
+        keys: Object.keys(r),
       })),
     });
   }

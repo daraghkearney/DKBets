@@ -294,6 +294,11 @@ export default function BuilderPage() {
                 Player props: shots, SOT, fouls committed, to be fouled,
                 tackles & cards.
               </li>
+              <li>
+                Each slip includes an <strong className="text-foreground">Open on Bet365</strong>{" "}
+                link when odds-api.io provides deep links — cross-game accas load
+                pre-filled where supported; same-game Bet Builder opens the match.
+              </li>
               <li>Bet365 only — no other bookmakers in this section.</li>
             </ul>
           </section>
