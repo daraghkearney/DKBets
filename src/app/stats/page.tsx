@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StatToggle } from "@/components/stats/StatBlock";
 import { dataUrl } from "@/lib/basePath";
 import type { PlayerTournamentStats } from "@/lib/stats/types";
@@ -13,11 +13,50 @@ interface Payload {
   sourceLabel?: string;
 }
 
+type SortKey = "shots" | "sot" | "fouls" | "foulsWon" | "tackles";
+
+const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: "shots", label: "Sort: shots" },
+  { value: "sot", label: "Sort: shots on target" },
+  { value: "fouls", label: "Sort: fouls committed" },
+  { value: "foulsWon", label: "Sort: fouls won" },
+  { value: "tackles", label: "Sort: tackles" },
+];
+
+function sortPlayers(
+  players: PlayerTournamentStats[],
+  sort: SortKey,
+  mode: "total" | "per90"
+): PlayerTournamentStats[] {
+  return [...players].sort((a, b) => {
+    const av = mode === "per90" ? a.per90 : a.totals;
+    const bv = mode === "per90" ? b.per90 : b.totals;
+    let diff = 0;
+    switch (sort) {
+      case "sot":
+        diff = bv.shotsOnTarget - av.shotsOnTarget;
+        break;
+      case "fouls":
+        diff = bv.foulsCommitted - av.foulsCommitted;
+        break;
+      case "foulsWon":
+        diff = bv.foulsWon - av.foulsWon;
+        break;
+      case "tackles":
+        diff = bv.tackles - av.tackles;
+        break;
+      default:
+        diff = bv.shots - av.shots;
+    }
+    return diff || a.name.localeCompare(b.name);
+  });
+}
+
 export default function StatsPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState(false);
   const [mode, setMode] = useState<"total" | "per90">("total");
-  const [sort, setSort] = useState<"shots" | "fouls" | "sot">("shots");
+  const [sort, setSort] = useState<SortKey>("shots");
 
   useEffect(() => {
     fetch(dataUrl("/stats/players.json"), { cache: "no-store" })
@@ -26,13 +65,10 @@ export default function StatsPage() {
       .catch(() => setError(true));
   }, []);
 
-  const sorted = [...(data?.players ?? [])].sort((a, b) => {
-    const av = mode === "per90" ? a.per90 : a.totals;
-    const bv = mode === "per90" ? b.per90 : b.totals;
-    if (sort === "fouls") return bv.foulsCommitted - av.foulsCommitted;
-    if (sort === "sot") return bv.shotsOnTarget - av.shotsOnTarget;
-    return bv.shots - av.shots;
-  });
+  const sorted = useMemo(
+    () => sortPlayers(data?.players ?? [], sort, mode),
+    [data?.players, sort, mode]
+  );
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
@@ -85,16 +121,18 @@ export default function StatsPage() {
               <h2 className="text-lg font-bold">Full tournament table</h2>
               <select
                 value={sort}
-                onChange={(e) => setSort(e.target.value as typeof sort)}
+                onChange={(e) => setSort(e.target.value as SortKey)}
                 className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-xs"
               >
-                <option value="shots">Sort: shots</option>
-                <option value="sot">Sort: shots on target</option>
-                <option value="fouls">Sort: fouls committed</option>
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-              <table className="w-full min-w-[720px] text-sm">
+              <table className="w-full min-w-[860px] text-sm">
                 <thead>
                   <tr className="border-b border-edge text-left text-[11px] uppercase tracking-wide text-muted">
                     <th className="px-4 py-3">Player</th>
@@ -102,8 +140,9 @@ export default function StatsPage() {
                     <th className="px-4 py-3 text-right">Apps</th>
                     <th className="px-4 py-3 text-right">Shots</th>
                     <th className="px-4 py-3 text-right">SoT</th>
+                    <th className="px-4 py-3 text-right">Tackles</th>
                     <th className="px-4 py-3 text-right">Fouls</th>
-                    <th className="px-4 py-3 text-right">Fouled</th>
+                    <th className="px-4 py-3 text-right">Fouls won</th>
                     <th className="px-4 py-3 text-right">YC</th>
                   </tr>
                 </thead>
@@ -123,6 +162,9 @@ export default function StatsPage() {
                         <td className="tabular px-4 py-2.5 text-right">{t.shots}</td>
                         <td className="tabular px-4 py-2.5 text-right">
                           {t.shotsOnTarget}
+                        </td>
+                        <td className="tabular px-4 py-2.5 text-right">
+                          {t.tackles}
                         </td>
                         <td className="tabular px-4 py-2.5 text-right">
                           {t.foulsCommitted}

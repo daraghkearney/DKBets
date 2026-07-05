@@ -8,13 +8,25 @@ const STAT_KEYS: Record<string, keyof Omit<PlayerMatchLine, "matchId" | "opponen
   assists: "assists",
   total_shots: "shots",
   shots_on_target: "shotsOnTarget",
+  ShotsOnTarget: "shotsOnTarget",
   fouls: "foulsCommitted",
   was_fouled: "foulsWon",
   won_tackle: "tackles",
+  "matchstats.headers.tackles": "tackles",
   duels_won: "duelsWon",
   yellow_cards: "yellowCards",
   red_cards: "redCards",
 };
+
+function resolveStatKey(raw: string): keyof Omit<PlayerMatchLine, "matchId" | "opponent" | "date" | "competition"> | null {
+  const direct = STAT_KEYS[raw];
+  if (direct) return direct;
+  const lower = raw.toLowerCase();
+  for (const [k, v] of Object.entries(STAT_KEYS)) {
+    if (k.toLowerCase() === lower) return v;
+  }
+  return null;
+}
 
 export function statValue(stat: any): number {
   if (!stat?.stat) return 0;
@@ -63,7 +75,7 @@ export function parseMatchPlayerLines(
     for (const section of raw.stats ?? []) {
       for (const [title, entry] of Object.entries(section.stats ?? {})) {
         const key = (entry as any)?.key ?? title;
-        const mapped = STAT_KEYS[key as string];
+        const mapped = resolveStatKey(key as string);
         if (mapped) (line as any)[mapped] = statValue(entry);
       }
     }
