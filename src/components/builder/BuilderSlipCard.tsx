@@ -83,7 +83,9 @@ export default function BuilderSlipCard({
       </ol>
 
       <p className="mt-4 text-[11px] text-muted">
-        Bet365 odds{liveOdds ? " (live where available)" : " calibrated to Bet365 ladder"}.
+        {liveOdds
+          ? "Live Bet365 prices from odds-api.io."
+          : "Bet365 odds calibrated to Bet365 ladder."}{" "}
         Selections from tournament + career H2H stats. Not affiliated with Bet365.
         Gamble responsibly.
       </p>

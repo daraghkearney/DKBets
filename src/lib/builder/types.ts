@@ -55,5 +55,9 @@ export interface BuilderPayload {
   }>;
   targets: OddsTarget[];
   bet365LiveLegs: number;
+  /** True when export had live Bet365 prices — builder uses live legs only */
+  bet365LiveAvailable: boolean;
+  /** True when ODDS_API_IO_KEY was present at export time */
+  bet365ApiConfigured: boolean;
   generatedAt: string;
 }

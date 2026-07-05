@@ -13,13 +13,15 @@ export interface FixtureRef {
   away: string;
 }
 
+const WC_LEAGUE = "international-fifa-world-cup";
+
 /** Cap implied probability — Bet365 shortens less aggressively than raw hit rate. */
 const MAX_IMPLIED: Record<LegCategory, number> = {
   fouls: 0.86,
   foulsWon: 0.84,
   shots: 0.975,
   sot: 0.92,
-  tackles: 0.87,
+  tackles: 0.86,
   cards: 0.78,
   team: 0.82,
 };
@@ -35,6 +37,17 @@ const MARGIN: Record<LegCategory, number> = {
   team: 0.94,
 };
 
+/** Bet365 market names that carry player props we use in the builder. */
+const PROP_MARKET_HINTS = [
+  "player shot",
+  "player tackle",
+  "player foul",
+  "player card",
+  "player booking",
+  "other player prop",
+  "player prop",
+];
+
 export function snapBet365Decimal(decimal: number): number {
   const frac = toFractional(Math.max(1.01, decimal));
   const [n, d] = frac.split("/").map(Number);
@@ -42,13 +55,17 @@ export function snapBet365Decimal(decimal: number): number {
   return Math.round((1 + n / d) * 1000) / 1000;
 }
 
-/** Calibrated Bet365 decimal price from hit rate (matches BB ladder, e.g. ~1/6 fouls). */
+/** Calibrated Bet365 decimal price from hit rate (fallback when live unavailable). */
 export function bet365DecimalOdds(rate: number, category: LegCategory): number {
   const clamped = Math.min(0.99, Math.max(0.52, rate));
 
-  // Banker 1+ shot lines (e.g. Vinícius) price at 1/40–1/10 on Bet365.
   if (category === "shots" && clamped >= 0.78) {
     const implied = Math.min(0.975, 0.9 + (clamped - 0.78) * 1.25);
+    return snapBet365Decimal(1 / implied);
+  }
+
+  if (category === "tackles" && clamped >= 0.78) {
+    const implied = Math.min(0.86, 0.82 + (clamped - 0.78) * 0.85);
     return snapBet365Decimal(1 / implied);
   }
 
@@ -65,22 +82,12 @@ export function bet365FractionalOdds(rate: number, category: LegCategory): strin
 
 export type Bet365OddsSource = "bet365_live" | "bet365_calibrated";
 
-/** Key for matching live Bet365 prices to legs (by player + category). */
 export function liveOddsLookupKey(
   matchId: number,
   playerName: string,
   category: LegCategory
 ): string {
   return `${matchId}|${normPlayer(playerName)}|${category}`;
-}
-
-/** @deprecated Use liveOddsLookupKey for live prices */
-export function legOddsKey(
-  matchId: number,
-  playerName: string | undefined,
-  market: string
-): string {
-  return `${matchId}|${(playerName ?? market).toLowerCase()}|${market.toLowerCase()}`;
 }
 
 export function findLivePrice(
@@ -95,11 +102,18 @@ export function findLivePrice(
   const target = normPlayer(playerName);
   for (const [key, price] of liveOdds) {
     const [mid, player, cat] = key.split("|");
-    if (Number(mid) === matchId && cat === category && player === target) {
-      return price;
-    }
+    if (Number(mid) !== matchId || cat !== category) continue;
+    if (player === target || playersMatch(player, target)) return price;
   }
   return undefined;
+}
+
+function playersMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  const aLast = a.split(" ").pop() ?? "";
+  const bLast = b.split(" ").pop() ?? "";
+  return aLast.length > 2 && aLast === bLast;
 }
 
 function normTeam(team: string): string {
@@ -136,10 +150,46 @@ function categoryFromMarketName(name: string): LegCategory | null {
   if (n.includes("shot") && (n.includes("target") || n.includes("on target")))
     return "sot";
   if (n.includes("shot")) return "shots";
-  if (n.includes("foul")) return "fouls";
   if (n.includes("tackle")) return "tackles";
-  if (n.includes("card") || n.includes("booked")) return "cards";
+  if (n.includes("foul")) return "fouls";
+  if (n.includes("card") || n.includes("booking")) return "cards";
   return null;
+}
+
+function categoryFromSelectionLabel(label: string, rowName?: string): LegCategory | null {
+  const text = `${label} ${rowName ?? ""}`.toLowerCase();
+  if (text.includes("shot") && (text.includes("target") || text.includes("on target")))
+    return "sot";
+  if (text.includes("foul") && text.includes("won")) return "foulsWon";
+  if (text.includes("foul")) return "fouls";
+  if (text.includes("tackle")) return "tackles";
+  if (text.includes("card") || text.includes("booked") || text.includes("booking"))
+    return "cards";
+  if (text.includes("shot")) return "shots";
+  return null;
+}
+
+function isPropMarket(name: string): boolean {
+  const n = name.toLowerCase();
+  return PROP_MARKET_HINTS.some((hint) => n.includes(hint));
+}
+
+function extractPlayerName(label: string, rowName?: string): string {
+  const combined = rowName ? `${label} ${rowName}` : label;
+  const dashSplit = combined.split(/\s[-–—]\s/);
+  if (dashSplit.length > 1) {
+    const tail = dashSplit.slice(1).join(" ").toLowerCase();
+    if (
+      tail.includes("shot") ||
+      tail.includes("tackle") ||
+      tail.includes("foul") ||
+      tail.includes("card")
+    ) {
+      return dashSplit[0]!.trim();
+    }
+  }
+  if (rowName && categoryFromSelectionLabel(label, rowName)) return label.trim();
+  return combined.replace(/\s[-–—]\s.*$/, "").trim() || label.trim();
 }
 
 function storeLivePrice(
@@ -149,6 +199,7 @@ function storeLivePrice(
   category: LegCategory,
   decimal: number
 ): void {
+  if (!playerName) return;
   out.set(liveOddsLookupKey(matchId, playerName, category), snapBet365Decimal(decimal));
 }
 
@@ -157,38 +208,96 @@ function storeLivePrice(
 async function fetchJson(url: URL): Promise<any | null> {
   const res = await fetch(url.toString(), {
     headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) return null;
   return res.json();
 }
 
-/** Map FotMob fixtures → odds-api.io event IDs via team names. */
+function teamsMatch(home: string, away: string, ev: any): boolean {
+  const eh = normTeam(String(ev.home ?? ""));
+  const ea = normTeam(String(ev.away ?? ""));
+  const h = normTeam(home);
+  const a = normTeam(away);
+  return (eh === h && ea === a) || (eh === a && ea === h);
+}
+
+async function searchOddsApiEvent(
+  key: string,
+  home: string,
+  away: string
+): Promise<number | null> {
+  for (const query of [`${home} ${away}`, home, away]) {
+    const url = new URL("https://api.odds-api.io/v3/events/search");
+    url.searchParams.set("apiKey", key);
+    url.searchParams.set("query", query);
+    const events = await fetchJson(url);
+    if (!Array.isArray(events)) continue;
+    const hit = events.find((ev) => teamsMatch(home, away, ev));
+    if (hit?.id) return Number(hit.id);
+  }
+  return null;
+}
+
+/** Map FotMob fixtures → odds-api.io event IDs via World Cup league + search. */
 async function resolveOddsApiEvents(
   key: string,
   fixtures: FixtureRef[]
 ): Promise<Map<number, number>> {
-  const url = new URL("https://api.odds-api.io/v3/events");
-  url.searchParams.set("apiKey", key);
-  url.searchParams.set("sport", "football");
-  url.searchParams.set("bookmaker", "Bet365");
-  url.searchParams.set("status", "pending");
-
-  const events = await fetchJson(url);
-  if (!Array.isArray(events)) return new Map();
-
   const out = new Map<number, number>();
-  for (const fx of fixtures) {
-    const home = normTeam(fx.home);
-    const away = normTeam(fx.away);
-    const hit = events.find((ev: any) => {
-      const eh = normTeam(String(ev.home ?? ""));
-      const ea = normTeam(String(ev.away ?? ""));
-      return (eh === home && ea === away) || (eh === away && ea === home);
-    });
-    if (hit?.id) out.set(fx.id, Number(hit.id));
+  const unmatched = [...fixtures];
+
+  const leagueUrl = new URL("https://api.odds-api.io/v3/events");
+  leagueUrl.searchParams.set("apiKey", key);
+  leagueUrl.searchParams.set("sport", "football");
+  leagueUrl.searchParams.set("league", WC_LEAGUE);
+  leagueUrl.searchParams.set("bookmaker", "Bet365");
+  leagueUrl.searchParams.set("status", "pending");
+  leagueUrl.searchParams.set("limit", "500");
+
+  const leagueEvents = await fetchJson(leagueUrl);
+  if (Array.isArray(leagueEvents)) {
+    for (const fx of fixtures) {
+      const hit = leagueEvents.find((ev) => teamsMatch(fx.home, fx.away, ev));
+      if (hit?.id) {
+        out.set(fx.id, Number(hit.id));
+      }
+    }
   }
+
+  for (const fx of fixtures) {
+    if (out.has(fx.id)) continue;
+    const apiId = await searchOddsApiEvent(key, fx.home, fx.away);
+    if (apiId) out.set(fx.id, apiId);
+  }
+
   return out;
+}
+
+async function fetchOddsMulti(
+  key: string,
+  apiEventIds: number[]
+): Promise<any[]> {
+  if (!apiEventIds.length) return [];
+  const url = new URL("https://api.odds-api.io/v3/odds/multi");
+  url.searchParams.set("apiKey", key);
+  url.searchParams.set("eventIds", apiEventIds.join(","));
+  url.searchParams.set("bookmakers", "Bet365");
+  const data = await fetchJson(url);
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") return [data];
+  return [];
+}
+
+async function ensureBet365Selected(key: string): Promise<void> {
+  const url = new URL("https://api.odds-api.io/v3/bookmakers/selected/select");
+  url.searchParams.set("apiKey", key);
+  url.searchParams.set("bookmakers", "Bet365");
+  try {
+    await fetch(url.toString(), { method: "PUT", signal: AbortSignal.timeout(10_000) });
+  } catch {
+    /* non-fatal */
+  }
 }
 
 /** Optional live Bet365 player props via odds-api.io (set ODDS_API_IO_KEY in CI). */
@@ -200,20 +309,32 @@ export async function fetchBet365LiveOdds(
 
   const out = new Map<string, number>();
   try {
+    await ensureBet365Selected(key);
     const eventMap = await resolveOddsApiEvents(key, fixtures);
-    if (eventMap.size === 0) return out;
-
-    for (const [fotmobId, apiEventId] of eventMap) {
-      const url = new URL("https://api.odds-api.io/v3/odds");
-      url.searchParams.set("apiKey", key);
-      url.searchParams.set("eventId", String(apiEventId));
-      url.searchParams.set("bookmakers", "Bet365");
-
-      const data = await fetchJson(url);
-      if (data) parseOddsApiResponse(data, fotmobId, out);
+    if (eventMap.size === 0) {
+      console.warn("  bet365 live: no odds-api.io events matched for World Cup fixtures");
+      return out;
     }
-  } catch {
-    /* fall back to calibrated */
+
+    const apiToFotmob = new Map<number, number>();
+    for (const [fotmobId, apiId] of eventMap) {
+      apiToFotmob.set(apiId, fotmobId);
+    }
+
+    const apiIds = [...eventMap.values()];
+    for (let i = 0; i < apiIds.length; i += 10) {
+      const batch = apiIds.slice(i, i + 10);
+      const responses = await fetchOddsMulti(key, batch);
+      for (const data of responses) {
+        const apiEventId = Number(data?.id ?? data?.eventId);
+        const fotmobId =
+          apiToFotmob.get(apiEventId) ??
+          [...eventMap.entries()].find(([, apiId]) => apiId === apiEventId)?.[0];
+        if (fotmobId) parseOddsApiResponse(data, fotmobId, out);
+      }
+    }
+  } catch (e) {
+    console.warn("  bet365 live fetch failed:", e);
   }
   return out;
 }
@@ -228,11 +349,6 @@ function parseOddsApiResponse(
     for (const market of bet365) {
       parseOddsApiMarket(market, fotmobMatchId, out);
     }
-    return;
-  }
-  const markets = data?.markets ?? [];
-  if (Array.isArray(markets)) {
-    for (const market of markets) parseOddsApiMarket(market, fotmobMatchId, out);
   }
 }
 
@@ -242,26 +358,37 @@ function parseOddsApiMarket(
   out: Map<string, number>
 ): void {
   const marketName = String(market?.name ?? market?.marketName ?? "");
-  const category = categoryFromMarketName(marketName);
-  if (!category) return;
+  if (!isPropMarket(marketName) && !categoryFromMarketName(marketName)) return;
 
+  const defaultCategory = categoryFromMarketName(marketName);
   const rows = market?.odds ?? market?.outcomes ?? market?.selections ?? [];
-  for (const row of rows as any[]) {
-    const label = String(row?.label ?? row?.name ?? row?.participant ?? "");
-    if (!label) continue;
 
-    // Over/under style (0.5 line = 1+)
+  for (const row of rows as any[]) {
+    const label = String(row?.label ?? row?.participant ?? "").trim();
+    const rowName = String(row?.name ?? "").trim();
+    if (!label && !rowName) continue;
+
+    const category =
+      categoryFromSelectionLabel(label, rowName) ?? defaultCategory;
+    if (!category) continue;
+
+    const player = extractPlayerName(label || rowName, rowName || undefined);
     const hdp = Number(row?.hdp ?? row?.handicap ?? row?.line);
     const over = parseDecimal(row?.over);
-    if (over && (hdp === 0.5 || !Number.isFinite(hdp))) {
-      storeLivePrice(out, fotmobMatchId, label, category, over);
+    const yes = parseDecimal(row?.yes);
+
+    if (over && (!Number.isFinite(hdp) || hdp <= 0.5)) {
+      storeLivePrice(out, fotmobMatchId, player, category, over);
       continue;
     }
 
-    // Single-price selection e.g. "Vinícius Júnior - 1+ Shots"
+    if (yes && category === "cards") {
+      storeLivePrice(out, fotmobMatchId, player, category, yes);
+      continue;
+    }
+
     const price = parseDecimal(row?.price ?? row?.odds ?? row?.decimal);
     if (price) {
-      const player = label.split(/\s[-–—]\s/)[0]?.trim() || label;
       storeLivePrice(out, fotmobMatchId, player, category, price);
     }
   }

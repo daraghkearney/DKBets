@@ -9,6 +9,8 @@ export interface BuilderOptions {
   /** Required when scope is "single" */
   matchId?: number;
   maxLegs: number;
+  /** When true, only legs with live Bet365 prices are used */
+  liveOnly?: boolean;
 }
 
 function legConflict(a: BuilderLeg, b: BuilderLeg): boolean {
@@ -226,7 +228,10 @@ export function composeBuilderView(
   todaysPick: BuilderSlip | null;
   builders: Record<string, BuilderSlip | null>;
 } {
-  const scoped = filterLegsByScope(pool, options);
+  let scoped = filterLegsByScope(pool, options);
+  if (options.liveOnly) {
+    scoped = scoped.filter((l) => l.oddsSource === "bet365_live");
+  }
   return {
     todaysPick: buildTodaysPick(scoped, options.maxLegs),
     builders: buildAllTargets(scoped, options.maxLegs),

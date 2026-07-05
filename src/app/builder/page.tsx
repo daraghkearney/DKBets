@@ -35,8 +35,9 @@ export default function BuilderPage() {
       scope,
       matchId: scope === "single" ? matchId : undefined,
       maxLegs,
+      liveOnly: data?.bet365LiveAvailable ?? false,
     }),
-    [scope, matchId, maxLegs]
+    [scope, matchId, maxLegs, data?.bet365LiveAvailable]
   );
 
   const composed = useMemo(() => {
@@ -45,7 +46,8 @@ export default function BuilderPage() {
   }, [data, options]);
 
   const selected: BuilderSlip | null = composed?.builders[targetId] ?? null;
-  const liveOdds = (data?.bet365LiveLegs ?? 0) > 0;
+  const liveAvailable = data?.bet365LiveAvailable ?? false;
+  const apiConfigured = data?.bet365ApiConfigured ?? false;
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
@@ -57,20 +59,21 @@ export default function BuilderPage() {
           <h1 className="text-2xl font-bold tracking-tight">Bet365 Builder</h1>
           <p className="max-w-2xl text-sm text-muted">
             Pre-built Bet365 bet builders from the safest statistical legs —
-            shots, fouls, cards, tackles & team markets. Odds are calibrated to
-            Bet365&apos;s pricing ladder
-            {liveOdds ? " with live Bet365 prices where available" : ""}.
+            shots, fouls, cards, tackles & team markets.
+            {liveAvailable
+              ? " All slip legs use live Bet365 prices from odds-api.io."
+              : apiConfigured
+                ? " Live Bet365 prices could not be loaded for these fixtures — showing calibrated estimates."
+                : " Odds are calibrated to Bet365's pricing ladder (add ODDS_API_IO_KEY for live prices)."}
           </p>
         </div>
         {data && (
           <p className="text-xs text-muted">
-            {data.legs.length} legs · {data.fixtures.length} fixtures
-            {liveOdds && (
-              <>
-                {" "}
-                · <span className="text-[#3ecf8e]">{data.bet365LiveLegs} live</span>
-              </>
-            )}
+            {liveAvailable
+              ? `${data.bet365LiveLegs} live legs`
+              : `${data.legs.length} legs`}
+            {" · "}
+            {data.fixtures.length} fixtures
           </p>
         )}
       </div>
@@ -175,7 +178,7 @@ export default function BuilderPage() {
                 combined probability from tournament form and player matchup
                 history.
               </p>
-              <BuilderSlipCard slip={composed.todaysPick} highlight liveOdds={liveOdds} />
+              <BuilderSlipCard slip={composed.todaysPick} highlight liveOdds={liveAvailable} />
             </section>
           )}
 
@@ -184,7 +187,8 @@ export default function BuilderPage() {
             <p className="mb-4 text-xs text-muted">
               Select your desired combined Bet365 odds — we fill the builder with
               the safest available legs from your scope (
-              {filterCount(data.legs, options)} candidates).
+              {filterCount(data.legs, options)} candidates
+              {liveAvailable ? " with live Bet365 prices" : ""}).
             </p>
 
             <div className="mb-5 flex flex-wrap gap-2">
@@ -205,7 +209,7 @@ export default function BuilderPage() {
             </div>
 
             {selected ? (
-              <BuilderSlipCard slip={selected} liveOdds={liveOdds} />
+              <BuilderSlipCard slip={selected} liveOdds={liveAvailable} />
             ) : (
               <p className="rounded-xl border border-edge bg-surface p-6 text-sm text-muted">
                 Not enough high-confidence legs to build a Bet365 slip at this
@@ -223,9 +227,9 @@ export default function BuilderPage() {
                 matchups (FotMob).
               </li>
               <li>
-                Leg odds use Bet365&apos;s fractional ladder — calibrated from
-                historical hit rates, or live Bet365 prices when the export API
-                key is configured.
+                {liveAvailable
+                  ? "Leg odds are live Bet365 prices fetched at build time via odds-api.io."
+                  : "Leg odds use Bet365's fractional ladder calibrated from historical hit rates when live prices are unavailable."}
               </li>
               <li>
                 Player props: shots, SOT, fouls, tackles & cards. Team props:
@@ -244,20 +248,24 @@ function filterCount(
   legs: BuilderPayload["legs"],
   options: BuilderOptions
 ): number {
+  let pool = legs;
+  if (options.liveOnly) {
+    pool = pool.filter((l) => l.oddsSource === "bet365_live");
+  }
   if (options.scope === "single" && options.matchId != null) {
-    return legs.filter((l) => l.matchId === options.matchId).length;
+    return pool.filter((l) => l.matchId === options.matchId).length;
   }
   if (options.scope === "today") {
     const now = new Date();
     const y = now.getUTCFullYear();
     const m = now.getUTCMonth();
     const d = now.getUTCDate();
-    return legs.filter((leg) => {
+    return pool.filter((leg) => {
       const k = new Date(leg.kickoff);
       return (
         k.getUTCFullYear() === y && k.getUTCMonth() === m && k.getUTCDate() === d
       );
     }).length;
   }
-  return legs.length;
+  return pool.length;
 }

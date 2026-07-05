@@ -5,7 +5,7 @@ import {
   combineProbability,
   effectiveHitRate,
 } from "./odds";
-import { findLivePrice } from "./bet365";
+import { findLivePrice, normPlayer } from "./bet365";
 import type { BuilderLeg, LegCategory } from "./types";
 import type { MatchDetailPayload, PickStat, PlayerTournamentStats } from "@/lib/stats/types";
 
@@ -344,9 +344,21 @@ export function legsFromTeamHistory(
 export function dedupeLegs(legs: BuilderLeg[]): BuilderLeg[] {
   const map = new Map<string, BuilderLeg>();
   for (const leg of legs) {
-    const key = `${leg.matchId}-${leg.market}`;
+    const key = `${leg.matchId}|${normPlayer(leg.playerName ?? leg.market)}|${leg.category}`;
     const hit = map.get(key);
-    if (!hit || leg.hitRate > hit.hitRate) map.set(key, leg);
+    if (!hit) {
+      map.set(key, leg);
+      continue;
+    }
+    const prefer =
+      leg.oddsSource === "bet365_live" && hit.oddsSource !== "bet365_live"
+        ? leg
+        : hit.oddsSource === "bet365_live" && leg.oddsSource !== "bet365_live"
+          ? hit
+          : leg.hitRate > hit.hitRate
+            ? leg
+            : hit;
+    map.set(key, prefer);
   }
   return [...map.values()].sort((a, b) => b.hitRate - a.hitRate || b.sample - a.sample);
 }

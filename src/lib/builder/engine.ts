@@ -61,6 +61,7 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
 
   const pool = dedupeLegs(allLegs);
   const bet365LiveLegs = pool.filter((l) => l.oddsSource === "bet365_live").length;
+  const bet365LiveAvailable = bet365LiveLegs > 0;
 
   return {
     legs: pool,
@@ -72,6 +73,8 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
     })),
     targets: [...ODDS_TARGETS],
     bet365LiveLegs,
+    bet365LiveAvailable,
+    bet365ApiConfigured: Boolean(process.env.ODDS_API_IO_KEY),
     generatedAt: new Date().toISOString(),
   };
 }
