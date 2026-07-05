@@ -22,8 +22,9 @@ async function resolveLiveOdds(
       );
       return cached;
     }
-    console.warn("  bet365 live: push deploy with no cache — waiting for scheduled refresh");
-    return new Map();
+    console.warn(
+      "  bet365 live: cache missing or invalid on push deploy — fetching from API"
+    );
   }
 
   const liveOdds = await fetchBet365LiveOdds(fixtures);
