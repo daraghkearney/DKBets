@@ -266,9 +266,13 @@ function storeLivePrice(
   if (!playerName) return;
   const key = liveOddsLookupKey(matchId, playerName, category);
   const existing = out.get(key);
+  const rounded = Math.round(decimal * 1000) / 1000;
   // Prefer 0.5 line (1+) over any previously stored higher line
-  if (existing && hdp !== undefined && hdp > 0.5) return;
-  out.set(key, Math.round(decimal * 1000) / 1000);
+  if (existing !== undefined && hdp !== undefined && hdp > 0.5) return;
+  // Bet Builder 1+ uses the main shortened line — keep shorter decimal when the API
+  // lists the same player under multiple prop markets (e.g. alt foul lines).
+  if (existing !== undefined && rounded >= existing) return;
+  out.set(key, rounded);
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

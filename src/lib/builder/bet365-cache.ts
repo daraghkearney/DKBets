@@ -5,7 +5,7 @@ const CACHE_FILE = path.join(process.cwd(), ".cache", "bet365-live-odds.json");
 /** Slightly under hourly refresh so push deploys can reuse cached prices. */
 const CACHE_MAX_AGE_MS = 75 * 60 * 1000;
 /** Bump when parser logic changes — invalidates stale wrong-price caches. */
-export const BET365_CACHE_VERSION = 3;
+export const BET365_CACHE_VERSION = 4;
 
 interface Bet365OddsCache {
   version: number;
