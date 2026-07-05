@@ -29,15 +29,11 @@ async function resolveLiveOdds(
   const liveOdds = await fetchBet365LiveOdds(fixtures);
   if (liveOdds.size > 0) {
     await saveCachedBet365Odds(liveOdds);
-    return liveOdds;
+  } else {
+    console.warn(
+      "  bet365 live: no prices parsed from API — not falling back to old cache (would show wrong odds)"
+    );
   }
-
-  const stale = await loadCachedBet365Odds(true);
-  if (stale?.size) {
-    console.warn(`  bet365 live: no fresh prices — using stale cache (${stale.size})`);
-    return stale;
-  }
-
   return liveOdds;
 }
 

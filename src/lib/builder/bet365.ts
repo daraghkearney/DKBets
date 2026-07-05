@@ -177,11 +177,19 @@ export function normPlayer(name: string): string {
     .trim();
 }
 
+/** Parse decimal or UK fractional odds (e.g. "2/9" → 1.222). */
 function parseDecimal(value: unknown): number | undefined {
   if (typeof value === "number" && value > 1) return value;
   if (typeof value === "string") {
-    const n = Number(value);
+    const s = value.trim();
+    const n = Number(s);
     if (Number.isFinite(n) && n > 1) return n;
+    const frac = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (frac) {
+      const num = Number(frac[1]);
+      const den = Number(frac[2]);
+      if (num >= 0 && den > 0) return 1 + num / den;
+    }
   }
   return undefined;
 }
@@ -197,8 +205,28 @@ function isExcludedPropText(text: string): boolean {
 
 /** Only Bet Builder-equivalent markets — not specialty sub-lines from the API feed. */
 function categoryFromCanonicalMarket(marketName: string): LegCategory | null {
-  if (isExcludedPropText(marketName)) return null;
-  return CANONICAL_MARKET_CATEGORY[normalizeMarketName(marketName)] ?? null;
+  if (!marketName || isExcludedPropText(marketName)) return null;
+  const key = normalizeMarketName(marketName);
+  if (CANONICAL_MARKET_CATEGORY[key]) return CANONICAL_MARKET_CATEGORY[key];
+
+  // API often nests props under "Player Props" with the real market in row.name
+  for (const [canonical, cat] of Object.entries(CANONICAL_MARKET_CATEGORY)) {
+    if (key === canonical) return cat;
+    if (key.startsWith(`${canonical} `) && !isExcludedPropText(key)) return cat;
+  }
+  return null;
+}
+
+function categoryForSelection(
+  marketName: string,
+  rowName: string,
+  label: string
+): LegCategory | null {
+  return (
+    categoryFromCanonicalMarket(marketName) ??
+    categoryFromCanonicalMarket(rowName) ??
+    categoryFromCanonicalMarket(label)
+  );
 }
 
 function extractPlayerName(label: string, rowName?: string): string {
@@ -380,10 +408,16 @@ function parseOddsApiResponse(
   out: Map<string, number>
 ): void {
   const bet365 = data?.bookmakers?.Bet365 ?? data?.bookmakers?.bet365;
-  if (Array.isArray(bet365)) {
-    for (const market of bet365) {
-      parseOddsApiMarket(market, fotmobMatchId, out);
-    }
+  if (!Array.isArray(bet365)) return;
+
+  let propMarkets = 0;
+  for (const market of bet365) {
+    if (parseOddsApiMarket(market, fotmobMatchId, out)) propMarkets += 1;
+  }
+  if (process.env.REFRESH_BET365_ODDS !== "false") {
+    console.log(
+      `  bet365 live: parsed ${out.size} prices from ${propMarkets} prop market(s) for match ${fotmobMatchId}`
+    );
   }
 }
 
@@ -391,18 +425,19 @@ function parseOddsApiMarket(
   market: any,
   fotmobMatchId: number,
   out: Map<string, number>
-): void {
+): boolean {
   const marketName = String(market?.name ?? market?.marketName ?? "");
-  const category = categoryFromCanonicalMarket(marketName);
-  if (!category) return;
-
   const rows = market?.odds ?? market?.outcomes ?? market?.selections ?? [];
+  let matched = false;
 
   for (const row of rows as any[]) {
     const label = String(row?.label ?? row?.participant ?? "").trim();
     const rowName = String(row?.name ?? "").trim();
     if (!label && !rowName) continue;
-    if (isExcludedPropText(`${label} ${rowName}`)) continue;
+    if (isExcludedPropText(`${label} ${rowName} ${marketName}`)) continue;
+
+    const category = categoryForSelection(marketName, rowName, label);
+    if (!category) continue;
 
     const player = extractPlayerName(label || rowName, rowName || undefined);
     const hdp = Number(row?.hdp ?? row?.handicap ?? row?.line);
@@ -412,17 +447,30 @@ function parseOddsApiMarket(
 
     const over = parseDecimal(row?.over);
     const yes = parseDecimal(row?.yes);
+    const canonicalSource =
+      categoryFromCanonicalMarket(marketName) ?? categoryFromCanonicalMarket(rowName);
 
     if (over && (!hasHdp || hdp <= 0.5)) {
       storeLivePrice(out, fotmobMatchId, player, category, over, hasHdp ? hdp : 0.5);
+      matched = true;
       continue;
     }
 
     if (yes && category === "cards") {
       storeLivePrice(out, fotmobMatchId, player, category, yes);
+      matched = true;
+      continue;
     }
 
-    // Do not use bare price/odds fields — they map to specialty yes/no markets
-    // (e.g. SOT from outside the box) rather than Bet Builder 1+ lines.
+    // Some Bet365 rows use price on canonical markets instead of over/under
+    if (canonicalSource) {
+      const price = parseDecimal(row?.price ?? row?.odds ?? row?.decimal);
+      if (price && (!hasHdp || hdp <= 0.5)) {
+        storeLivePrice(out, fotmobMatchId, player, category, price, hasHdp ? hdp : 0.5);
+        matched = true;
+      }
+    }
   }
+
+  return matched;
 }

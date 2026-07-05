@@ -44,8 +44,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/bet365-live-odds.json
-          key: bet365-live-${{ hashFiles('src/lib/builder/bet365.ts') }}
-          restore-keys: bet365-live-
+          key: bet365-live-v3-${{ hashFiles('src/lib/builder/bet365.ts', 'src/lib/builder/bet365-cache.ts') }}
+          restore-keys: bet365-live-v3-
 
       - name: Install
         run: npm ci

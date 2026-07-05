@@ -6,6 +6,7 @@
     "dev": "next dev",
     "export:data": "tsx scripts/export-data.ts",
     "probe:odds-api": "tsx scripts/probe-odds-api.ts",
+    "dump:bet365-markets": "tsx scripts/dump-bet365-markets.ts",
     "build": "next build",
     "build:pages": "npm run export:data && npm run build",
     "start": "next start",

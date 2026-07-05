@@ -4,8 +4,11 @@ import path from "path";
 const CACHE_FILE = path.join(process.cwd(), ".cache", "bet365-live-odds.json");
 /** Slightly under hourly refresh so push deploys can reuse cached prices. */
 const CACHE_MAX_AGE_MS = 75 * 60 * 1000;
+/** Bump when parser logic changes — invalidates stale wrong-price caches. */
+export const BET365_CACHE_VERSION = 3;
 
 interface Bet365OddsCache {
+  version: number;
   savedAt: string;
   prices: [string, number][];
 }
@@ -14,13 +17,15 @@ export function shouldRefreshBet365Odds(): boolean {
   return process.env.REFRESH_BET365_ODDS !== "false";
 }
 
-export async function loadCachedBet365Odds(
-  allowStale = false
-): Promise<Map<string, number> | null> {
+export async function loadCachedBet365Odds(): Promise<Map<string, number> | null> {
   try {
     const raw = await readFile(CACHE_FILE, "utf8");
     const data = JSON.parse(raw) as Bet365OddsCache;
-    if (!allowStale && Date.now() - new Date(data.savedAt).getTime() > CACHE_MAX_AGE_MS) {
+    if (data.version !== BET365_CACHE_VERSION) {
+      console.warn("  bet365 live: cache version mismatch — ignoring cached prices");
+      return null;
+    }
+    if (Date.now() - new Date(data.savedAt).getTime() > CACHE_MAX_AGE_MS) {
       console.warn("  bet365 live: cached prices expired");
       return null;
     }
@@ -35,6 +40,7 @@ export async function saveCachedBet365Odds(map: Map<string, number>): Promise<vo
   if (map.size === 0) return;
   await mkdir(path.dirname(CACHE_FILE), { recursive: true });
   const payload: Bet365OddsCache = {
+    version: BET365_CACHE_VERSION,
     savedAt: new Date().toISOString(),
     prices: [...map.entries()],
   };
