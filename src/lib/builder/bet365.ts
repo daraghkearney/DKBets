@@ -1,7 +1,7 @@
 /**
- * Bet365-only pricing for the Bet Builder section.
- * Uses live odds when ODDS_API_IO_KEY is set at export time; otherwise
- * calibrates to Bet365's typical player-prop ladder (not naive fair odds).
+ * Bet365-only live pricing for the Bet Builder section.
+ * Uses odds-api.io when ODDS_API_IO_KEY is set at export time.
+ * Stats/hit rates are separate — we never estimate or calibrate odds here.
  */
 
 import { toFractional } from "@/lib/format";
@@ -243,12 +243,34 @@ function storeLivePrice(
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-async function fetchJson(url: URL): Promise<any | null> {
+const API_DELAY_MS = 800;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchJson(url: URL, attempt = 0): Promise<any | null> {
   const res = await fetch(url.toString(), {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(20_000),
   });
-  if (!res.ok) return null;
+
+  if (res.status === 429) {
+    console.warn(
+      "  bet365 live: odds-api.io rate limit (429) — requests may be dropped on free tier"
+    );
+    if (attempt < 1) {
+      await sleep(2500);
+      return fetchJson(url, attempt + 1);
+    }
+    return null;
+  }
+
+  if (!res.ok) {
+    console.warn(`  bet365 live: odds-api.io ${res.status} for ${url.pathname}`);
+    return null;
+  }
+
   return res.json();
 }
 
@@ -260,30 +282,12 @@ function teamsMatch(home: string, away: string, ev: any): boolean {
   return (eh === h && ea === a) || (eh === a && ea === h);
 }
 
-async function searchOddsApiEvent(
-  key: string,
-  home: string,
-  away: string
-): Promise<number | null> {
-  for (const query of [`${home} ${away}`, home, away]) {
-    const url = new URL("https://api.odds-api.io/v3/events/search");
-    url.searchParams.set("apiKey", key);
-    url.searchParams.set("query", query);
-    const events = await fetchJson(url);
-    if (!Array.isArray(events)) continue;
-    const hit = events.find((ev) => teamsMatch(home, away, ev));
-    if (hit?.id) return Number(hit.id);
-  }
-  return null;
-}
-
-/** Map FotMob fixtures → odds-api.io event IDs via World Cup league + search. */
+/** Map FotMob fixtures → odds-api.io event IDs (one league /events call only). */
 async function resolveOddsApiEvents(
   key: string,
   fixtures: FixtureRef[]
 ): Promise<Map<number, number>> {
   const out = new Map<number, number>();
-  const unmatched = [...fixtures];
 
   const leagueUrl = new URL("https://api.odds-api.io/v3/events");
   leagueUrl.searchParams.set("apiKey", key);
@@ -294,19 +298,19 @@ async function resolveOddsApiEvents(
   leagueUrl.searchParams.set("limit", "500");
 
   const leagueEvents = await fetchJson(leagueUrl);
-  if (Array.isArray(leagueEvents)) {
-    for (const fx of fixtures) {
-      const hit = leagueEvents.find((ev) => teamsMatch(fx.home, fx.away, ev));
-      if (hit?.id) {
-        out.set(fx.id, Number(hit.id));
-      }
-    }
-  }
+  if (!Array.isArray(leagueEvents)) return out;
 
   for (const fx of fixtures) {
-    if (out.has(fx.id)) continue;
-    const apiId = await searchOddsApiEvent(key, fx.home, fx.away);
-    if (apiId) out.set(fx.id, apiId);
+    const hit = leagueEvents.find((ev) => teamsMatch(fx.home, fx.away, ev));
+    if (hit?.id) out.set(fx.id, Number(hit.id));
+  }
+
+  const unmatched = fixtures.filter((fx) => !out.has(fx.id));
+  if (unmatched.length) {
+    console.warn(
+      `  bet365 live: ${unmatched.length} fixture(s) not in odds-api.io league list:`,
+      unmatched.map((fx) => `${fx.home} v ${fx.away}`).join(", ")
+    );
   }
 
   return out;
@@ -327,17 +331,6 @@ async function fetchOddsMulti(
   return [];
 }
 
-async function ensureBet365Selected(key: string): Promise<void> {
-  const url = new URL("https://api.odds-api.io/v3/bookmakers/selected/select");
-  url.searchParams.set("apiKey", key);
-  url.searchParams.set("bookmakers", "Bet365");
-  try {
-    await fetch(url.toString(), { method: "PUT", signal: AbortSignal.timeout(10_000) });
-  } catch {
-    /* non-fatal */
-  }
-}
-
 /** Optional live Bet365 player props via odds-api.io (set ODDS_API_IO_KEY in CI). */
 export async function fetchBet365LiveOdds(
   fixtures: FixtureRef[]
@@ -347,12 +340,13 @@ export async function fetchBet365LiveOdds(
 
   const out = new Map<string, number>();
   try {
-    await ensureBet365Selected(key);
     const eventMap = await resolveOddsApiEvents(key, fixtures);
     if (eventMap.size === 0) {
       console.warn("  bet365 live: no odds-api.io events matched for World Cup fixtures");
       return out;
     }
+
+    await sleep(API_DELAY_MS);
 
     const apiToFotmob = new Map<number, number>();
     for (const [fotmobId, apiId] of eventMap) {
@@ -361,6 +355,7 @@ export async function fetchBet365LiveOdds(
 
     const apiIds = [...eventMap.values()];
     for (let i = 0; i < apiIds.length; i += 10) {
+      if (i > 0) await sleep(API_DELAY_MS);
       const batch = apiIds.slice(i, i + 10);
       const responses = await fetchOddsMulti(key, batch);
       for (const data of responses) {
