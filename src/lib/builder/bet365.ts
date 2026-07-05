@@ -138,23 +138,67 @@ export function findLivePrice(
   category: LegCategory
 ): number | undefined {
   if (!liveOdds || !playerName) return undefined;
-  const exact = liveOdds.get(liveOddsLookupKey(matchId, playerName, category));
-  if (exact) return exact;
+
   const target = normPlayer(playerName);
+  const exact = liveOdds.get(liveOddsLookupKey(matchId, playerName, category));
+  if (exact !== undefined) return exact;
+
+  const candidates: { player: string; price: number }[] = [];
   for (const [key, price] of liveOdds) {
     const [mid, player, cat] = key.split("|");
     if (Number(mid) !== matchId || cat !== category) continue;
-    if (player === target || playersMatch(player, target)) return price;
+    if (playersMatch(player, target)) candidates.push({ player, price });
   }
+
+  if (candidates.length === 0) return undefined;
+  if (candidates.length === 1) return candidates[0]!.price;
+
+  const targetParts = target.split(" ").filter(Boolean);
+  const targetLast = targetParts[targetParts.length - 1] ?? "";
+
+  // Same first name, different surnames (e.g. Gabriel vs Gabriel Martinelli) — require last name
+  if (targetParts.length >= 2 && targetLast) {
+    const byLast = candidates.filter((c) => {
+      const parts = c.player.split(" ").filter(Boolean);
+      return parts[parts.length - 1] === targetLast;
+    });
+    if (byLast.length === 1) return byLast[0]!.price;
+  }
+
+  // Mononym in stats (e.g. Bet365 "Gabriel") — exact token only, never a longer API name
+  if (targetParts.length === 1) {
+    const exactMononym = candidates.filter((c) => c.player === target);
+    if (exactMononym.length === 1) return exactMononym[0]!.price;
+  }
+
   return undefined;
 }
 
-function playersMatch(a: string, b: string): boolean {
-  if (a === b) return true;
-  if (a.includes(b) || b.includes(a)) return true;
-  const aLast = a.split(" ").pop() ?? "";
-  const bLast = b.split(" ").pop() ?? "";
-  return aLast.length > 2 && aLast === bLast;
+function playersMatch(apiPlayer: string, statsPlayer: string): boolean {
+  if (apiPlayer === statsPlayer) return true;
+
+  const apiParts = apiPlayer.split(" ").filter(Boolean);
+  const statsParts = statsPlayer.split(" ").filter(Boolean);
+
+  // Stats mononym must not match a longer API name (Gabriel ≠ Gabriel Martinelli)
+  if (statsParts.length === 1) {
+    return apiParts.length === 1 && apiParts[0] === statsParts[0];
+  }
+
+  // Full stats name vs Bet365 mononym — first name only; disambiguate via last name above
+  if (apiParts.length === 1 && statsParts.length >= 2) {
+    return statsParts[0] === apiParts[0];
+  }
+
+  // Both multi-word — first + last token (handles Gabriel Magalhaes / Gabriel Magalhães)
+  if (statsParts.length >= 2 && apiParts.length >= 2) {
+    return (
+      statsParts[0] === apiParts[0] &&
+      statsParts[statsParts.length - 1] === apiParts[apiParts.length - 1]
+    );
+  }
+
+  return false;
 }
 
 function normTeam(team: string): string {
