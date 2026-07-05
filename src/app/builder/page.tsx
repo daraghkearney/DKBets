@@ -35,9 +35,8 @@ export default function BuilderPage() {
       scope,
       matchId: scope === "single" ? matchId : undefined,
       maxLegs,
-      liveOnly: data?.bet365LiveAvailable ?? false,
     }),
-    [scope, matchId, maxLegs, data?.bet365LiveAvailable]
+    [scope, matchId, maxLegs]
   );
 
   const composed = useMemo(() => {
@@ -61,16 +60,16 @@ export default function BuilderPage() {
             Pre-built Bet365 bet builders from the safest statistical legs —
             shots, fouls, cards, tackles & team markets.
             {liveAvailable
-              ? " All slip legs use live Bet365 prices from odds-api.io."
+              ? `${data?.bet365LiveLegs ?? 0} legs matched to live Bet365 prices (Bet Builder ladder when API differs).`
               : apiConfigured
-                ? " Live Bet365 prices could not be loaded for these fixtures — showing calibrated estimates."
-                : " Odds are calibrated to Bet365's pricing ladder (add ODDS_API_IO_KEY for live prices)."}
+                ? " Live Bet365 prices could not be loaded — using Bet Builder ladder estimates."
+                : " Odds use the Bet365 Bet Builder pricing ladder."}
           </p>
         </div>
         {data && (
           <p className="text-xs text-muted">
             {liveAvailable
-              ? `${data.bet365LiveLegs} live legs`
+              ? `${data.bet365LiveLegs} live-matched`
               : `${data.legs.length} legs`}
             {" · "}
             {data.fixtures.length} fixtures
@@ -188,7 +187,7 @@ export default function BuilderPage() {
               Select your desired combined Bet365 odds — we fill the builder with
               the safest available legs from your scope (
               {filterCount(data.legs, options)} candidates
-              {liveAvailable ? " with live Bet365 prices" : ""}).
+              {liveAvailable ? " (live where matched)" : ""}).
             </p>
 
             <div className="mb-5 flex flex-wrap gap-2">
@@ -227,9 +226,9 @@ export default function BuilderPage() {
                 matchups (FotMob).
               </li>
               <li>
-                {liveAvailable
-                  ? "Leg odds are live Bet365 prices fetched at build time via odds-api.io."
-                  : "Leg odds use Bet365's fractional ladder calibrated from historical hit rates when live prices are unavailable."}
+                Leg odds use live Bet365 prices when they match the Bet Builder
+                ladder; otherwise the BB-calibrated price is used (standalone API
+                props can differ from Bet Builder).
               </li>
               <li>
                 Player props: shots, SOT, fouls, tackles & cards. Team props:
@@ -249,9 +248,6 @@ function filterCount(
   options: BuilderOptions
 ): number {
   let pool = legs;
-  if (options.liveOnly) {
-    pool = pool.filter((l) => l.oddsSource === "bet365_live");
-  }
   if (options.scope === "single" && options.matchId != null) {
     return pool.filter((l) => l.matchId === options.matchId).length;
   }

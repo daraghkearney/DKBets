@@ -9,13 +9,13 @@ export interface BuilderOptions {
   /** Required when scope is "single" */
   matchId?: number;
   maxLegs: number;
-  /** When true, only legs with live Bet365 prices are used */
-  liveOnly?: boolean;
 }
 
 function legConflict(a: BuilderLeg, b: BuilderLeg): boolean {
   if (a.matchId !== b.matchId) return false;
-  if (a.playerName && b.playerName && a.playerName === b.playerName) return true;
+  if (a.playerName && b.playerName && a.playerName === b.playerName) {
+    return a.category === b.category;
+  }
   return a.market === b.market;
 }
 
@@ -24,16 +24,16 @@ function canAdd(chosen: BuilderLeg[], leg: BuilderLeg): boolean {
 }
 
 function minRateForTarget(target: OddsTarget): number {
-  if (target.decimalMax <= 2.5) return 0.82;
-  if (target.decimalMax <= 4) return 0.76;
-  if (target.decimalMax <= 7) return 0.72;
-  if (target.decimalMax <= 13) return 0.66;
-  if (target.decimalMax <= 24) return 0.62;
-  return 0.58;
+  if (target.decimalMax <= 2.5) return 0.78;
+  if (target.decimalMax <= 4) return 0.72;
+  if (target.decimalMax <= 7) return 0.68;
+  if (target.decimalMax <= 13) return 0.62;
+  if (target.decimalMax <= 24) return 0.58;
+  return 0.55;
 }
 
 function minSampleForTarget(target: OddsTarget): number {
-  return target.decimalMax <= 13 ? 3 : 2;
+  return target.decimalMax <= 13 ? 2 : 2;
 }
 
 function sortForTarget(candidates: BuilderLeg[], target: OddsTarget): BuilderLeg[] {
@@ -48,6 +48,10 @@ function sortForTarget(candidates: BuilderLeg[], target: OddsTarget): BuilderLeg
       b.hitRate - a.hitRate ||
       b.sample - a.sample
   );
+}
+
+function combinedDecimal(legs: BuilderLeg[]): number {
+  return Math.round(legs.reduce((acc, l) => acc * l.decimalOdds, 1) * 100) / 100;
 }
 
 /** Filter leg pool by Bet Builder scope (Bet365 section only). */
@@ -75,23 +79,11 @@ export function filterLegsByScope(
   return pool;
 }
 
-/** Greedy safest-first acca to land near the target odds window. */
-export function buildForTarget(
-  pool: BuilderLeg[],
+function tryBuildGreedy(
+  candidates: BuilderLeg[],
   target: OddsTarget,
   maxLegs: number
-): BuilderSlip | null {
-  const candidates = sortForTarget(
-    pool.filter(
-      (l) =>
-        l.hitRate >= minRateForTarget(target) &&
-        l.sample >= minSampleForTarget(target)
-    ),
-    target
-  );
-
-  if (!candidates.length) return null;
-
+): BuilderLeg[] | null {
   const chosen: BuilderLeg[] = [];
   let odds = 1;
 
@@ -100,43 +92,80 @@ export function buildForTarget(
     if (!canAdd(chosen, leg)) continue;
     chosen.push(leg);
     odds = Math.round(odds * leg.decimalOdds * 100) / 100;
-    if (odds >= target.decimalMin && odds <= target.decimalMax) break;
-    if (odds > target.decimalMax * 1.2) {
+    if (odds >= target.decimalMin && odds <= target.decimalMax) return chosen;
+    if (odds > target.decimalMax * 1.15) {
       chosen.pop();
       odds = Math.round((odds / leg.decimalOdds) * 100) / 100;
     }
   }
 
   if (!chosen.length) return null;
+  if (combinedDecimal(chosen) >= target.decimalMin * 0.78) return chosen;
+  return null;
+}
 
-  const combined =
-    Math.round(chosen.reduce((acc, l) => acc * l.decimalOdds, 1) * 100) / 100;
+/** Small combo search when greedy fails (common with banker-heavy live legs). */
+function tryBuildCombo(
+  candidates: BuilderLeg[],
+  target: OddsTarget,
+  maxLegs: number
+): BuilderLeg[] | null {
+  const pool = candidates.slice(0, 22);
+  let best: BuilderLeg[] | null = null;
+  let bestDist = Infinity;
 
-  if (combined < target.decimalMin * 0.85) {
-    if (target.decimalMin >= 9) {
-      const alt = sortForTarget(
-        pool.filter((l) => l.hitRate >= 0.55 && l.sample >= 2),
-        target
-      );
-      const altChosen: BuilderLeg[] = [];
-      let altOdds = 1;
-      for (const leg of alt) {
-        if (altChosen.length >= maxLegs) break;
-        if (!canAdd(altChosen, leg)) continue;
-        altChosen.push(leg);
-        altOdds = Math.round(altOdds * leg.decimalOdds * 100) / 100;
-        if (altOdds >= target.decimalMin) {
-          return slipFromLegs(
-            `builder-${target.id}`,
-            `Bet365 Builder — ${target.label}`,
-            altChosen,
-            target.label
-          );
+  function search(start: number, chosen: BuilderLeg[], odds: number) {
+    if (chosen.length > maxLegs) return;
+    if (chosen.length >= 2) {
+      if (odds >= target.decimalMin && odds <= target.decimalMax) {
+        const dist = Math.abs(odds - (target.decimalMin + target.decimalMax) / 2);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = [...chosen];
         }
       }
     }
-    return null;
+    if (chosen.length >= maxLegs) return;
+    for (let i = start; i < pool.length; i++) {
+      const leg = pool[i];
+      if (!canAdd(chosen, leg)) continue;
+      search(i + 1, [...chosen, leg], Math.round(odds * leg.decimalOdds * 100) / 100);
+    }
   }
+
+  search(0, [], 1);
+  return best;
+}
+
+/** Greedy + combo acca to land near the target odds window. */
+export function buildForTarget(
+  pool: BuilderLeg[],
+  target: OddsTarget,
+  maxLegs: number
+): BuilderSlip | null {
+  const filtered = pool.filter(
+    (l) =>
+      l.hitRate >= minRateForTarget(target) &&
+      l.sample >= minSampleForTarget(target)
+  );
+  const candidates = sortForTarget(filtered, target);
+  if (!candidates.length) return null;
+
+  let chosen =
+    tryBuildGreedy(candidates, target, maxLegs) ??
+    tryBuildCombo(candidates, target, maxLegs);
+
+  if (!chosen && target.decimalMin >= 9) {
+    const alt = sortForTarget(
+      pool.filter((l) => l.hitRate >= 0.55 && l.sample >= 2),
+      target
+    );
+    chosen =
+      tryBuildGreedy(alt, target, maxLegs) ??
+      tryBuildCombo(alt, target, maxLegs);
+  }
+
+  if (!chosen?.length) return null;
 
   return slipFromLegs(
     `builder-${target.id}`,
@@ -152,12 +181,12 @@ export function buildTodaysPick(
   maxLegs: number
 ): BuilderSlip | null {
   const candidates = pool
-    .filter((l) => l.sample >= 3 && l.hitRate >= 0.78)
+    .filter((l) => l.sample >= 2 && l.hitRate >= 0.75)
     .sort((a, b) => b.hitRate - a.hitRate || b.sample - a.sample);
 
   if (!candidates.length) return null;
 
-  const single = candidates.find((l) => l.hitRate >= 0.88 && l.sample >= 4);
+  const single = candidates.find((l) => l.hitRate >= 0.85 && l.sample >= 3);
   if (single) {
     return slipFromLegs("todays-pick", "Today's Pick — Banker", [single]);
   }
@@ -171,7 +200,7 @@ export function buildTodaysPick(
         const b = candidates[j];
         if (!canAdd([a], b)) continue;
         const prob = a.hitRate * b.hitRate;
-        if (prob >= 0.82 && prob > bestPairProb) {
+        if (prob >= 0.78 && prob > bestPairProb) {
           bestPairProb = prob;
           bestPair = [a, b];
         }
@@ -192,7 +221,7 @@ export function buildTodaysPick(
           if (!canAdd([legs[0]], legs[1]) || !canAdd([legs[0], legs[1]], legs[2]))
             continue;
           const prob = legs.reduce((acc, l) => acc * l.hitRate, 1);
-          if (prob >= 0.78 && prob > bestTripleProb) {
+          if (prob >= 0.72 && prob > bestTripleProb) {
             bestTripleProb = prob;
             bestTriple = legs;
           }
@@ -228,10 +257,7 @@ export function composeBuilderView(
   todaysPick: BuilderSlip | null;
   builders: Record<string, BuilderSlip | null>;
 } {
-  let scoped = filterLegsByScope(pool, options);
-  if (options.liveOnly) {
-    scoped = scoped.filter((l) => l.oddsSource === "bet365_live");
-  }
+  const scoped = filterLegsByScope(pool, options);
   return {
     todaysPick: buildTodaysPick(scoped, options.maxLegs),
     builders: buildAllTargets(scoped, options.maxLegs),

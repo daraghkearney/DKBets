@@ -35,8 +35,7 @@ export const ODDS_TARGETS = [
 ] as const;
 
 export function applyBet365Price(
-  hitRate: number,
-  sample: number,
+  effectiveRate: number,
   category: LegCategory,
   liveDecimal?: number
 ): {
@@ -44,19 +43,24 @@ export function applyBet365Price(
   fractionalOdds: string;
   oddsSource: Bet365OddsSource;
 } {
-  const rate = effectiveHitRate(hitRate, sample);
+  const calibrated = snapBet365Decimal(bet365DecimalOdds(effectiveRate, category));
+
   if (liveDecimal && liveDecimal > 1) {
-    const decimalOdds = snapBet365Decimal(liveDecimal);
+    const live = snapBet365Decimal(liveDecimal);
+    // odds-api.io standalone props often differ from Bet365 Bet Builder — only trust live when close to BB ladder
+    const ratio = live / calibrated;
+    const useLive = ratio >= 0.97 && ratio <= 1.08;
+    const decimalOdds = useLive ? live : calibrated;
     return {
       decimalOdds,
       fractionalOdds: toFractional(decimalOdds),
-      oddsSource: "bet365_live",
+      oddsSource: useLive ? "bet365_live" : "bet365_calibrated",
     };
   }
-  const decimalOdds = bet365DecimalOdds(rate, category);
+
   return {
-    decimalOdds,
-    fractionalOdds: toFractional(decimalOdds),
+    decimalOdds: calibrated,
+    fractionalOdds: toFractional(calibrated),
     oddsSource: "bet365_calibrated",
   };
 }

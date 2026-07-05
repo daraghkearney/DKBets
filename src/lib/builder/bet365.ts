@@ -69,6 +69,12 @@ export function bet365DecimalOdds(rate: number, category: LegCategory): number {
     return snapBet365Decimal(1 / implied);
   }
 
+  // Strikers with high SOT hit rates price as bankers in Bet Builder (e.g. Haaland 1+ SOT).
+  if (category === "sot" && clamped >= 0.68) {
+    const implied = Math.min(0.9, 0.78 + (clamped - 0.68) * 0.85);
+    return snapBet365Decimal(1 / implied);
+  }
+
   const implied = Math.min(
     MAX_IMPLIED[category] ?? 0.88,
     clamped * (MARGIN[category] ?? 0.96)
@@ -192,15 +198,29 @@ function extractPlayerName(label: string, rowName?: string): string {
   return combined.replace(/\s[-–—]\s.*$/, "").trim() || label.trim();
 }
 
+function isOnePlusLine(label: string, rowName?: string, hdp?: number): boolean {
+  const text = `${label} ${rowName ?? ""}`.toLowerCase();
+  if (/\b(2|3|4|5)\+\s/.test(text) || /\b(2|3|4|5)\+\s*(shots|sot|tackle|foul)/i.test(text))
+    return false;
+  if (/\bover\s*[2-9]|under\s*[0-9]/i.test(text)) return false;
+  if (hdp !== undefined && Number.isFinite(hdp) && hdp > 0.5) return false;
+  return true;
+}
+
 function storeLivePrice(
   out: Map<string, number>,
   matchId: number,
   playerName: string,
   category: LegCategory,
-  decimal: number
+  decimal: number,
+  hdp?: number
 ): void {
   if (!playerName) return;
-  out.set(liveOddsLookupKey(matchId, playerName, category), snapBet365Decimal(decimal));
+  const key = liveOddsLookupKey(matchId, playerName, category);
+  const existing = out.get(key);
+  // Prefer 0.5 line (1+) over any previously stored higher line
+  if (existing && hdp !== undefined && hdp > 0.5) return;
+  out.set(key, snapBet365Decimal(decimal));
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -374,11 +394,15 @@ function parseOddsApiMarket(
 
     const player = extractPlayerName(label || rowName, rowName || undefined);
     const hdp = Number(row?.hdp ?? row?.handicap ?? row?.line);
+    const hasHdp = Number.isFinite(hdp);
+
+    if (!isOnePlusLine(label, rowName, hasHdp ? hdp : undefined)) continue;
+
     const over = parseDecimal(row?.over);
     const yes = parseDecimal(row?.yes);
 
-    if (over && (!Number.isFinite(hdp) || hdp <= 0.5)) {
-      storeLivePrice(out, fotmobMatchId, player, category, over);
+    if (over && (!hasHdp || hdp <= 0.5)) {
+      storeLivePrice(out, fotmobMatchId, player, category, over, hasHdp ? hdp : 0.5);
       continue;
     }
 

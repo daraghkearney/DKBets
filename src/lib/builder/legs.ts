@@ -91,8 +91,7 @@ function mkLeg(
     partial.category
   );
   const priced = applyBet365Price(
-    partial.hitRate,
-    partial.sample,
+    hitRate,
     partial.category,
     live
   );
