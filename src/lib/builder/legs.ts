@@ -5,7 +5,7 @@ import {
   combineProbability,
   effectiveHitRate,
 } from "./odds";
-import { legOddsKey } from "./bet365";
+import { findLivePrice } from "./bet365";
 import type { BuilderLeg, LegCategory } from "./types";
 import type { MatchDetailPayload, PickStat, PlayerTournamentStats } from "@/lib/stats/types";
 
@@ -84,12 +84,12 @@ function mkLeg(
   liveOdds?: Map<string, number>
 ): BuilderLeg {
   const hitRate = effectiveHitRate(partial.hitRate, partial.sample);
-  const key = legOddsKey(
+  const live = findLivePrice(
+    liveOdds,
     partial.matchId,
     partial.playerName,
-    partial.market
+    partial.category
   );
-  const live = liveOdds?.get(key);
   const priced = applyBet365Price(
     partial.hitRate,
     partial.sample,

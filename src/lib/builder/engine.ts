@@ -16,8 +16,12 @@ import type { BuilderPayload } from "./types";
 
 export async function loadBuilderPayload(): Promise<BuilderPayload> {
   const fixtures = await loadFixtures();
-  const fixtureIds = fixtures.map((f) => f.id);
-  const liveOdds = await fetchBet365LiveOdds(fixtureIds);
+  const liveOdds = await fetchBet365LiveOdds(
+    fixtures.map((f) => ({ id: f.id, home: f.home, away: f.away }))
+  );
+  if (process.env.ODDS_API_IO_KEY) {
+    console.log(`  bet365 live prices fetched: ${liveOdds.size}`);
+  }
 
   const allLegs: import("./types").BuilderLeg[] = [];
 
