@@ -37,18 +37,43 @@ const MARGIN: Record<LegCategory, number> = {
   team: 0.94,
 };
 
-/** Bet365 market names that carry player props we use in the builder. */
-const PROP_MARKET_HINTS = [
-  "player shot",
-  "player tackle",
-  "player foul",
-  "fouled",
-  "to be fouled",
-  "fouls won",
-  "player card",
-  "player booking",
-  "other player prop",
-  "player prop",
+/** Exact Bet365 Bet Builder markets — specialty lines (outside box, etc.) are excluded. */
+const CANONICAL_MARKET_CATEGORY: Record<string, LegCategory> = {
+  "player shots on target": "sot",
+  "player shot on target": "sot",
+  "player shots": "shots",
+  "player shot": "shots",
+  "player fouls committed": "fouls",
+  "player to be fouled": "foulsWon",
+  "to be fouled": "foulsWon",
+  "player fouls won": "foulsWon",
+  "player tackles": "tackles",
+  "player cards": "cards",
+  "player bookings": "cards",
+  "player to be carded": "cards",
+};
+
+const EXCLUDED_PROP_FRAGMENTS = [
+  "outside the box",
+  "inside the box",
+  "outside box",
+  "from outside",
+  "header",
+  "1st half",
+  "2nd half",
+  "first half",
+  "second half",
+  "half time",
+  "halftime",
+  "anytime",
+  "goalscorer",
+  "to score",
+  "assist",
+  "passes",
+  "cross",
+  "offside",
+  "alternative",
+  "special",
 ];
 
 export function snapBet365Decimal(decimal: number): number {
@@ -161,41 +186,19 @@ function parseDecimal(value: unknown): number | undefined {
   return undefined;
 }
 
-function categoryFromMarketName(name: string): LegCategory | null {
-  const n = name.toLowerCase();
-  if (n.includes("fouled") || (n.includes("foul") && n.includes("won"))) return "foulsWon";
-  if (n.includes("shot") && (n.includes("target") || n.includes("on target")))
-    return "sot";
-  if (n.includes("shot")) return "shots";
-  if (n.includes("tackle")) return "tackles";
-  if (n.includes("foul")) return "fouls";
-  if (n.includes("card") || n.includes("booking")) return "cards";
-  return null;
+function normalizeMarketName(name: string): string {
+  return name.toLowerCase().trim().replace(/\s+/g, " ");
 }
 
-function categoryFromSelectionLabel(label: string, rowName?: string): LegCategory | null {
-  const text = `${label} ${rowName ?? ""}`.toLowerCase();
-  if (
-    text.includes("to be fouled") ||
-    text.includes("fouled") ||
-    (text.includes("foul") && text.includes("won"))
-  )
-    return "foulsWon";
-  if (text.includes("foul") && (text.includes("commit") || text.includes("concede")))
-    return "fouls";
-  if (text.includes("shot") && (text.includes("target") || text.includes("on target")))
-    return "sot";
-  if (text.includes("foul")) return "fouls";
-  if (text.includes("tackle")) return "tackles";
-  if (text.includes("card") || text.includes("booked") || text.includes("booking"))
-    return "cards";
-  if (text.includes("shot")) return "shots";
-  return null;
+function isExcludedPropText(text: string): boolean {
+  const t = normalizeMarketName(text);
+  return EXCLUDED_PROP_FRAGMENTS.some((frag) => t.includes(frag));
 }
 
-function isPropMarket(name: string): boolean {
-  const n = name.toLowerCase();
-  return PROP_MARKET_HINTS.some((hint) => n.includes(hint));
+/** Only Bet Builder-equivalent markets — not specialty sub-lines from the API feed. */
+function categoryFromCanonicalMarket(marketName: string): LegCategory | null {
+  if (isExcludedPropText(marketName)) return null;
+  return CANONICAL_MARKET_CATEGORY[normalizeMarketName(marketName)] ?? null;
 }
 
 function extractPlayerName(label: string, rowName?: string): string {
@@ -212,8 +215,7 @@ function extractPlayerName(label: string, rowName?: string): string {
       return dashSplit[0]!.trim();
     }
   }
-  if (rowName && categoryFromSelectionLabel(label, rowName)) return label.trim();
-  return combined.replace(/\s[-–—]\s.*$/, "").trim() || label.trim();
+  return label.trim() || combined.replace(/\s[-–—]\s.*$/, "").trim();
 }
 
 function isOnePlusLine(label: string, rowName?: string, hdp?: number): boolean {
@@ -391,19 +393,16 @@ function parseOddsApiMarket(
   out: Map<string, number>
 ): void {
   const marketName = String(market?.name ?? market?.marketName ?? "");
-  if (!isPropMarket(marketName) && !categoryFromMarketName(marketName)) return;
+  const category = categoryFromCanonicalMarket(marketName);
+  if (!category) return;
 
-  const defaultCategory = categoryFromMarketName(marketName);
   const rows = market?.odds ?? market?.outcomes ?? market?.selections ?? [];
 
   for (const row of rows as any[]) {
     const label = String(row?.label ?? row?.participant ?? "").trim();
     const rowName = String(row?.name ?? "").trim();
     if (!label && !rowName) continue;
-
-    const category =
-      categoryFromSelectionLabel(label, rowName) ?? defaultCategory;
-    if (!category) continue;
+    if (isExcludedPropText(`${label} ${rowName}`)) continue;
 
     const player = extractPlayerName(label || rowName, rowName || undefined);
     const hdp = Number(row?.hdp ?? row?.handicap ?? row?.line);
@@ -421,12 +420,9 @@ function parseOddsApiMarket(
 
     if (yes && category === "cards") {
       storeLivePrice(out, fotmobMatchId, player, category, yes);
-      continue;
     }
 
-    const price = parseDecimal(row?.price ?? row?.odds ?? row?.decimal);
-    if (price) {
-      storeLivePrice(out, fotmobMatchId, player, category, price);
-    }
+    // Do not use bare price/odds fields — they map to specialty yes/no markets
+    // (e.g. SOT from outside the box) rather than Bet Builder 1+ lines.
   }
 }
