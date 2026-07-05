@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
 import { dataUrl } from "@/lib/basePath";
 import {
   composeBuilderView,
@@ -22,6 +22,7 @@ export default function BuilderPage() {
   const [scope, setScope] = useState<BuilderScope>("today");
   const [matchId, setMatchId] = useState<number | undefined>();
   const [maxLegs, setMaxLegs] = useState(DEFAULT_MAX_LEGS);
+  const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     fetch(dataUrl("/builder.json"), { cache: "no-store" })
@@ -46,8 +47,10 @@ export default function BuilderPage() {
     if (!data) return null;
     return composeBuilderView(data.legs, options);
   }, [data, options]);
+  const deferredComposed = useDeferredValue(composed);
+  const showPending = isPending || deferredComposed !== composed;
 
-  const selected: BuilderSlip | null = composed?.builders[targetId] ?? null;
+  const selected: BuilderSlip | null = deferredComposed?.builders[targetId] ?? null;
   const scopedLegs = useMemo(() => {
     if (!data) return [];
     return filterLegsByScope(data.legs, options);
@@ -122,7 +125,11 @@ export default function BuilderPage() {
                     <button
                       key={id}
                       type="button"
-                      onClick={() => setScope(id)}
+                      onClick={() =>
+                        startTransition(() => {
+                          setScope(id);
+                        })
+                      }
                       className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
                         scope === id
                           ? "border-[#126e51] bg-[#126e51]/15 text-[#3ecf8e]"
@@ -181,7 +188,7 @@ export default function BuilderPage() {
             </p>
           </section>
 
-          {composed?.todaysPick && (
+          {deferredComposed?.todaysPick && (
             <section>
               <h2 className="mb-3 text-lg font-bold">
                 <span className="text-gold">★</span> Today&apos;s Pick
@@ -191,12 +198,15 @@ export default function BuilderPage() {
                 combined probability from tournament form and player matchup
                 history.
               </p>
-              <BuilderSlipCard slip={composed.todaysPick} highlight liveOdds={liveAvailable} />
+              <BuilderSlipCard slip={deferredComposed.todaysPick} highlight liveOdds={liveAvailable} />
             </section>
           )}
 
           <section>
             <h2 className="mb-3 text-lg font-bold">Build by odds target</h2>
+            {showPending && (
+              <p className="mb-3 text-xs text-muted">Updating builder…</p>
+            )}
             <p className="mb-4 text-xs text-muted">
               Select your desired combined Bet365 odds — we fill the builder with
               the safest available legs from your scope (

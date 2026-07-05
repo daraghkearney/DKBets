@@ -108,37 +108,72 @@ function tryBuildGreedy(
   return null;
 }
 
-/** Small combo search when greedy fails (common with banker-heavy live legs). */
+/** Small combo search for tight single-match pools only. */
 function tryBuildCombo(
   candidates: BuilderLeg[],
   target: OddsTarget,
   maxLegs: number
 ): BuilderLeg[] | null {
-  const pool = candidates.slice(0, Math.min(40, candidates.length));
+  if (candidates.length > 28) return null;
+
+  const pool = candidates.slice(0, Math.min(22, candidates.length));
+  const MAX_VISITS = 40_000;
+  let visits = 0;
   let best: BuilderLeg[] | null = null;
   let bestDist = Infinity;
+  const chosen: BuilderLeg[] = [];
 
-  function search(start: number, chosen: BuilderLeg[], odds: number) {
-    if (chosen.length > maxLegs) return;
-    if (chosen.length >= 2) {
-      if (odds >= target.decimalMin && odds <= target.decimalMax) {
-        const dist = Math.abs(odds - (target.decimalMin + target.decimalMax) / 2);
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = [...chosen];
-        }
+  function search(start: number, odds: number) {
+    if (visits++ > MAX_VISITS) return;
+    if (chosen.length >= 2 && odds >= target.decimalMin && odds <= target.decimalMax) {
+      const dist = Math.abs(odds - (target.decimalMin + target.decimalMax) / 2);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = chosen.slice();
       }
     }
     if (chosen.length >= maxLegs) return;
     for (let i = start; i < pool.length; i++) {
       const leg = pool[i];
       if (!canAdd(chosen, leg)) continue;
-      search(i + 1, [...chosen, leg], Math.round(odds * leg.decimalOdds * 100) / 100);
+      chosen.push(leg);
+      search(i + 1, Math.round(odds * leg.decimalOdds * 100) / 100);
+      chosen.pop();
     }
   }
 
-  search(0, [], 1);
+  search(0, 1);
   return best;
+}
+
+/** One strong leg per fixture, then greedy — fast for multi-game scopes. */
+function tryBuildPerMatch(
+  candidates: BuilderLeg[],
+  target: OddsTarget,
+  maxLegs: number
+): BuilderLeg[] | null {
+  const bestByMatch = new Map<number, BuilderLeg>();
+  for (const leg of candidates) {
+    const cur = bestByMatch.get(leg.matchId);
+    if (
+      !cur ||
+      leg.hitRate > cur.hitRate ||
+      (leg.hitRate === cur.hitRate && leg.decimalOdds > cur.decimalOdds)
+    ) {
+      bestByMatch.set(leg.matchId, leg);
+    }
+  }
+  const perMatch = [...bestByMatch.values()];
+  if (perMatch.length < 2) return null;
+
+  return (
+    tryBuildGreedy(sortForTarget(perMatch, target), target, maxLegs) ??
+    tryBuildGreedy(
+      [...perMatch].sort((a, b) => b.decimalOdds - a.decimalOdds),
+      target,
+      maxLegs
+    )
+  );
 }
 
 function maxAchievableOdds(candidates: BuilderLeg[], maxLegs: number): number {
@@ -170,7 +205,8 @@ export function buildForTarget(
 
   let chosen =
     tryBuildCombo(candidates, target, maxLegs) ??
-    tryBuildGreedy(candidates, target, maxLegs);
+    tryBuildGreedy(candidates, target, maxLegs) ??
+    tryBuildPerMatch(candidates, target, maxLegs);
 
   if (!chosen && target.decimalMin >= 9) {
     const alt = sortForTarget(
@@ -178,8 +214,7 @@ export function buildForTarget(
       target
     );
     chosen =
-      tryBuildGreedy(alt, target, maxLegs) ??
-      tryBuildCombo(alt, target, maxLegs);
+      tryBuildGreedy(alt, target, maxLegs) ?? tryBuildPerMatch(alt, target, maxLegs);
   }
 
   if (!chosen?.length) return null;
@@ -231,9 +266,10 @@ export function buildTodaysPick(
   if (maxLegs >= 3) {
     let bestTriple: BuilderLeg[] | null = null;
     let bestTripleProb = 0;
-    for (let i = 0; i < Math.min(candidates.length, 15); i++) {
-      for (let j = i + 1; j < Math.min(candidates.length, 20); j++) {
-        for (let k = j + 1; k < Math.min(candidates.length, 25); k++) {
+    const n = Math.min(candidates.length, 12);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        for (let k = j + 1; k < n; k++) {
           const legs = [candidates[i], candidates[j], candidates[k]];
           if (!canAdd([legs[0]], legs[1]) || !canAdd([legs[0], legs[1]], legs[2]))
             continue;
