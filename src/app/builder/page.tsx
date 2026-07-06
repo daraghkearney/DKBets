@@ -4,15 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { dataUrl } from "@/lib/basePath";
 import {
   composeBuilderView,
-  filterLegsByScope,
+  filterBuilderLegs,
   lookupPrecomputedView,
+  MARKET_FILTER_OPTIONS,
   maxOddsInScope,
   ODDS_TARGETS,
   type BuilderComposedView,
   type BuilderOptions,
   type BuilderScope,
 } from "@/lib/builder/compose";
-import type { BuilderPayload, BuilderSlip } from "@/lib/builder/types";
+import type { BuilderPayload, BuilderSlip, LegCategory } from "@/lib/builder/types";
 import BuilderSlipCard from "@/components/builder/BuilderSlipCard";
 import UnderpricedGemCard from "@/components/builder/UnderpricedGemCard";
 
@@ -25,6 +26,7 @@ export default function BuilderPage() {
   const [scope, setScope] = useState<BuilderScope>("today");
   const [matchId, setMatchId] = useState<number | undefined>();
   const [maxLegs, setMaxLegs] = useState(DEFAULT_MAX_LEGS);
+  const [categories, setCategories] = useState<LegCategory[]>([]);
   const [runtimeComposed, setRuntimeComposed] =
     useState<BuilderComposedView | null>(null);
   const [computing, setComputing] = useState(false);
@@ -44,13 +46,19 @@ export default function BuilderPage() {
       scope,
       matchId: scope === "single" ? matchId : undefined,
       maxLegs,
+      categories: categories.length ? categories : undefined,
     }),
-    [scope, matchId, maxLegs]
+    [scope, matchId, maxLegs, categories]
   );
 
+  const hasCategoryFilter = categories.length > 0;
+
   const cachedView = useMemo(
-    () => (data ? lookupPrecomputedView(data.precomputed, options) : null),
-    [data, options]
+    () =>
+      data && !hasCategoryFilter
+        ? lookupPrecomputedView(data.precomputed, options)
+        : null,
+    [data, options, hasCategoryFilter]
   );
 
   useEffect(() => {
@@ -74,16 +82,22 @@ export default function BuilderPage() {
   const selected: BuilderSlip | null = composed?.builders[targetId] ?? null;
   const scopedLegCount = useMemo(() => {
     if (!data) return 0;
-    return filterLegsByScope(data.legs, options).length;
+    return filterBuilderLegs(data.legs, options).length;
   }, [data, options]);
   const scopeMaxOdds = useMemo(() => {
     if (!data) return 0;
-    const scoped = filterLegsByScope(data.legs, options);
+    const scoped = filterBuilderLegs(data.legs, options);
     return scoped.length ? maxOddsInScope(scoped, maxLegs) : 0;
   }, [data, options, maxLegs]);
   const activeTarget = ODDS_TARGETS.find((t) => t.id === targetId);
   const liveAvailable = data?.bet365LiveAvailable ?? false;
   const apiConfigured = data?.bet365ApiConfigured ?? false;
+
+  const toggleCategory = (id: LegCategory) => {
+    setCategories((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
+    );
+  };
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
@@ -196,6 +210,48 @@ export default function BuilderPage() {
               </div>
             </div>
 
+            <div className="mt-5">
+              <p className="mb-2 text-xs font-semibold text-muted">
+                Markets
+                {hasCategoryFilter && (
+                  <span className="ml-2 font-normal text-[#3ecf8e]">
+                    ({categories.length} selected)
+                  </span>
+                )}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCategories([])}
+                  className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                    !hasCategoryFilter
+                      ? "border-[#126e51] bg-[#126e51]/15 text-[#3ecf8e]"
+                      : "border-edge bg-background text-muted hover:border-[#126e51]/40"
+                  }`}
+                >
+                  All markets
+                </button>
+                {MARKET_FILTER_OPTIONS.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggleCategory(m.id)}
+                    className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                      categories.includes(m.id)
+                        ? "border-[#126e51] bg-[#126e51]/15 text-[#3ecf8e]"
+                        : "border-edge bg-background text-muted hover:border-[#126e51]/40"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-muted">
+                Filter builders to specific event types — odds targets still
+                apply, but only legs from selected markets are used.
+              </p>
+            </div>
+
             <p className="mt-4 text-xs text-muted">
               {scope === "single" &&
                 "All legs from a single fixture — same-game Bet365 builder."}
@@ -247,7 +303,8 @@ export default function BuilderPage() {
             <p className="mb-4 text-xs text-muted">
               Each band uses the highest-probability legs that can reach that
               Bet365 odds window from your scope ({scopedLegCount} live Bet365
-              legs in scope).
+              legs
+              {hasCategoryFilter ? " in selected markets" : " in scope"}).
             </p>
 
             <div className="mb-5 flex flex-wrap gap-2">
@@ -287,8 +344,15 @@ export default function BuilderPage() {
                 ) : (
                   <>
                     Not enough live Bet365 legs with strong hit rates to build
-                    this slip. Try increasing max legs or widening scope to
-                    Multi-game.
+                    this slip
+                    {hasCategoryFilter
+                      ? " for the selected markets"
+                      : ""}
+                    . Try increasing max legs, widening scope to Multi-game,
+                    {hasCategoryFilter
+                      ? " adding more market types,"
+                      : ""}{" "}
+                    or pick a lower odds band.
                   </>
                 )}
               </p>

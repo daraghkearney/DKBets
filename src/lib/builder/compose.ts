@@ -5,17 +5,31 @@ import type {
   BuilderComposedView,
   BuilderLeg,
   BuilderSlip,
+  LegCategory,
   OddsTarget,
   UnderpricedGem,
 } from "./types";
 
 export type BuilderScope = "single" | "today" | "multi";
 
+/** Toggle labels for the Bet365 Builder market filter UI. */
+export const MARKET_FILTER_OPTIONS: { id: LegCategory; label: string }[] = [
+  { id: "shots", label: "Shots" },
+  { id: "sot", label: "Shots on Target" },
+  { id: "fouls", label: "Fouls Committed" },
+  { id: "foulsWon", label: "Fouls Won" },
+  { id: "tackles", label: "Tackles" },
+  { id: "cards", label: "Cards" },
+  { id: "team", label: "Team" },
+];
+
 export interface BuilderOptions {
   scope: BuilderScope;
   /** Required when scope is "single" */
   matchId?: number;
   maxLegs: number;
+  /** When set, only legs in these categories are used. Empty = all markets. */
+  categories?: LegCategory[];
 }
 
 function legConflict(a: BuilderLeg, b: BuilderLeg): boolean {
@@ -75,6 +89,24 @@ export function filterLegsByScope(
     });
   }
   return pool;
+}
+
+/** Restrict legs to selected market categories (shots, fouls, etc.). */
+export function filterLegsByCategories(
+  pool: BuilderLeg[],
+  categories?: LegCategory[]
+): BuilderLeg[] {
+  if (!categories?.length) return pool;
+  const allowed = new Set(categories);
+  return pool.filter((l) => allowed.has(l.category));
+}
+
+/** Scope + optional market-category filter. */
+export function filterBuilderLegs(
+  pool: BuilderLeg[],
+  options: BuilderOptions
+): BuilderLeg[] {
+  return filterLegsByCategories(filterLegsByScope(pool, options), options.categories);
 }
 
 /**
@@ -281,7 +313,7 @@ export function composeBuilderView(
   pool: BuilderLeg[],
   options: BuilderOptions
 ): BuilderComposedView {
-  const scoped = filterLegsByScope(pool, options);
+  const scoped = filterBuilderLegs(pool, options);
   const todaysPick = buildTodaysPick(scoped, options.maxLegs);
   const excludeIds = todaysPick?.legs.map((l) => l.id) ?? [];
   return {
