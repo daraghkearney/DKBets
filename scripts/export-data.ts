@@ -87,7 +87,7 @@ async function main() {
   builder.precomputed = precomputeBuilderViews(
     builder.legs,
     builder.fixtures,
-    [8]
+    Array.from({ length: 15 }, (_, i) => i + 1)
   );
   await writeJson("builder.json", builder);
 

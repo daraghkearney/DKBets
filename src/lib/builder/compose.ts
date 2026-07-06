@@ -324,9 +324,7 @@ export function lookupPrecomputedView(
   options: BuilderOptions
 ): BuilderComposedView | null {
   if (!precomputed) return null;
-  const bucket =
-    precomputed.byMaxLegs[String(options.maxLegs)] ??
-    precomputed.byMaxLegs["8"];
+  const bucket = precomputed.byMaxLegs[String(options.maxLegs)];
   if (!bucket) return null;
   if (options.scope === "single" && options.matchId != null) {
     return bucket.single[String(options.matchId)] ?? null;
