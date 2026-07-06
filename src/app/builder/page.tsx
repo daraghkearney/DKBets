@@ -14,6 +14,7 @@ import {
 } from "@/lib/builder/compose";
 import type { BuilderPayload, BuilderSlip } from "@/lib/builder/types";
 import BuilderSlipCard from "@/components/builder/BuilderSlipCard";
+import UnderpricedGemCard from "@/components/builder/UnderpricedGemCard";
 
 const DEFAULT_MAX_LEGS = 8;
 
@@ -211,13 +212,28 @@ export default function BuilderPage() {
                 <span className="text-gold">★</span> Today&apos;s Pick
               </h2>
               <p className="mb-4 text-xs text-muted">
-                Highest-confidence Bet365 slip for your scope — targeting 88%+
-                combined probability from tournament form and player matchup
-                history.
+                Highest-confidence Bet365 slip for your scope — built from the
+                strongest combined probability legs in range.
               </p>
               <BuilderSlipCard
                 slip={composed.todaysPick}
                 highlight
+                liveOdds={liveAvailable}
+              />
+            </section>
+          )}
+
+          {composed?.underpricedGem && (
+            <section>
+              <h2 className="mb-3 text-lg font-bold">
+                <span className="text-[#3ecf8e]">◆</span> Underpriced Gem
+              </h2>
+              <p className="mb-4 text-xs text-muted">
+                Standout value where our stats and matchup model sit well above
+                Bet365&apos;s live price — player or team markets.
+              </p>
+              <UnderpricedGemCard
+                gem={composed.underpricedGem}
                 liveOdds={liveAvailable}
               />
             </section>
@@ -229,9 +245,9 @@ export default function BuilderPage() {
               <p className="mb-3 text-xs text-muted">Updating builder…</p>
             )}
             <p className="mb-4 text-xs text-muted">
-              Select your desired combined Bet365 odds — we fill the builder with
-              the safest available legs from your scope ({scopedLegCount} live
-              Bet365 legs in scope).
+              Each band uses the highest-probability legs that can reach that
+              Bet365 odds window from your scope ({scopedLegCount} live Bet365
+              legs in scope).
             </p>
 
             <div className="mb-5 flex flex-wrap gap-2">

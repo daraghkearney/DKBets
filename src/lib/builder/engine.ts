@@ -1,4 +1,5 @@
 import { loadFixtures, loadMatchDetail } from "@/lib/stats/engine";
+import { ensurePlayerIndex, getTeamHistory } from "@/lib/stats/store";
 import {
   BET365_CACHE_VERSION,
   loadCachedBet365EventUrls,
@@ -103,6 +104,8 @@ async function resolveLiveOdds(
 
 export async function loadBuilderPayload(): Promise<BuilderPayload> {
   const fixtures = await loadFixtures();
+  await ensurePlayerIndex();
+  const teamHistory = getTeamHistory();
   const apiConfigured = Boolean(process.env.ODDS_API_IO_KEY);
   const liveBundle = await resolveLiveOdds(
     fixtures.map((f) => ({ id: f.id, home: f.home, away: f.away }))
@@ -119,7 +122,12 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
       const detail = await loadMatchDetail(fx.id);
       if (detail) {
         allLegs.push(
-          ...legsFromMatchDetail(detail, liveBundle.quotes, liveBundle.eventUrls)
+          ...legsFromMatchDetail(
+            detail,
+            liveBundle.quotes,
+            liveBundle.eventUrls,
+            teamHistory
+          )
         );
       }
     }

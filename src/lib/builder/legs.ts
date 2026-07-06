@@ -5,73 +5,122 @@ import {
   effectiveHitRate,
   priceFromBet365Live,
 } from "./odds";
-import { findLiveQuote, normPlayer } from "./bet365";
+import { findLiveQuote, findTeamLiveQuote, normPlayer } from "./bet365";
 import type { Bet365LiveMap } from "./bet365-live";
 import type { BuilderLeg, LegCategory } from "./types";
 import type { MatchDetailPayload, PickStat, PlayerTournamentStats } from "@/lib/stats/types";
+import {
+  normTeamKey,
+  type TeamMatchLine,
+} from "@/lib/stats/team-lines";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+export { parseTeamMatchLines } from "@/lib/stats/team-lines";
 
-interface TeamMatchLine {
-  matchId: number;
-  teamName: string;
-  opponent: string;
-  shots: number;
-  shotsOnTarget: number;
-  fouls: number;
-  yellowCards: number;
+function mkTeamLeg(
+  partial: {
+    market: string;
+    matchLabel: string;
+    matchId: number;
+    kickoff: string;
+    teamName: string;
+    teamMarket: string;
+    hitRate: number;
+    sample: number;
+    tournamentHits: number;
+    tournamentSample: number;
+  },
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
+): BuilderLeg | null {
+  const quote = findTeamLiveQuote(
+    liveOdds,
+    partial.matchId,
+    partial.teamName,
+    partial.teamMarket
+  );
+  if (!quote) return null;
+
+  const hitRate = effectiveHitRate(partial.hitRate, partial.sample);
+  const priced = priceFromBet365Live(quote.price);
+  return {
+    type: "team",
+    label: partial.market,
+    market: partial.market,
+    matchLabel: partial.matchLabel,
+    matchId: partial.matchId,
+    kickoff: partial.kickoff,
+    teamName: partial.teamName,
+    category: "team",
+    hitRate,
+    sample: partial.sample,
+    tournamentHits: partial.tournamentHits,
+    tournamentSample: partial.tournamentSample,
+    id: `${partial.matchId}-team-${partial.teamMarket}`.slice(0, 80),
+    ...priced,
+    bet365Link: quote.link,
+    bet365SelectionId: quote.selectionId,
+    bet365EventUrl: eventUrls?.get(partial.matchId),
+  };
 }
 
-function parseNum(v: unknown): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "string") return Number(v.replace(/[^\d.]/g, "")) || 0;
-  return 0;
-}
-
-/** Extract home/away team stat pairs from FotMob match stats (All period). */
-export function parseTeamMatchLines(
+function teamPropLegs(
+  teamName: string,
+  history: TeamMatchLine[],
+  matchLabel: string,
   matchId: number,
-  payload: any,
-  homeName: string,
-  awayName: string
-): TeamMatchLine[] {
-  const sections = payload?.content?.stats?.Periods?.All?.stats ?? [];
-  const pairs: Record<string, [number, number]> = {};
+  kickoff: string,
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
+): BuilderLeg[] {
+  const sample = history.length;
+  if (sample < 2) return [];
 
-  for (const section of sections) {
-    for (const row of section?.stats ?? []) {
-      if (!row || typeof row !== "object" || !Array.isArray(row.stats)) continue;
-      const key = row.key ?? row.title;
-      if (typeof key !== "string") continue;
-      pairs[key] = [parseNum(row.stats[0]), parseNum(row.stats[1])];
-    }
-  }
-
-  const shots = pairs.total_shots ?? [0, 0];
-  const sot = pairs.ShotsOnTarget ?? [0, 0];
-  const fouls = pairs.fouls ?? [0, 0];
-  const yc = pairs.yellow_cards ?? [0, 0];
-
-  return [
+  const templates: Array<{
+    teamMarket: string;
+    market: string;
+    test: (line: TeamMatchLine) => boolean;
+  }> = [
     {
-      matchId,
-      teamName: homeName,
-      opponent: awayName,
-      shots: shots[0],
-      shotsOnTarget: sot[0],
-      fouls: fouls[0],
-      yellowCards: yc[0],
+      teamMarket: "sot_over_05",
+      market: `${teamName} 1+ Shots on Target`,
+      test: (l) => l.shotsOnTarget >= 1,
     },
     {
-      matchId,
-      teamName: awayName,
-      opponent: homeName,
-      shots: shots[1],
-      shotsOnTarget: sot[1],
-      fouls: fouls[1],
-      yellowCards: yc[1],
+      teamMarket: "shots_over_05",
+      market: `${teamName} 1+ Shots`,
+      test: (l) => l.shots >= 1,
+    },
+    {
+      teamMarket: "corners_over_45",
+      market: `${teamName} 4+ Corners`,
+      test: (l) => l.corners >= 4,
     },
   ];
+
+  const legs: BuilderLeg[] = [];
+  for (const tpl of templates) {
+    const hits = history.filter(tpl.test).length;
+    const rate = hits / sample;
+    if (rate < 0.55) continue;
+    const leg = mkTeamLeg(
+      {
+        market: tpl.market,
+        matchLabel,
+        matchId,
+        kickoff,
+        teamName,
+        teamMarket: tpl.teamMarket,
+        hitRate: rate,
+        sample,
+        tournamentHits: hits,
+        tournamentSample: sample,
+      },
+      liveOdds,
+      eventUrls
+    );
+    if (leg) legs.push(leg);
+  }
+  return legs;
 }
 
 function mkLeg(
@@ -115,10 +164,11 @@ function pickToLeg(
   kickoff: string,
   category: LegCategory,
   liveOdds?: Bet365LiveMap,
-  eventUrls?: Map<number, string>
+  eventUrls?: Map<number, string>,
+  matchupLabel?: string
 ): BuilderLeg | null {
   const market = pick.label;
-  return mkLeg(
+  const leg = mkLeg(
     {
       type: "player",
       label: pick.label,
@@ -131,10 +181,16 @@ function pickToLeg(
       category,
       hitRate: pick.rate,
       sample: pick.sample,
+      h2hHits: pick.h2hHits,
+      h2hSample: pick.h2hSample,
+      tournamentHits: pick.tournamentHits,
+      tournamentSample: pick.tournamentSample,
+      matchupLabel,
     },
     liveOdds,
     eventUrls
   );
+  return leg;
 }
 
 function categoryFromLabel(label: string): LegCategory {
@@ -222,7 +278,8 @@ function playerPropLegs(
 export function legsFromMatchDetail(
   detail: MatchDetailPayload,
   liveOdds?: Bet365LiveMap,
-  eventUrls?: Map<number, string>
+  eventUrls?: Map<number, string>,
+  teamHistory?: Map<string, TeamMatchLine[]>
 ): BuilderLeg[] {
   const { fixture } = detail;
   const matchLabel = `${fixture.home} v ${fixture.away}`;
@@ -248,7 +305,8 @@ export function legsFromMatchDetail(
           fixture.kickoff,
           categoryFromLabel(pick.label),
           liveOdds,
-          eventUrls
+          eventUrls,
+          `${mu.slot}: ${mu.label}`
         )
       );
     }
@@ -269,6 +327,23 @@ export function legsFromMatchDetail(
       eventUrls
     )) {
       add(leg);
+    }
+  }
+
+  if (teamHistory) {
+    for (const teamName of [fixture.home, fixture.away]) {
+      const history = teamHistory.get(normTeamKey(teamName)) ?? [];
+      for (const leg of teamPropLegs(
+        teamName,
+        history,
+        matchLabel,
+        fixture.id,
+        fixture.kickoff,
+        liveOdds,
+        eventUrls
+      )) {
+        add(leg);
+      }
     }
   }
 

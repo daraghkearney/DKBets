@@ -132,6 +132,24 @@ export function liveOddsLookupKey(
   return `${matchId}|${normPlayer(playerName)}|${category}`;
 }
 
+export function teamLiveOddsLookupKey(
+  matchId: number,
+  teamName: string,
+  teamMarket: string
+): string {
+  return `${matchId}|${normTeam(teamName)}|team|${teamMarket}`;
+}
+
+export function findTeamLiveQuote(
+  liveOdds: Bet365LiveMap | undefined,
+  matchId: number,
+  teamName: string,
+  teamMarket: string
+): Bet365LiveQuote | undefined {
+  if (!liveOdds) return undefined;
+  return liveOdds.get(teamLiveOddsLookupKey(matchId, teamName, teamMarket));
+}
+
 export type { Bet365LiveBundle, Bet365LiveMap, Bet365LiveQuote } from "./bet365-live";
 
 export function findLiveQuote(
@@ -254,7 +272,7 @@ function playersMatch(apiPlayer: string, statsPlayer: string): boolean {
   return false;
 }
 
-function normTeam(team: string): string {
+export function normTeam(team: string): string {
   const t = team.trim().toLowerCase().replace(/\./g, "");
   if (t === "united states") return "usa";
   return t
@@ -397,6 +415,89 @@ function extractEventUrl(data: any): string | undefined {
     if (typeof direct === "string" && direct.startsWith("http")) return direct;
   }
   return undefined;
+}
+
+function storeTeamQuote(
+  out: Bet365LiveMap,
+  matchId: number,
+  teamName: string,
+  teamMarket: string,
+  decimal: number,
+  meta: { link?: string; selectionId?: string } = {}
+): void {
+  const key = teamLiveOddsLookupKey(matchId, teamName, teamMarket);
+  const existing = out.get(key);
+  const rounded = Math.round(decimal * 1000) / 1000;
+  if (existing !== undefined && rounded >= existing.price) return;
+  out.set(key, {
+    price: rounded,
+    link: meta.link ?? existing?.link,
+    selectionId: meta.selectionId ?? existing?.selectionId,
+  });
+}
+
+function matchTeamInLabel(label: string, home: string, away: string): string | null {
+  const text = label.toLowerCase();
+  const h = home.toLowerCase();
+  const a = away.toLowerCase();
+  if (text.includes(h) || h.split(" ").some((w) => w.length > 3 && text.includes(w))) {
+    return home;
+  }
+  if (text.includes(a) || a.split(" ").some((w) => w.length > 3 && text.includes(w))) {
+    return away;
+  }
+  return null;
+}
+
+function parseTeamOddsApiMarket(
+  market: any,
+  fotmobMatchId: number,
+  apiEventId: number,
+  home: string,
+  away: string,
+  out: Bet365LiveMap
+): boolean {
+  const marketName = normalizeMarketName(String(market?.name ?? market?.marketName ?? ""));
+  let teamMarket: string | null = null;
+  let minHdp = 0.5;
+  let maxHdp = 0.5;
+
+  if (marketName.includes("corner")) {
+    teamMarket = "corners_over_45";
+    minHdp = 3.5;
+    maxHdp = 5.5;
+  } else if (marketName.includes("shots on target") || marketName.includes("shot on target")) {
+    teamMarket = "sot_over_05";
+  } else if (marketName.includes("total shots") || marketName.includes("team shots")) {
+    teamMarket = "shots_over_05";
+  } else {
+    return false;
+  }
+
+  const rows = market?.odds ?? market?.outcomes ?? market?.selections ?? [];
+  let matched = false;
+
+  for (const row of rows as any[]) {
+    const label = String(row?.label ?? row?.participant ?? row?.name ?? "").trim();
+    if (!label) continue;
+    const team = matchTeamInLabel(label, home, away);
+    if (!team) continue;
+
+    const hdp = Number(row?.hdp ?? row?.handicap ?? row?.line);
+    const hasHdp = Number.isFinite(hdp);
+    if (hasHdp && (hdp < minHdp || hdp > maxHdp)) continue;
+
+    const over = parseDecimal(row?.over ?? row?.yes ?? row?.price);
+    if (!over) continue;
+
+    storeTeamQuote(out, fotmobMatchId, team, teamMarket, over, {
+      link: extractRowLink(row) ?? extractRowLink(market),
+      selectionId: extractSelectionId(row, apiEventId),
+    });
+    matched = true;
+  }
+
+  return matched;
 }
 
 function storeLiveQuote(
@@ -551,7 +652,8 @@ export async function fetchBet365LiveOdds(
         if (fotmobId) {
           const eventUrl = extractEventUrl(data);
           if (eventUrl) eventUrls.set(fotmobId, eventUrl);
-          parseOddsApiResponse(data, fotmobId, apiEventId, quotes);
+          const fx = fixtures.find((f) => f.id === fotmobId);
+          parseOddsApiResponse(data, fotmobId, apiEventId, quotes, fx);
         }
       }
     }
@@ -566,13 +668,28 @@ function parseOddsApiResponse(
   data: any,
   fotmobMatchId: number,
   apiEventId: number,
-  out: Bet365LiveMap
+  out: Bet365LiveMap,
+  fixture?: FixtureRef
 ): void {
   const bet365 = data?.bookmakers?.Bet365 ?? data?.bookmakers?.bet365;
   if (!Array.isArray(bet365)) return;
 
   let propMarkets = 0;
   for (const market of bet365) {
+    if (
+      fixture &&
+      parseTeamOddsApiMarket(
+        market,
+        fotmobMatchId,
+        apiEventId,
+        fixture.home,
+        fixture.away,
+        out
+      )
+    ) {
+      propMarkets += 1;
+      continue;
+    }
     if (parseOddsApiMarket(market, fotmobMatchId, apiEventId, out)) propMarkets += 1;
   }
   if (process.env.REFRESH_BET365_ODDS !== "false") {

@@ -1,6 +1,13 @@
+import { buildUnderpricedGem } from "./gem";
 import { ODDS_TARGETS } from "./odds";
 import { slipFromLegs } from "./legs";
-import type { BuilderComposedView, BuilderLeg, BuilderSlip, OddsTarget } from "./types";
+import type {
+  BuilderComposedView,
+  BuilderLeg,
+  BuilderSlip,
+  OddsTarget,
+  UnderpricedGem,
+} from "./types";
 
 export type BuilderScope = "single" | "today" | "multi";
 
@@ -23,39 +30,26 @@ function canAdd(chosen: BuilderLeg[], leg: BuilderLeg): boolean {
   return !chosen.some((c) => legConflict(c, leg));
 }
 
-function minRateForTarget(target: OddsTarget, poolSize: number): number {
-  let min: number;
-  if (target.decimalMax <= 2.5) min = 0.78;
-  else if (target.decimalMax <= 4) min = 0.65;
-  else if (target.decimalMax <= 7) min = 0.62;
-  else if (target.decimalMax <= 13) min = 0.58;
-  else if (target.decimalMax <= 24) min = 0.55;
-  else min = 0.52;
-
-  if (poolSize <= 20) min = Math.max(0.58, min - 0.04);
-  return min;
+function minSampleForTarget(_target: OddsTarget): number {
+  return 2;
 }
 
-function minSampleForTarget(target: OddsTarget): number {
-  return target.decimalMax <= 13 ? 2 : 2;
-}
-
-function sortForTarget(candidates: BuilderLeg[], target: OddsTarget): BuilderLeg[] {
-  if (target.decimalMax <= 7) {
-    return [...candidates].sort(
-      (a, b) => b.hitRate - a.hitRate || b.sample - a.sample
-    );
-  }
+/** Always rank by model probability — never by price length. */
+function sortByProbability(candidates: BuilderLeg[]): BuilderLeg[] {
   return [...candidates].sort(
     (a, b) =>
-      b.decimalOdds - a.decimalOdds ||
       b.hitRate - a.hitRate ||
-      b.sample - a.sample
+      b.sample - a.sample ||
+      a.decimalOdds - b.decimalOdds
   );
 }
 
 function combinedDecimal(legs: BuilderLeg[]): number {
   return Math.round(legs.reduce((acc, l) => acc * l.decimalOdds, 1) * 100) / 100;
+}
+
+function combinedProbability(legs: BuilderLeg[]): number {
+  return legs.reduce((acc, l) => acc * l.hitRate, 1);
 }
 
 /** Filter leg pool by Bet Builder scope (Bet365 section only). */
@@ -83,56 +77,47 @@ export function filterLegsByScope(
   return pool;
 }
 
-function tryBuildGreedy(
+/**
+ * Find the valid slip with the highest combined model probability
+ * whose Bet365 odds land in the target window.
+ */
+function tryBuildMaxProbability(
   candidates: BuilderLeg[],
   target: OddsTarget,
-  maxLegs: number
+  maxLegs: number,
+  scope: BuilderScope
 ): BuilderLeg[] | null {
-  const chosen: BuilderLeg[] = [];
-  let odds = 1;
+  const sorted = sortByProbability(candidates);
+  const cap =
+    scope === "multi"
+      ? Math.min(36, sorted.length)
+      : Math.min(26, sorted.length);
+  const pool = sorted.slice(0, cap);
+  if (!pool.length) return null;
 
-  for (const leg of candidates) {
-    if (chosen.length >= maxLegs) break;
-    if (!canAdd(chosen, leg)) continue;
-    chosen.push(leg);
-    odds = Math.round(odds * leg.decimalOdds * 100) / 100;
-    if (odds >= target.decimalMin && odds <= target.decimalMax) return chosen;
-    if (odds > target.decimalMax * 1.15) {
-      chosen.pop();
-      odds = Math.round((odds / leg.decimalOdds) * 100) / 100;
-    }
-  }
-
-  if (!chosen.length) return null;
-  if (combinedDecimal(chosen) >= target.decimalMin * 0.78) return chosen;
-  return null;
-}
-
-/** Small combo search for tight single-match pools only. */
-function tryBuildCombo(
-  candidates: BuilderLeg[],
-  target: OddsTarget,
-  maxLegs: number
-): BuilderLeg[] | null {
-  if (candidates.length > 28) return null;
-
-  const pool = candidates.slice(0, Math.min(22, candidates.length));
-  const MAX_VISITS = 40_000;
+  const MAX_VISITS = scope === "multi" ? 25_000 : 45_000;
   let visits = 0;
   let best: BuilderLeg[] | null = null;
-  let bestDist = Infinity;
+  let bestProb = 0;
   const chosen: BuilderLeg[] = [];
 
   function search(start: number, odds: number) {
     if (visits++ > MAX_VISITS) return;
-    if (chosen.length >= 2 && odds >= target.decimalMin && odds <= target.decimalMax) {
-      const dist = Math.abs(odds - (target.decimalMin + target.decimalMax) / 2);
-      if (dist < bestDist) {
-        bestDist = dist;
+
+    if (
+      chosen.length >= 1 &&
+      odds >= target.decimalMin &&
+      odds <= target.decimalMax
+    ) {
+      const prob = combinedProbability(chosen);
+      if (prob > bestProb) {
+        bestProb = prob;
         best = chosen.slice();
       }
     }
+
     if (chosen.length >= maxLegs) return;
+
     for (let i = start; i < pool.length; i++) {
       const leg = pool[i];
       if (!canAdd(chosen, leg)) continue;
@@ -146,8 +131,8 @@ function tryBuildCombo(
   return best;
 }
 
-/** One strong leg per fixture, then greedy — fast for multi-game scopes. */
-function tryBuildPerMatch(
+/** Highest hit-rate leg per fixture, then max-probability combo search. */
+function tryBuildPerMatchMaxProb(
   candidates: BuilderLeg[],
   target: OddsTarget,
   maxLegs: number
@@ -158,22 +143,14 @@ function tryBuildPerMatch(
     if (
       !cur ||
       leg.hitRate > cur.hitRate ||
-      (leg.hitRate === cur.hitRate && leg.decimalOdds > cur.decimalOdds)
+      (leg.hitRate === cur.hitRate && leg.sample > cur.sample)
     ) {
       bestByMatch.set(leg.matchId, leg);
     }
   }
-  const perMatch = [...bestByMatch.values()];
+  const perMatch = sortByProbability([...bestByMatch.values()]);
   if (perMatch.length < 2) return null;
-
-  return (
-    tryBuildGreedy(sortForTarget(perMatch, target), target, maxLegs) ??
-    tryBuildGreedy(
-      [...perMatch].sort((a, b) => b.decimalOdds - a.decimalOdds),
-      target,
-      maxLegs
-    )
-  );
+  return tryBuildMaxProbability(perMatch, target, maxLegs, "multi");
 }
 
 function maxAchievableOdds(candidates: BuilderLeg[], maxLegs: number): number {
@@ -187,40 +164,27 @@ function maxAchievableOdds(candidates: BuilderLeg[], maxLegs: number): number {
   return chosen.length ? combinedDecimal(chosen) : 1;
 }
 
-/** Greedy + combo acca to land near the target odds window. */
+/** Build slip with highest combined probability inside the odds band. */
 export function buildForTarget(
   pool: BuilderLeg[],
   target: OddsTarget,
   maxLegs: number,
   scope: BuilderScope = "multi"
 ): BuilderSlip | null {
-  const minRate = minRateForTarget(target, pool.length);
   const filtered = pool.filter(
-    (l) => l.hitRate >= minRate && l.sample >= minSampleForTarget(target)
+    (l) => l.sample >= minSampleForTarget(target) && l.hitRate >= 0.52
   );
-  const candidates = sortForTarget(filtered, target);
+  const candidates = sortByProbability(filtered);
   if (!candidates.length) return null;
 
   const ceiling = maxAchievableOdds(candidates, maxLegs);
   if (ceiling < target.decimalMin) return null;
 
-  const useCombo = scope !== "multi" && candidates.length <= 28;
-  let chosen =
-    (useCombo ? tryBuildCombo(candidates, target, maxLegs) : null) ??
+  const chosen =
     (scope === "multi"
-      ? tryBuildPerMatch(candidates, target, maxLegs)
+      ? tryBuildPerMatchMaxProb(candidates, target, maxLegs)
       : null) ??
-    tryBuildGreedy(candidates, target, maxLegs) ??
-    tryBuildPerMatch(candidates, target, maxLegs);
-
-  if (!chosen && target.decimalMin >= 9) {
-    const alt = sortForTarget(
-      pool.filter((l) => l.hitRate >= 0.55 && l.sample >= 2),
-      target
-    );
-    chosen =
-      tryBuildGreedy(alt, target, maxLegs) ?? tryBuildPerMatch(alt, target, maxLegs);
-  }
+    tryBuildMaxProbability(candidates, target, maxLegs, scope);
 
   if (!chosen?.length) return null;
 
@@ -237,10 +201,9 @@ export function buildTodaysPick(
   pool: BuilderLeg[],
   maxLegs: number
 ): BuilderSlip | null {
-  const candidates = pool
-    .filter((l) => l.sample >= 2 && l.hitRate >= 0.75)
-    .sort((a, b) => b.hitRate - a.hitRate || b.sample - a.sample)
-    .slice(0, pool.length > 40 ? 24 : pool.length);
+  const candidates = sortByProbability(
+    pool.filter((l) => l.sample >= 2 && l.hitRate >= 0.75)
+  ).slice(0, pool.length > 40 ? 24 : pool.length);
 
   if (!candidates.length) return null;
 
@@ -319,8 +282,11 @@ export function composeBuilderView(
   options: BuilderOptions
 ): BuilderComposedView {
   const scoped = filterLegsByScope(pool, options);
+  const todaysPick = buildTodaysPick(scoped, options.maxLegs);
+  const excludeIds = todaysPick?.legs.map((l) => l.id) ?? [];
   return {
-    todaysPick: buildTodaysPick(scoped, options.maxLegs),
+    todaysPick,
+    underpricedGem: buildUnderpricedGem(scoped, excludeIds),
     builders: buildAllTargets(scoped, options.maxLegs, options.scope),
   };
 }
@@ -369,5 +335,5 @@ export function lookupPrecomputedView(
   return bucket.multi;
 }
 
-export type { BuilderComposedView } from "./types";
+export type { BuilderComposedView, UnderpricedGem } from "./types";
 export { ODDS_TARGETS };

@@ -1,19 +1,24 @@
 import { getLeague, getMatchDetails, pool, WC_LEAGUE_ID } from "./fotmob";
 import {
   parseFixtures,
-  parseLineupSide,
   parseMatchPlayerLines,
   parsePlayerMeta,
   sumLines,
   per90,
   type RawFixture,
 } from "./parse";
+import {
+  indexTeamLines,
+  parseTeamMatchLines,
+  type TeamMatchLine,
+} from "./team-lines";
 import type { PlayerMatchLine, PlayerTournamentStats } from "./types";
 
 /** In-memory tournament index built from finished FotMob match details. */
 let indexBuiltAt = 0;
 const INDEX_TTL = 15 * 60_000;
 let playerIndex = new Map<number, PlayerTournamentStats>();
+let teamIndex = new Map<string, TeamMatchLine[]>();
 let finishedIds: number[] = [];
 
 export async function ensurePlayerIndex(): Promise<Map<number, PlayerTournamentStats>> {
@@ -24,20 +29,28 @@ export async function ensurePlayerIndex(): Promise<Map<number, PlayerTournamentS
   const league = (await getLeague()) as any;
   const fixtures = parseFixtures(league);
   finishedIds = fixtures.filter((f) => f.finished).map((f) => f.id);
+  const finishedById = new Map(fixtures.filter((f) => f.finished).map((f) => [f.id, f]));
 
   const linesByPlayer = new Map<number, PlayerMatchLine[]>();
   const meta = new Map<number, { name: string; teamId: number; teamName: string }>();
+  const allTeamLines: TeamMatchLine[] = [];
 
   const results = await pool(finishedIds, 4, async (id) => {
     const raw = (await getMatchDetails(id, true)) as any;
+    const fx = finishedById.get(id);
+    const teamLines = fx
+      ? parseTeamMatchLines(id, raw, fx.home, fx.away)
+      : [];
     return {
       lines: parseMatchPlayerLines(id, raw),
       meta: parsePlayerMeta(raw),
+      teamLines,
     };
   });
 
   for (const result of results) {
     if (!result) continue;
+    allTeamLines.push(...result.teamLines);
     for (const [pid, line] of result.lines) {
       if (!linesByPlayer.has(pid)) linesByPlayer.set(pid, []);
       linesByPlayer.get(pid)!.push(line);
@@ -62,8 +75,13 @@ export async function ensurePlayerIndex(): Promise<Map<number, PlayerTournamentS
     });
   }
 
+  teamIndex = indexTeamLines(allTeamLines);
   indexBuiltAt = Date.now();
   return playerIndex;
+}
+
+export function getTeamHistory(): Map<string, TeamMatchLine[]> {
+  return teamIndex;
 }
 
 export function getPlayerStats(playerId: number): PlayerTournamentStats | null {

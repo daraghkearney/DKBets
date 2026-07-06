@@ -5,6 +5,7 @@ import Link from "next/link";
 import { formatKickoff, formatPct } from "@/lib/format";
 import type { MatchDetailPayload, Matchup } from "@/lib/stats/types";
 import StatBlock, { StatToggle } from "./StatBlock";
+import PlayerAvatar from "./PlayerAvatar";
 
 export default function MatchupPanel({ detail }: { detail: MatchDetailPayload }) {
   const positional = useMemo(
@@ -172,6 +173,7 @@ function MatchupDetail({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <PlayerCard
+          playerId={matchup.a.player.id}
           name={matchup.a.player.name}
           team={matchup.a.teamName}
           role={matchup.a.player.positionLabel}
@@ -179,6 +181,7 @@ function MatchupDetail({
           mode={mode}
         />
         <PlayerCard
+          playerId={matchup.b.player.id}
           name={matchup.b.player.name}
           team={matchup.b.teamName}
           role={matchup.b.player.positionLabel}
@@ -275,12 +278,14 @@ function MatchupDetail({
 }
 
 function PlayerCard({
+  playerId,
   name,
   team,
   role,
   stats,
   mode,
 }: {
+  playerId: number;
   name: string;
   team: string;
   role: string;
@@ -290,20 +295,30 @@ function PlayerCard({
   if (!stats) {
     return (
       <div className="rounded-xl border border-edge p-4">
-        <p className="font-bold">{name}</p>
-        <p className="text-xs text-muted">
-          {team} · {role}
-        </p>
+        <div className="flex items-center gap-3">
+          <PlayerAvatar playerId={playerId} name={name} />
+          <div>
+            <p className="font-bold">{name}</p>
+            <p className="text-xs text-muted">
+              {team} · {role}
+            </p>
+          </div>
+        </div>
         <p className="mt-2 text-xs text-muted">No tournament data yet</p>
       </div>
     );
   }
   return (
     <div className="rounded-xl border border-edge p-4">
-      <p className="font-bold">{name}</p>
-      <p className="text-xs text-muted">
-        {team} · {role} · {mode === "per90" ? "per 90" : "tournament"}
-      </p>
+      <div className="flex items-center gap-3">
+        <PlayerAvatar playerId={playerId} name={name} />
+        <div>
+          <p className="font-bold">{name}</p>
+          <p className="text-xs text-muted">
+            {team} · {role} · {mode === "per90" ? "per 90" : "tournament"}
+          </p>
+        </div>
+      </div>
       <div className="mt-3">
         <StatBlock totals={stats} mode={mode} />
       </div>

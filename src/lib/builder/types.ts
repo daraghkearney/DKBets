@@ -31,6 +31,18 @@ export interface BuilderLeg {
   bet365SelectionId?: string;
   /** Bet365 match page URL from odds-api.io. */
   bet365EventUrl?: string;
+  /** Head-to-head hits when pick came from a positional duel. */
+  h2hHits?: number;
+  h2hSample?: number;
+  tournamentHits?: number;
+  tournamentSample?: number;
+  matchupLabel?: string;
+}
+
+export interface UnderpricedGem {
+  slip: BuilderSlip;
+  description: string;
+  edgePct: number;
 }
 
 export interface BuilderSlip {
@@ -52,6 +64,7 @@ export interface OddsTarget {
 
 export interface BuilderComposedView {
   todaysPick: BuilderSlip | null;
+  underpricedGem: UnderpricedGem | null;
   builders: Record<string, BuilderSlip | null>;
 }
 
