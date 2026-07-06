@@ -1,7 +1,7 @@
 import { findLiveQuote, findTeamLiveQuote, normPlayer } from "./bet365";
 import type { Bet365LiveMap } from "./bet365-live";
 import { slipFromLegs } from "./legs";
-import { combineOdds, combineProbability, priceFromBet365Live } from "./odds";
+import { combineOdds, priceFromBet365Live } from "./odds";
 import type { BuilderLeg, BuilderSlip, LegCategory } from "./types";
 import type { FixtureSummary, PlayerTournamentStats } from "@/lib/stats/types";
 import {
@@ -13,8 +13,9 @@ const PLACEHOLDER_TEAM = /\/|winner|loser|tbd|round|group/i;
 const MIN_GAMES = 2;
 const TARGET_DECIMAL_MIN = 1.9;
 const TARGET_DECIMAL_IDEAL = 3.0;
-const MIN_LEGS = 2;
-const MAX_LEGS = 12;
+/** Target slip size — stack 4–5 almost-guaranteed legs. */
+const TARGET_LEGS_MIN = 4;
+const TARGET_LEGS_IDEAL = 5;
 
 export interface TeamModelGameStat {
   matchId: number;
@@ -332,6 +333,33 @@ function mkTeamModelLeg(
   return null;
 }
 
+function liveMarketKey(prop: TeamModelPerfectProp): string | null {
+  if (prop.kind === "team" && prop.teamMarket) return `team:${prop.teamMarket}`;
+  if (prop.kind === "player" && prop.playerName) {
+    return `player:${normPlayer(prop.playerName)}:${prop.category}:${prop.threshold}`;
+  }
+  return null;
+}
+
+/** More games + team-level + lower line = more guaranteed. */
+function guaranteeRank(a: TeamModelPerfectProp, b: TeamModelPerfectProp): number {
+  return (
+    b.sample - a.sample ||
+    (a.kind === "team" ? 0 : 1) - (b.kind === "team" ? 0 : 1) ||
+    a.threshold - b.threshold ||
+    a.label.localeCompare(b.label)
+  );
+}
+
+function rankGuaranteeLegs(legs: BuilderLeg[]): BuilderLeg[] {
+  return [...legs].sort(
+    (a, b) =>
+      b.sample - a.sample ||
+      (a.type === "team" ? 0 : 1) - (b.type === "team" ? 0 : 1) ||
+      a.decimalOdds - b.decimalOdds
+  );
+}
+
 function oddsDistance(decimal: number): number {
   if (decimal < TARGET_DECIMAL_MIN) return 100 + (TARGET_DECIMAL_MIN - decimal);
   if (decimal <= TARGET_DECIMAL_IDEAL) return Math.abs(decimal - 2.45);
@@ -357,64 +385,64 @@ function buildModelSlip(
   teamName: string,
   matchLabel: string
 ): BuilderSlip | null {
-  if (legs.length < MIN_LEGS) return null;
+  if (legs.length < TARGET_LEGS_MIN) return null;
 
-  const pool = [...legs].sort(
-    (a, b) => b.decimalOdds - a.decimalOdds || b.sample - a.sample
-  );
-  const maxSize = Math.min(MAX_LEGS, pool.length);
-  let best: BuilderLeg[] | null = null;
-  let bestProb = 0;
-  let bestDist = Infinity;
+  const pool = rankGuaranteeLegs(legs);
 
-  for (let size = MIN_LEGS; size <= maxSize; size++) {
+  // Prefer 5 legs, then 4 — among combos that reach evens+, pick best odds band.
+  for (const size of [TARGET_LEGS_IDEAL, TARGET_LEGS_MIN]) {
+    if (pool.length < size) continue;
+
+    let best: BuilderLeg[] | null = null;
+    let bestDist = Infinity;
+
     for (const combo of combinations(pool, size)) {
       const decimal = combineOdds(combo);
       if (decimal < TARGET_DECIMAL_MIN) continue;
-      const prob = combineProbability(combo);
       const dist = oddsDistance(decimal);
-      if (
-        prob > bestProb + 1e-9 ||
-        (Math.abs(prob - bestProb) < 1e-9 && dist < bestDist) ||
-        (Math.abs(prob - bestProb) < 1e-9 &&
-          Math.abs(dist - bestDist) < 1e-9 &&
-          combo.length < (best?.length ?? 99))
-      ) {
-        bestProb = prob;
+      if (dist < bestDist) {
         bestDist = dist;
         best = combo;
       }
     }
-  }
 
-  if (!best) {
-    const greedy: BuilderLeg[] = [];
-    for (const leg of pool) {
-      greedy.push(leg);
-      if (
-        greedy.length >= MIN_LEGS &&
-        combineOdds(greedy) >= TARGET_DECIMAL_MIN
-      ) {
-        best = [...greedy];
-        break;
-      }
+    if (best) {
+      const decimal = combineOdds(best);
+      const targetLabel =
+        decimal >= TARGET_DECIMAL_IDEAL
+          ? `2/1+ · ${matchLabel}`
+          : `Evens+ · ${matchLabel}`;
+
+      return slipFromLegs(
+        `team-model-${normTeamKey(teamName)}`,
+        `Team Model — ${teamName}`,
+        best,
+        targetLabel
+      );
     }
   }
 
-  if (!best || best.length < MIN_LEGS) return null;
+  // Greedy: top guaranteed legs until we have 5 (or 4) at evens+.
+  for (const targetSize of [TARGET_LEGS_IDEAL, TARGET_LEGS_MIN]) {
+    if (pool.length < targetSize) continue;
+    const slice = pool.slice(0, targetSize);
+    if (combineOdds(slice) >= TARGET_DECIMAL_MIN) {
+      const decimal = combineOdds(slice);
+      const targetLabel =
+        decimal >= TARGET_DECIMAL_IDEAL
+          ? `2/1+ · ${matchLabel}`
+          : `Evens+ · ${matchLabel}`;
 
-  const decimal = combineOdds(best);
-  const targetLabel =
-    decimal >= TARGET_DECIMAL_IDEAL
-      ? `2/1+ · ${matchLabel}`
-      : `Evens+ · ${matchLabel}`;
+      return slipFromLegs(
+        `team-model-${normTeamKey(teamName)}`,
+        `Team Model — ${teamName}`,
+        slice,
+        targetLabel
+      );
+    }
+  }
 
-  return slipFromLegs(
-    `team-model-${normTeamKey(teamName)}`,
-    `Team Model — ${teamName}`,
-    best,
-    targetLabel
-  );
+  return null;
 }
 
 export function buildTeamModelEntry(
@@ -446,7 +474,13 @@ export function buildTeamModelEntry(
 
   const pricedLegs: BuilderLeg[] = [];
   if (next && matchLabel) {
-    for (const prop of perfectProps) {
+    const ranked = [...perfectProps].sort(guaranteeRank);
+    const seenMarkets = new Set<string>();
+
+    for (const prop of ranked) {
+      const key = liveMarketKey(prop);
+      if (key && seenMarkets.has(key)) continue;
+
       const leg = mkTeamModelLeg(
         prop,
         teamName,
@@ -456,7 +490,9 @@ export function buildTeamModelEntry(
         liveOdds,
         eventUrls
       );
-      if (leg) pricedLegs.push(leg);
+      if (!leg) continue;
+      if (key) seenMarkets.add(key);
+      pricedLegs.push(leg);
     }
   }
 

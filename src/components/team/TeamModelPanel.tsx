@@ -148,8 +148,8 @@ export default function TeamModelPanel({
                 </p>
               ) : (
                 <p className="text-xs text-muted">
-                  Not enough priced unbeaten legs to reach evens+ for the next
-                  fixture.
+                  Not enough live Bet365 legs to build a 4–5 leg evens+ model for
+                  the next fixture.
                 </p>
               )}
             </>

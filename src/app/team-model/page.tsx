@@ -44,7 +44,7 @@ export default function TeamModelPage() {
           <strong className="text-foreground">every single game</strong> so far:
           team corners, shots, shots on target, fouls, plus player shots, fouls
           won, tackles, and more. Legs are priced from live Bet365 odds only and
-          stacked to evens or 2/1.
+          stacked into 4–5 leg builders at evens or 2/1.
         </p>
         {!loading && !error && (
           <p className="mt-2 text-xs text-muted">
