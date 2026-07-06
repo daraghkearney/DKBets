@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatKickoff, formatPct } from "@/lib/format";
-import { dataUrl } from "@/lib/basePath";
+import { useSampleMode } from "@/components/SampleModeProvider";
 import type { FixtureSummary, PickStat } from "@/lib/stats/types";
 
 interface Fx extends FixtureSummary {
@@ -11,6 +11,7 @@ interface Fx extends FixtureSummary {
 }
 
 export default function MatchesPage() {
+  const { mode: sampleMode, sampleUrl } = useSampleMode();
   const [fixtures, setFixtures] = useState<Fx[]>([]);
   const [bankers, setBankers] = useState<
     Array<PickStat & { matchLabel: string; matchupLabel: string; kickoff: string }>
@@ -19,11 +20,13 @@ export default function MatchesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
+    setError(false);
     Promise.all([
-      fetch(dataUrl("/stats/matches.json"), { cache: "no-store" }).then((r) =>
+      fetch(sampleUrl("/stats/matches.json"), { cache: "no-store" }).then((r) =>
         r.json()
       ),
-      fetch(dataUrl("/stats/bankers.json"), { cache: "no-store" }).then((r) =>
+      fetch(sampleUrl("/stats/bankers.json"), { cache: "no-store" }).then((r) =>
         r.json()
       ),
     ])
@@ -33,7 +36,7 @@ export default function MatchesPage() {
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, []);
+  }, [sampleUrl, sampleMode]);
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-10 px-4 py-8 sm:px-6">

@@ -1,22 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { dataUrl } from "@/lib/basePath";
+import { useSampleMode } from "@/components/SampleModeProvider";
 import type { StarPlayerFixture, StarPlayersPayload } from "@/lib/builder/star-player";
 import StarPlayerFixtureCard from "@/components/star/StarPlayerFixtureCard";
 
 export default function StarPlayersPage() {
+  const { mode: sampleMode, sampleUrl } = useSampleMode();
   const [fixtures, setFixtures] = useState<StarPlayerFixture[]>([]);
   const [liveAvailable, setLiveAvailable] = useState(false);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
+    setError(false);
     Promise.all([
-      fetch(dataUrl("/star-players.json"), { cache: "no-store" }).then((r) =>
+      fetch(sampleUrl("/star-players.json"), { cache: "no-store" }).then((r) =>
         r.ok ? r.json() : Promise.reject()
       ),
-      fetch(dataUrl("/builder.json"), { cache: "no-store" })
+      fetch(sampleUrl("/builder.json"), { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
     ])
@@ -29,7 +32,7 @@ export default function StarPlayersPage() {
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, []);
+  }, [sampleUrl, sampleMode]);
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">

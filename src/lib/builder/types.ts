@@ -100,4 +100,6 @@ export interface BuilderPayload {
   /** Raw live price map size at export (debug) */
   bet365PriceCount?: number;
   generatedAt: string;
+  sampleMode?: string;
+  sampleLabel?: string;
 }

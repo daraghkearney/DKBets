@@ -1,20 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { dataUrl } from "@/lib/basePath";
+import { useSampleMode } from "@/components/SampleModeProvider";
 import type { StarPlayerFixture, StarPlayersPayload } from "@/lib/builder/star-player";
 import StarPlayerFixtureCard from "@/components/star/StarPlayerFixtureCard";
 
 export default function MatchStarPlayer({ matchId }: { matchId: number }) {
+  const { mode: sampleMode, sampleUrl } = useSampleMode();
   const [fixture, setFixture] = useState<StarPlayerFixture | null>(null);
   const [liveAvailable, setLiveAvailable] = useState(false);
 
   useEffect(() => {
     Promise.all([
-      fetch(dataUrl("/star-players.json"), { cache: "no-store" }).then((r) =>
+      fetch(sampleUrl("/star-players.json"), { cache: "no-store" }).then((r) =>
         r.ok ? r.json() : null
       ),
-      fetch(dataUrl("/builder.json"), { cache: "no-store" })
+      fetch(sampleUrl("/builder.json"), { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
     ]).then(([starData, builderData]: [StarPlayersPayload | null, { bet365LiveAvailable?: boolean } | null]) => {
@@ -25,7 +26,7 @@ export default function MatchStarPlayer({ matchId }: { matchId: number }) {
       setFixture(hit ?? null);
       setLiveAvailable(builderData?.bet365LiveAvailable ?? false);
     });
-  }, [matchId]);
+  }, [matchId, sampleUrl, sampleMode]);
 
   if (!fixture?.stars.length) return null;
 

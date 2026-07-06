@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { StatToggle } from "@/components/stats/StatBlock";
-import { dataUrl } from "@/lib/basePath";
+import { useSampleMode } from "@/components/SampleModeProvider";
 import type { PlayerTournamentStats } from "@/lib/stats/types";
 
 interface Payload {
@@ -53,21 +53,24 @@ function sortPlayers(
 }
 
 export default function StatsPage() {
+  const { mode: sampleMode, sampleUrl } = useSampleMode();
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState(false);
-  const [mode, setMode] = useState<"total" | "per90">("total");
+  const [viewMode, setViewMode] = useState<"total" | "per90">("total");
   const [sort, setSort] = useState<SortKey>("shots");
 
   useEffect(() => {
-    fetch(dataUrl("/stats/players.json"), { cache: "no-store" })
+    setData(null);
+    setError(false);
+    fetch(sampleUrl("/stats/players.json"), { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setData)
       .catch(() => setError(true));
-  }, []);
+  }, [sampleUrl, sampleMode]);
 
   const sorted = useMemo(
-    () => sortPlayers(data?.players ?? [], sort, mode),
-    [data?.players, sort, mode]
+    () => sortPlayers(data?.players ?? [], sort, viewMode),
+    [data?.players, sort, viewMode]
   );
 
   return (
@@ -76,8 +79,8 @@ export default function StatsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Player Stats</h1>
           <p className="text-sm text-muted">
-            World Cup 2026 tournament numbers — fouls, shots, cards and more.
-            Data via{" "}
+            Player numbers for the selected stats sample — fouls, shots, cards
+            and more. Data via{" "}
             <a
               href="https://www.fotmob.com/"
               target="_blank"
@@ -89,7 +92,7 @@ export default function StatsPage() {
             .
           </p>
         </div>
-        <StatToggle mode={mode} setMode={setMode} />
+        <StatToggle mode={viewMode} setMode={setViewMode} />
       </div>
 
       {data?.sourceLabel && (
@@ -148,7 +151,7 @@ export default function StatsPage() {
                 </thead>
                 <tbody>
                   {sorted.slice(0, 40).map((p) => {
-                    const t = mode === "per90" ? p.per90 : p.totals;
+                    const t = viewMode === "per90" ? p.per90 : p.totals;
                     return (
                       <tr
                         key={p.playerId}
@@ -157,7 +160,7 @@ export default function StatsPage() {
                         <td className="px-4 py-2.5 font-medium">{p.name}</td>
                         <td className="px-4 py-2.5 text-muted">{p.teamName}</td>
                         <td className="tabular px-4 py-2.5 text-right">
-                          {mode === "per90" ? "—" : t.matches}
+                          {viewMode === "per90" ? "—" : t.matches}
                         </td>
                         <td className="tabular px-4 py-2.5 text-right">{t.shots}</td>
                         <td className="tabular px-4 py-2.5 text-right">

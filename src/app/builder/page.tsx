@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { dataUrl } from "@/lib/basePath";
+import { useSampleMode } from "@/components/SampleModeProvider";
 import {
   composeBuilderView,
   filterBuilderLegs,
@@ -20,6 +20,7 @@ import UnderpricedGemCard from "@/components/builder/UnderpricedGemCard";
 const DEFAULT_MAX_LEGS = 8;
 
 export default function BuilderPage() {
+  const { mode: sampleMode, sampleUrl } = useSampleMode();
   const [data, setData] = useState<BuilderPayload | null>(null);
   const [error, setError] = useState(false);
   const [targetId, setTargetId] = useState("2-1");
@@ -32,14 +33,16 @@ export default function BuilderPage() {
   const [computing, setComputing] = useState(false);
 
   useEffect(() => {
-    fetch(dataUrl("/builder.json"), { cache: "no-store" })
+    setData(null);
+    setError(false);
+    fetch(sampleUrl("/builder.json"), { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((payload: BuilderPayload) => {
         setData(payload);
         if (payload.fixtures[0]) setMatchId(payload.fixtures[0].id);
       })
       .catch(() => setError(true));
-  }, []);
+  }, [sampleUrl, sampleMode]);
 
   const options: BuilderOptions = useMemo(
     () => ({
@@ -117,6 +120,12 @@ export default function BuilderPage() {
               " No live Bet365 prices matched right now — check back closer to kickoff."}
             {liveAvailable &&
               ` ${data?.bet365LiveLegs ?? 0} legs with live Bet365 prices.`}
+            {data?.sampleLabel && (
+              <>
+                {" "}
+                Stats sample: <strong className="text-foreground">{data.sampleLabel}</strong>.
+              </>
+            )}
           </p>
         </div>
         {data && (

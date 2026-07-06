@@ -1,22 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { dataUrl } from "@/lib/basePath";
+import { useSampleMode } from "@/components/SampleModeProvider";
 import type { TeamModelEntry, TeamModelPayload } from "@/lib/builder/team-model";
 import TeamModelPanel from "@/components/team/TeamModelPanel";
 
 export default function TeamModelPage() {
+  const { mode: sampleMode, sampleUrl } = useSampleMode();
   const [teams, setTeams] = useState<TeamModelEntry[]>([]);
   const [liveAvailable, setLiveAvailable] = useState(false);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
+    setError(false);
     Promise.all([
-      fetch(dataUrl("/team-model.json"), { cache: "no-store" }).then((r) =>
+      fetch(sampleUrl("/team-model.json"), { cache: "no-store" }).then((r) =>
         r.ok ? r.json() : Promise.reject()
       ),
-      fetch(dataUrl("/builder.json"), { cache: "no-store" })
+      fetch(sampleUrl("/builder.json"), { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
     ])
@@ -26,7 +29,7 @@ export default function TeamModelPage() {
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, []);
+  }, [sampleUrl, sampleMode]);
 
   const withModels = teams.filter((t) => t.perfectProps.length > 0);
   const withBankers = teams.filter((t) => t.bankerSlip);

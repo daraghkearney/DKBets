@@ -17,7 +17,18 @@ import { loadBuilderPayload } from "../src/lib/builder/engine";
 import { precomputeBuilderViews } from "../src/lib/builder/compose";
 import { buildStarPlayersPayload } from "../src/lib/builder/star-player";
 import { buildTeamModelPayload } from "../src/lib/builder/team-model";
-import { ensurePlayerIndex, getTeamHistory } from "../src/lib/stats/store";
+import {
+  clearPlayerIndexCache,
+  ensurePlayerIndex,
+  getTeamHistory,
+  setActiveSampleMode,
+} from "../src/lib/stats/store";
+import {
+  DEFAULT_SAMPLE_MODE,
+  SAMPLE_MODES,
+  sampleModeLabel,
+  type StatsSampleMode,
+} from "../src/lib/stats/sample-mode";
 import {
   loadCachedBet365EventUrls,
   loadCachedBet365Odds,
@@ -30,6 +41,108 @@ async function writeJson(rel: string, data: unknown) {
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, JSON.stringify(data), "utf8");
   console.log("  wrote", rel);
+}
+
+async function exportSampleMode(mode: StatsSampleMode) {
+  console.log(`\n  [${mode}] exporting sample dataset …`);
+  setActiveSampleMode(mode);
+  clearPlayerIndexCache(mode);
+  const prefix = `samples/${mode}`;
+  const sampleMeta = {
+    sampleMode: mode,
+    sampleLabel: sampleModeLabel(mode),
+    source: "fotmob",
+    sourceLabel: `FotMob · ${sampleModeLabel(mode)}`,
+    exportedAt: new Date().toISOString(),
+  };
+
+  const players = await loadPlayerLeaderboard();
+  await writeJson(`${prefix}/stats/players.json`, { ...players, ...sampleMeta });
+
+  const fixtures = await loadUpcomingWithProps();
+  await writeJson(`${prefix}/stats/matches.json`, {
+    fixtures,
+    ...sampleMeta,
+  });
+
+  const bankers = await loadBankerPicks();
+  await writeJson(`${prefix}/stats/bankers.json`, { bankers, ...sampleMeta });
+
+  const upcoming = await loadFixtures();
+  const ids = upcoming.map((f) => f.id);
+  await writeJson(`${prefix}/stats/fixture-ids.json`, { ids, ...sampleMeta });
+
+  for (const id of ids) {
+    try {
+      const detail = await loadMatchDetail(id);
+      if (detail) {
+        await writeJson(`${prefix}/stats/match/${id}.json`, {
+          ...detail,
+          ...sampleMeta,
+        });
+      }
+    } catch (e) {
+      console.warn(`  skip match ${id} (${mode}):`, e);
+    }
+  }
+
+  console.log(`  [${mode}] builder …`);
+  const builder = await loadBuilderPayload();
+  builder.precomputed = precomputeBuilderViews(
+    builder.legs,
+    builder.fixtures,
+    Array.from({ length: 15 }, (_, i) => i + 1)
+  );
+  await writeJson(`${prefix}/builder.json`, { ...builder, ...sampleMeta });
+
+  const liveOdds = await loadCachedBet365Odds({ ignoreAge: true });
+  const eventUrls = await loadCachedBet365EventUrls();
+  const playerIndex = await ensurePlayerIndex(mode);
+
+  console.log(`  [${mode}] star players …`);
+  const starPlayers = await buildStarPlayersPayload(
+    builder.legs,
+    upcoming,
+    loadMatchDetail,
+    liveOdds ?? undefined,
+    eventUrls.size ? eventUrls : undefined,
+    playerIndex
+  );
+  await writeJson(`${prefix}/star-players.json`, {
+    ...starPlayers,
+    ...sampleMeta,
+  });
+
+  console.log(`  [${mode}] team model …`);
+  const teamHistory = getTeamHistory(mode);
+  const teamModel = buildTeamModelPayload(
+    teamHistory,
+    playerIndex ? [...playerIndex.values()] : [],
+    upcoming,
+    liveOdds ?? undefined,
+    eventUrls.size ? eventUrls : undefined
+  );
+  await writeJson(`${prefix}/team-model.json`, { ...teamModel, ...sampleMeta });
+
+  if (mode === DEFAULT_SAMPLE_MODE) {
+    await writeJson("stats/players.json", { ...players, ...sampleMeta });
+    await writeJson("stats/matches.json", { fixtures, ...sampleMeta });
+    await writeJson("stats/bankers.json", { bankers, ...sampleMeta });
+    await writeJson("stats/fixture-ids.json", { ids, ...sampleMeta });
+    await writeJson("builder.json", { ...builder, ...sampleMeta });
+    await writeJson("star-players.json", { ...starPlayers, ...sampleMeta });
+    await writeJson("team-model.json", { ...teamModel, ...sampleMeta });
+    for (const id of ids) {
+      try {
+        const detail = await loadMatchDetail(id);
+        if (detail) {
+          await writeJson(`stats/match/${id}.json`, { ...detail, ...sampleMeta });
+        }
+      } catch {
+        /* already logged */
+      }
+    }
+  }
 }
 
 async function main() {
@@ -48,80 +161,15 @@ async function main() {
     exportedAt: new Date().toISOString(),
   });
 
-  console.log("  stats: building player index (may take 1–2 min) …");
-  const players = await loadPlayerLeaderboard();
-  await writeJson("stats/players.json", {
-    ...players,
-    source: "fotmob",
-    sourceLabel: "Live via fotmob.com",
+  await writeJson("sample-manifest.json", {
+    defaultMode: DEFAULT_SAMPLE_MODE,
+    modes: SAMPLE_MODES,
     exportedAt: new Date().toISOString(),
   });
 
-  const fixtures = await loadUpcomingWithProps();
-  await writeJson("stats/matches.json", {
-    fixtures,
-    exportedAt: new Date().toISOString(),
-  });
-
-  const bankers = await loadBankerPicks();
-  await writeJson("stats/bankers.json", {
-    bankers,
-    exportedAt: new Date().toISOString(),
-  });
-
-  const upcoming = await loadFixtures();
-  const ids = upcoming.map((f) => f.id);
-  await writeJson("stats/fixture-ids.json", { ids });
-
-  for (const id of ids) {
-    try {
-      const detail = await loadMatchDetail(id);
-      if (detail) {
-        await writeJson(`stats/match/${id}.json`, {
-          ...detail,
-          source: "fotmob",
-          sourceLabel: "Live via fotmob.com",
-          exportedAt: new Date().toISOString(),
-        });
-      }
-    } catch (e) {
-      console.warn(`  skip match ${id}:`, e);
-    }
+  for (const mode of SAMPLE_MODES) {
+    await exportSampleMode(mode.id);
   }
-
-  console.log("  builder: composing bet builders …");
-  const builder = await loadBuilderPayload();
-  builder.precomputed = precomputeBuilderViews(
-    builder.legs,
-    builder.fixtures,
-    Array.from({ length: 15 }, (_, i) => i + 1)
-  );
-  await writeJson("builder.json", builder);
-
-  console.log("  star players: building specials …");
-  const liveOdds = await loadCachedBet365Odds({ ignoreAge: true });
-  const eventUrls = await loadCachedBet365EventUrls();
-  const playerIndex = await ensurePlayerIndex();
-  const starPlayers = await buildStarPlayersPayload(
-    builder.legs,
-    upcoming,
-    loadMatchDetail,
-    liveOdds ?? undefined,
-    eventUrls.size ? eventUrls : undefined,
-    playerIndex
-  );
-  await writeJson("star-players.json", starPlayers);
-
-  console.log("  team model: building unbeaten team builders …");
-  const teamHistory = getTeamHistory();
-  const teamModel = buildTeamModelPayload(
-    teamHistory,
-    playerIndex ? [...playerIndex.values()] : [],
-    upcoming,
-    liveOdds ?? undefined,
-    eventUrls.size ? eventUrls : undefined
-  );
-  await writeJson("team-model.json", teamModel);
 
   try {
     const cacheFile = path.join(process.cwd(), ".cache", "bet365-live-odds.json");
@@ -131,7 +179,7 @@ async function main() {
     /* no price cache this run */
   }
 
-  console.log("Done.");
+  console.log("\nDone.");
 }
 
 main().catch((e) => {

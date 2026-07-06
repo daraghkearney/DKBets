@@ -1,91 +1,67 @@
-import { getLeague, getMatchDetails, pool, WC_LEAGUE_ID } from "./fotmob";
+import { buildStatsIndex } from "./index-build";
+import { getLeague, WC_LEAGUE_ID } from "./fotmob";
 import {
   parseFixtures,
-  parseMatchPlayerLines,
-  parsePlayerMeta,
-  sumLines,
-  per90,
   type RawFixture,
 } from "./parse";
 import {
-  indexTeamLines,
-  parseTeamMatchLines,
-  type TeamMatchLine,
-} from "./team-lines";
-import type { PlayerMatchLine, PlayerTournamentStats } from "./types";
+  DEFAULT_SAMPLE_MODE,
+  type StatsSampleMode,
+} from "./sample-mode";
+import type { TeamMatchLine } from "./team-lines";
+import type { PlayerTournamentStats } from "./types";
 
-/** In-memory tournament index built from finished FotMob match details. */
-let indexBuiltAt = 0;
+interface ModeCache {
+  playerIndex: Map<number, PlayerTournamentStats>;
+  teamIndex: Map<string, TeamMatchLine[]>;
+  builtAt: number;
+}
+
 const INDEX_TTL = 15 * 60_000;
-let playerIndex = new Map<number, PlayerTournamentStats>();
-let teamIndex = new Map<string, TeamMatchLine[]>();
-let finishedIds: number[] = [];
+const cacheByMode = new Map<StatsSampleMode, ModeCache>();
+let activeSampleMode: StatsSampleMode = DEFAULT_SAMPLE_MODE;
 
-export async function ensurePlayerIndex(): Promise<Map<number, PlayerTournamentStats>> {
-  if (playerIndex.size > 0 && Date.now() - indexBuiltAt < INDEX_TTL) {
-    return playerIndex;
+export function setActiveSampleMode(mode: StatsSampleMode): void {
+  activeSampleMode = mode;
+}
+
+export function getActiveSampleMode(): StatsSampleMode {
+  return activeSampleMode;
+}
+
+export function clearPlayerIndexCache(mode?: StatsSampleMode): void {
+  if (mode) cacheByMode.delete(mode);
+  else cacheByMode.clear();
+}
+
+export async function ensurePlayerIndex(
+  mode: StatsSampleMode = activeSampleMode
+): Promise<Map<number, PlayerTournamentStats>> {
+  const hit = cacheByMode.get(mode);
+  if (hit && Date.now() - hit.builtAt < INDEX_TTL) {
+    return hit.playerIndex;
   }
 
-  const league = (await getLeague()) as any;
-  const fixtures = parseFixtures(league);
-  finishedIds = fixtures.filter((f) => f.finished).map((f) => f.id);
-  const finishedById = new Map(fixtures.filter((f) => f.finished).map((f) => [f.id, f]));
-
-  const linesByPlayer = new Map<number, PlayerMatchLine[]>();
-  const meta = new Map<number, { name: string; teamId: number; teamName: string }>();
-  const allTeamLines: TeamMatchLine[] = [];
-
-  const results = await pool(finishedIds, 4, async (id) => {
-    const raw = (await getMatchDetails(id, true)) as any;
-    const fx = finishedById.get(id);
-    const teamLines = fx
-      ? parseTeamMatchLines(id, raw, fx.home, fx.away)
-      : [];
-    return {
-      lines: parseMatchPlayerLines(id, raw),
-      meta: parsePlayerMeta(raw),
-      teamLines,
-    };
+  const built = await buildStatsIndex(mode);
+  cacheByMode.set(mode, {
+    playerIndex: built.playerIndex,
+    teamIndex: built.teamIndex,
+    builtAt: Date.now(),
   });
-
-  for (const result of results) {
-    if (!result) continue;
-    allTeamLines.push(...result.teamLines);
-    for (const [pid, line] of result.lines) {
-      if (!linesByPlayer.has(pid)) linesByPlayer.set(pid, []);
-      linesByPlayer.get(pid)!.push(line);
-    }
-    for (const [pid, m] of result.meta) {
-      meta.set(pid, m);
-    }
-  }
-
-  playerIndex = new Map();
-  for (const [pid, lines] of linesByPlayer) {
-    const m = meta.get(pid);
-    const totals = sumLines(lines);
-    playerIndex.set(pid, {
-      playerId: pid,
-      name: m?.name ?? `Player ${pid}`,
-      teamId: m?.teamId ?? 0,
-      teamName: m?.teamName ?? "",
-      lines,
-      totals,
-      per90: per90(totals),
-    });
-  }
-
-  teamIndex = indexTeamLines(allTeamLines);
-  indexBuiltAt = Date.now();
-  return playerIndex;
+  return built.playerIndex;
 }
 
-export function getTeamHistory(): Map<string, TeamMatchLine[]> {
-  return teamIndex;
+export function getTeamHistory(
+  mode: StatsSampleMode = activeSampleMode
+): Map<string, TeamMatchLine[]> {
+  return cacheByMode.get(mode)?.teamIndex ?? new Map();
 }
 
-export function getPlayerStats(playerId: number): PlayerTournamentStats | null {
-  return playerIndex.get(playerId) ?? null;
+export function getPlayerStats(
+  playerId: number,
+  mode: StatsSampleMode = activeSampleMode
+): PlayerTournamentStats | null {
+  return cacheByMode.get(mode)?.playerIndex.get(playerId) ?? null;
 }
 
 export async function getFixtures(): Promise<RawFixture[]> {

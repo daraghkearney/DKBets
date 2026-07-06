@@ -4,22 +4,25 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import MatchupPanel, { MatchHeader } from "@/components/stats/MatchupPanel";
 import MatchStarPlayer from "@/components/star/MatchStarPlayer";
-import { dataUrl } from "@/lib/basePath";
+import { useSampleMode } from "@/components/SampleModeProvider";
 import type { MatchDetailPayload } from "@/lib/stats/types";
 
 export default function MatchDetailClient() {
   const params = useParams();
   const id = params?.id as string;
+  const { mode: sampleMode, sampleUrl } = useSampleMode();
   const [detail, setDetail] = useState<MatchDetailPayload | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
     if (!id) return;
-    fetch(dataUrl(`/stats/match/${id}.json`), { cache: "no-store" })
+    setDetail(null);
+    setError(false);
+    fetch(sampleUrl(`/stats/match/${id}.json`), { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setDetail)
       .catch(() => setError(true));
-  }, [id]);
+  }, [id, sampleUrl, sampleMode]);
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">

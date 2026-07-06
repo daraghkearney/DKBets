@@ -37,7 +37,8 @@ export function statValue(stat: any): number {
 /** Flatten FotMob matchDetails.content.playerStats into per-player lines. */
 export function parseMatchPlayerLines(
   matchId: number,
-  payload: any
+  payload: any,
+  competition = "World Cup"
 ): Map<number, PlayerMatchLine> {
   const out = new Map<number, PlayerMatchLine>();
   const ps = payload?.content?.playerStats;
@@ -58,7 +59,7 @@ export function parseMatchPlayerLines(
       matchId,
       opponent: raw.teamName === home ? away : home,
       date: String(date),
-      competition: "World Cup",
+      competition,
       minutes: 0,
       goals: 0,
       assists: 0,
