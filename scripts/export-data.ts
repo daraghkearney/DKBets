@@ -15,6 +15,7 @@ import {
 } from "../src/lib/stats/engine";
 import { loadBuilderPayload } from "../src/lib/builder/engine";
 import { precomputeBuilderViews } from "../src/lib/builder/compose";
+import { buildStarPlayersPayload } from "../src/lib/builder/star-player";
 
 const ROOT = path.join(process.cwd(), "public", "data");
 
@@ -90,6 +91,14 @@ async function main() {
     Array.from({ length: 15 }, (_, i) => i + 1)
   );
   await writeJson("builder.json", builder);
+
+  console.log("  star players: building specials …");
+  const starPlayers = await buildStarPlayersPayload(
+    builder.legs,
+    upcoming,
+    loadMatchDetail
+  );
+  await writeJson("star-players.json", starPlayers);
 
   try {
     const cacheFile = path.join(process.cwd(), ".cache", "bet365-live-odds.json");

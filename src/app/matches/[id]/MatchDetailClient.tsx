@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import MatchupPanel, { MatchHeader } from "@/components/stats/MatchupPanel";
+import MatchStarPlayer from "@/components/star/MatchStarPlayer";
 import { dataUrl } from "@/lib/basePath";
 import type { MatchDetailPayload } from "@/lib/stats/types";
 
@@ -33,6 +34,7 @@ export default function MatchDetailClient() {
       {detail && (
         <>
           <MatchHeader detail={detail} />
+          <MatchStarPlayer matchId={detail.fixture.id} />
           <MatchupPanel detail={detail} />
         </>
       )}
