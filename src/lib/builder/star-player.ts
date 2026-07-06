@@ -1,8 +1,4 @@
-import {
-  bet365DecimalOdds,
-  findLiveQuote,
-  normPlayer,
-} from "./bet365";
+import { findLiveQuote, normPlayer } from "./bet365";
 import type { Bet365LiveMap } from "./bet365-live";
 import { combineOdds, combineProbability, effectiveHitRate, priceFromBet365Live } from "./odds";
 import { slipFromLegs } from "./legs";
@@ -107,6 +103,33 @@ const STAR_TARGET_DECIMAL_IDEAL = 3.0;
 const STAR_MIN_LEG_HIT_RATE = 0.58;
 const STAR_MIN_LEGS = 2;
 const STAR_MAX_LEGS = 10;
+
+/** Designated marquee player per nation (normalized team slug → name tokens). */
+const TEAM_MARQUEE: Record<string, string[]> = {
+  portugal: ["ronaldo", "cristiano"],
+  france: ["mbappe", "kylian"],
+  spain: ["yamal", "lamine"],
+  morocco: ["hakimi", "achraf"],
+  argentina: ["messi", "lionel"],
+  egypt: ["salah", "mohamed"],
+  brazil: ["neymar", "vinicius", "vini"],
+  england: ["kane", "harry", "bellingham"],
+  germany: ["musiala", "jamal"],
+  netherlands: ["depay", "memphis", "gakpo"],
+};
+
+function matchesMarquee(playerName: string, teamName: string): boolean {
+  const teamKey = normTeam(teamName);
+  const tokens = TEAM_MARQUEE[teamKey];
+  if (!tokens?.length) return false;
+  const norm = normPlayer(playerName);
+  return tokens.some((t) => norm.includes(t));
+}
+
+function lineThreshold(market: string): number {
+  const match = market.match(/(\d+)\+/);
+  return match ? Number(match[1]) : 1;
+}
 
 function normTeam(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
@@ -246,14 +269,52 @@ function scoreStarPlayer(
   );
 }
 
+function findMarqueeInIndex(
+  teamName: string,
+  playerIndex: Map<number, PlayerTournamentStats>,
+  allPicks: PickStat[]
+): {
+  stats: PlayerTournamentStats;
+  positionLabel?: string;
+  pickOfDayCount: number;
+} | null {
+  const teamKey = normTeam(teamName);
+  const tokens = TEAM_MARQUEE[teamKey];
+  if (!tokens?.length) return null;
+
+  for (const stats of playerIndex.values()) {
+    if (normTeam(stats.teamName) !== teamKey) continue;
+    const norm = normPlayer(stats.name);
+    if (!tokens.some((t) => norm.includes(t))) continue;
+    const picks = picksForPlayer(allPicks, stats.name);
+    if (buildStatCandidates(stats, picks).length) {
+      return { stats, positionLabel: undefined, pickOfDayCount: 0 };
+    }
+  }
+  return null;
+}
+
 function pickTeamStar(
   players: ReturnType<typeof collectPlayers>,
   teamName: string,
-  allPicks: PickStat[]
+  allPicks: PickStat[],
+  playerIndex?: Map<number, PlayerTournamentStats>
 ): (typeof players)[0] | null {
   const teamKey = normTeam(teamName);
   const squad = players.filter((p) => normTeam(p.stats.teamName) === teamKey);
-  if (!squad.length) return null;
+  if (!squad.length && !playerIndex?.size) return null;
+
+  // Named marquee (Ronaldo, Mbappé, Yamal, etc.) — lineup first, then tournament index
+  for (const entry of squad) {
+    if (!matchesMarquee(entry.stats.name, teamName)) continue;
+    const picks = picksForPlayer(allPicks, entry.stats.name);
+    if (buildStatCandidates(entry.stats, picks).length) return entry;
+  }
+
+  const indexedMarquee = playerIndex
+    ? findMarqueeInIndex(teamName, playerIndex, allPicks)
+    : null;
+  if (indexedMarquee) return indexedMarquee;
 
   let best: (typeof players)[0] | null = null;
   let bestScore = -1;
@@ -294,22 +355,22 @@ function mkStarLeg(
     h2hSample?: number;
   },
   liveOdds?: Bet365LiveMap,
-  eventUrls?: Map<number, string>,
-  poolLeg?: BuilderLeg
+  eventUrls?: Map<number, string>
 ): BuilderLeg | null {
   if (opts.hitRate < STAR_MIN_LEG_HIT_RATE || opts.sample < 2) return null;
+  if (!liveOdds) return null;
 
+  const threshold = lineThreshold(opts.market);
   const quote = findLiveQuote(
     liveOdds,
     opts.matchId,
     opts.playerName,
-    opts.category
+    opts.category,
+    threshold
   );
-  const decimal =
-    quote?.price ??
-    poolLeg?.decimalOdds ??
-    bet365DecimalOdds(opts.hitRate, opts.category);
-  const priced = priceFromBet365Live(decimal);
+  if (!quote) return null;
+
+  const priced = priceFromBet365Live(quote.price);
 
   return {
     type: "player",
@@ -331,10 +392,9 @@ function mkStarLeg(
       .replace(/\s+/g, "-")
       .slice(0, 80),
     ...priced,
-    bet365Link: quote?.link ?? poolLeg?.bet365Link,
-    bet365SelectionId: quote?.selectionId ?? poolLeg?.bet365SelectionId,
-    bet365EventUrl:
-      eventUrls?.get(opts.matchId) ?? poolLeg?.bet365EventUrl,
+    bet365Link: quote.link,
+    bet365SelectionId: quote.selectionId,
+    bet365EventUrl: eventUrls?.get(opts.matchId),
   };
 }
 
@@ -344,18 +404,9 @@ function buildPlayerLegPool(
   matchId: number,
   matchLabel: string,
   kickoff: string,
-  poolLegs: BuilderLeg[],
   liveOdds?: Bet365LiveMap,
   eventUrls?: Map<number, string>
 ): BuilderLeg[] {
-  const target = normPlayer(player.name);
-  const poolByMarket = new Map<string, BuilderLeg>();
-  for (const leg of poolLegs) {
-    if (leg.playerName && normPlayer(leg.playerName) === target) {
-      poolByMarket.set(leg.market.toLowerCase(), leg);
-    }
-  }
-
   const legs: BuilderLeg[] = [];
   const seen = new Set<string>();
 
@@ -391,8 +442,7 @@ function buildPlayerLegPool(
             tournamentSample: lines.length,
           },
           liveOdds,
-          eventUrls,
-          poolByMarket.get(market.toLowerCase())
+          eventUrls
         )
       );
     }
@@ -419,8 +469,7 @@ function buildPlayerLegPool(
           h2hSample: pick.h2hSample,
         },
         liveOdds,
-        eventUrls,
-        poolByMarket.get(pick.label.toLowerCase())
+        eventUrls
       )
     );
   }
@@ -528,15 +577,15 @@ export function buildStarPlayerSlip(
 function buildStarForTeam(
   detail: MatchDetailPayload,
   teamName: string,
-  matchLegs: BuilderLeg[],
   liveOdds?: Bet365LiveMap,
-  eventUrls?: Map<number, string>
+  eventUrls?: Map<number, string>,
+  playerIndex?: Map<number, PlayerTournamentStats>
 ): StarPlayerSpecial | null {
   const { fixture } = detail;
   const matchLabel = `${fixture.home} v ${fixture.away}`;
   const allPicks = detail.matchups.flatMap((m) => m.picks);
   const players = collectPlayers(detail);
-  const star = pickTeamStar(players, teamName, allPicks);
+  const star = pickTeamStar(players, teamName, allPicks, playerIndex);
   if (!star) return null;
 
   const picks = picksForPlayer(allPicks, star.stats.name);
@@ -549,7 +598,6 @@ function buildStarForTeam(
     fixture.id,
     matchLabel,
     fixture.kickoff,
-    matchLegs,
     liveOdds,
     eventUrls
   );
@@ -573,7 +621,8 @@ export function buildStarPlayerFixture(
   detail: MatchDetailPayload,
   matchLegs: BuilderLeg[],
   liveOdds?: Bet365LiveMap,
-  eventUrls?: Map<number, string>
+  eventUrls?: Map<number, string>,
+  playerIndex?: Map<number, PlayerTournamentStats>
 ): StarPlayerFixture | null {
   const { fixture } = detail;
   const matchLabel = `${fixture.home} v ${fixture.away}`;
@@ -583,9 +632,9 @@ export function buildStarPlayerFixture(
     const special = buildStarForTeam(
       detail,
       team,
-      matchLegs,
       liveOdds,
-      eventUrls
+      eventUrls,
+      playerIndex
     );
     if (special) stars.push(special);
   }
@@ -615,7 +664,8 @@ export async function buildStarPlayersPayload(
   fixtures: Array<{ id: number }>,
   loadDetail: (id: number) => Promise<MatchDetailPayload | null>,
   liveOdds?: Bet365LiveMap,
-  eventUrls?: Map<number, string>
+  eventUrls?: Map<number, string>,
+  playerIndex?: Map<number, PlayerTournamentStats>
 ): Promise<StarPlayersPayload> {
   const fixtureGroups: StarPlayerFixture[] = [];
 
@@ -627,7 +677,8 @@ export async function buildStarPlayersPayload(
       detail,
       matchLegs,
       liveOdds,
-      eventUrls
+      eventUrls,
+      playerIndex
     );
     if (group) fixtureGroups.push(group);
   }

@@ -86,9 +86,14 @@ export default function StarPlayerFixtureCard({
                 </p>
                 <BuilderSlipCard slip={star.slip} liveOdds={liveOdds} />
               </div>
+            ) : liveOdds === false ? (
+              <p className="mt-3 text-xs text-muted">
+                Live Bet365 odds are not available — builder legs need real prices
+                from odds-api.io.
+              </p>
             ) : (
               <p className="mt-3 text-xs text-muted">
-                Could not stack enough legs to reach evens+ for this player.
+                Not enough live Bet365 legs to reach evens+ for this player.
               </p>
             )}
           </div>

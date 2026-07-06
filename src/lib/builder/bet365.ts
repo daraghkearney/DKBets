@@ -132,9 +132,47 @@ export type Bet365OddsSource = "bet365_live";
 export function liveOddsLookupKey(
   matchId: number,
   playerName: string,
+  category: LegCategory,
+  threshold = 1
+): string {
+  return `${matchId}|${normPlayer(playerName)}|${category}|${threshold}`;
+}
+
+/** Legacy key before per-line thresholds (treated as 1+). */
+function legacyLiveOddsLookupKey(
+  matchId: number,
+  playerName: string,
   category: LegCategory
 ): string {
   return `${matchId}|${normPlayer(playerName)}|${category}`;
+}
+
+function parseLiveOddsKey(key: string): {
+  matchId: number;
+  player: string;
+  category: LegCategory;
+  threshold: number;
+} | null {
+  const parts = key.split("|");
+  if (parts.length < 3) return null;
+
+  if (parts.length >= 4) {
+    const threshold = Number(parts[3]);
+    if (!Number.isFinite(threshold)) return null;
+    return {
+      matchId: Number(parts[0]),
+      player: parts[1]!,
+      category: parts[2] as LegCategory,
+      threshold,
+    };
+  }
+
+  return {
+    matchId: Number(parts[0]),
+    player: parts.slice(1, -1).join("|"),
+    category: parts[parts.length - 1] as LegCategory,
+    threshold: 1,
+  };
 }
 
 export function teamLiveOddsLookupKey(
@@ -161,28 +199,44 @@ export function findLiveQuote(
   liveOdds: Bet365LiveMap | undefined,
   matchId: number,
   playerName: string | undefined,
-  category: LegCategory
+  category: LegCategory,
+  threshold = 1
 ): Bet365LiveQuote | undefined {
-  const price = findLivePrice(liveOdds, matchId, playerName, category);
-  if (price === undefined || !liveOdds || !playerName) return undefined;
+  if (!liveOdds || !playerName) return undefined;
+
+  const direct = liveOdds.get(
+    liveOddsLookupKey(matchId, playerName, category, threshold)
+  );
+  if (direct) return direct;
+
+  if (threshold === 1) {
+    const legacy = liveOdds.get(
+      legacyLiveOddsLookupKey(matchId, playerName, category)
+    );
+    if (legacy) return legacy;
+  }
 
   const target = normPlayer(playerName);
   const candidates: { player: string; quote: Bet365LiveQuote }[] = [];
 
   for (const [key, quote] of liveOdds) {
-    const parts = key.split("|");
-    if (parts.length < 3) continue;
-    const mid = Number(parts[0]);
-    const cat = parts[parts.length - 1];
-    if (mid !== matchId || cat !== category) continue;
+    const parsed = parseLiveOddsKey(key);
+    if (!parsed) continue;
+    if (
+      parsed.matchId !== matchId ||
+      parsed.category !== category ||
+      parsed.threshold !== threshold
+    ) {
+      continue;
+    }
 
-    const apiPlayer = normPlayer(parts.slice(1, -1).join("|"));
+    const apiPlayer = normPlayer(parsed.player);
     if (apiPlayer === target || playersMatch(apiPlayer, target)) {
       candidates.push({ player: apiPlayer, quote });
     }
   }
 
-  if (candidates.length === 0) return { price };
+  if (candidates.length === 0) return undefined;
   if (candidates.length === 1) return candidates[0]!.quote;
 
   const targetParts = target.split(" ").filter(Boolean);
@@ -201,53 +255,18 @@ export function findLiveQuote(
     if (exactMononym.length === 1) return exactMononym[0]!.quote;
   }
 
-  return { price };
+  return undefined;
 }
 
 export function findLivePrice(
   liveOdds: Bet365LiveMap | undefined,
   matchId: number,
   playerName: string | undefined,
-  category: LegCategory
+  category: LegCategory,
+  threshold = 1
 ): number | undefined {
-  if (!liveOdds || !playerName) return undefined;
-
-  const target = normPlayer(playerName);
-  const candidates: { player: string; price: number }[] = [];
-
-  for (const [key, quote] of liveOdds) {
-    const parts = key.split("|");
-    if (parts.length < 3) continue;
-    const mid = Number(parts[0]);
-    const cat = parts[parts.length - 1];
-    if (mid !== matchId || cat !== category) continue;
-
-    const apiPlayer = normPlayer(parts.slice(1, -1).join("|"));
-    if (apiPlayer === target || playersMatch(apiPlayer, target)) {
-      candidates.push({ player: apiPlayer, price: quote.price });
-    }
-  }
-
-  if (candidates.length === 0) return undefined;
-  if (candidates.length === 1) return candidates[0]!.price;
-
-  const targetParts = target.split(" ").filter(Boolean);
-  const targetLast = targetParts[targetParts.length - 1] ?? "";
-
-  if (targetParts.length >= 2 && targetLast) {
-    const byLast = candidates.filter((c) => {
-      const parts = c.player.split(" ").filter(Boolean);
-      return parts[parts.length - 1] === targetLast;
-    });
-    if (byLast.length === 1) return byLast[0]!.price;
-  }
-
-  if (targetParts.length === 1) {
-    const exactMononym = candidates.filter((c) => c.player === target);
-    if (exactMononym.length === 1) return exactMononym[0]!.price;
-  }
-
-  return undefined;
+  return findLiveQuote(liveOdds, matchId, playerName, category, threshold)
+    ?.price;
 }
 
 function playersMatch(apiPlayer: string, statsPlayer: string): boolean {
@@ -377,13 +396,35 @@ function extractPlayerName(label: string, rowName?: string): string {
   return stripBet365PlayerLabel(raw);
 }
 
-function isOnePlusLine(label: string, rowName?: string, hdp?: number): boolean {
+/** Map odds-api.io row text / handicap to Bet Builder line (1+, 2+, …). */
+export function thresholdFromApiRow(
+  label: string,
+  rowName?: string,
+  hdp?: number
+): number | null {
   const text = `${label} ${rowName ?? ""}`.toLowerCase();
-  if (/\b(2|3|4|5)\+\s/.test(text) || /\b(2|3|4|5)\+\s*(shots|sot|tackle|foul)/i.test(text))
-    return false;
-  if (/\bover\s*[2-9]|under\s*[0-9]/i.test(text)) return false;
-  if (hdp !== undefined && Number.isFinite(hdp) && hdp > 0.5) return false;
-  return true;
+  if (/\bunder\s*\d/i.test(text)) return null;
+
+  const plus = text.match(/\b(\d+)\+(?:\s*(?:shots?|sot|tackles?|fouls?))?/i);
+  if (plus) return Number(plus[1]);
+
+  const over = text.match(/\bover\s*(\d+(?:\.\d+)?)/i);
+  if (over) {
+    const line = Number(over[1]);
+    if (Number.isFinite(line) && line >= 0.5) return Math.floor(line + 0.5);
+  }
+
+  const raw = (label || rowName || "").trim();
+  const suffix = raw.match(/\s+(\d+)$/);
+  if (suffix) return Number(suffix[1]);
+
+  if (hdp !== undefined && Number.isFinite(hdp) && hdp >= 0.5) {
+    return Math.floor(hdp + 0.5);
+  }
+
+  if (text.includes("card") || text.includes("booked")) return 1;
+
+  return 1;
 }
 
 function extractRowLink(row: any, market?: any): string | undefined {
@@ -492,15 +533,15 @@ function storeLiveQuote(
   playerName: string,
   category: LegCategory,
   decimal: number,
-  meta: { hdp?: number; link?: string; selectionId?: string } = {}
+  meta: { threshold?: number; link?: string; selectionId?: string } = {}
 ): void {
   if (!playerName) return;
-  const key = liveOddsLookupKey(matchId, playerName, category);
+  const threshold = meta.threshold ?? 1;
+  const key = liveOddsLookupKey(matchId, playerName, category, threshold);
   const existing = out.get(key);
   const rounded = Math.round(decimal * 1000) / 1000;
-  const { hdp, link, selectionId } = meta;
+  const { link, selectionId } = meta;
 
-  if (existing !== undefined && hdp !== undefined && hdp > 0.5) return;
   if (existing !== undefined && rounded >= existing.price) return;
 
   out.set(key, {
@@ -728,34 +769,42 @@ function parseOddsApiMarket(
       };
     })();
 
-    if (!isOnePlusLine(label, rowName, hasHdp ? hdp : undefined)) continue;
+    const threshold = thresholdFromApiRow(
+      label,
+      rowName || undefined,
+      hasHdp ? hdp : undefined
+    );
+    if (!threshold || threshold < 1 || threshold > 5) continue;
 
     const over = parseDecimal(row?.over);
     const yes = parseDecimal(row?.yes);
     const canonicalSource =
       categoryFromCanonicalMarket(marketName) ?? categoryFromCanonicalMarket(rowName);
 
-    if (over && (!hasHdp || hdp <= 0.5)) {
+    if (over) {
       storeLiveQuote(out, fotmobMatchId, player, category, over, {
         ...meta,
-        hdp: hasHdp ? hdp : 0.5,
+        threshold,
       });
       matched = true;
       continue;
     }
 
     if (yes && category === "cards") {
-      storeLiveQuote(out, fotmobMatchId, player, category, yes, meta);
+      storeLiveQuote(out, fotmobMatchId, player, category, yes, {
+        ...meta,
+        threshold: 1,
+      });
       matched = true;
       continue;
     }
 
     if (canonicalSource) {
       const price = parseDecimal(row?.price ?? row?.odds ?? row?.decimal);
-      if (price && (!hasHdp || hdp <= 0.5)) {
+      if (price) {
         storeLiveQuote(out, fotmobMatchId, player, category, price, {
           ...meta,
-          hdp: hasHdp ? hdp : 0.5,
+          threshold,
         });
         matched = true;
       }
