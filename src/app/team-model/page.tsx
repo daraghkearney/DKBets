@@ -29,7 +29,8 @@ export default function TeamModelPage() {
   }, []);
 
   const withModels = teams.filter((t) => t.perfectProps.length > 0);
-  const withSlips = teams.filter((t) => t.slip);
+  const withBankers = teams.filter((t) => t.bankerSlip);
+  const withExtended = teams.filter((t) => t.extendedSlip);
 
   return (
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
@@ -43,13 +44,15 @@ export default function TeamModelPage() {
           built from props that have landed in{" "}
           <strong className="text-foreground">every single game</strong> so far:
           team corners, shots, shots on target, fouls, plus player shots, fouls
-          won, tackles, and more. Legs are priced from live Bet365 odds only and
-          stacked into 4–5 leg builders at evens or 2/1.
+          won, tackles, and more. Each team gets two builders: a 2-leg banker
+          around 6/4 and a 4–5 leg extended acca at higher odds — live Bet365
+          prices only.
         </p>
         {!loading && !error && (
           <p className="mt-2 text-xs text-muted">
             {teams.length} teams remaining · {withModels.length} with unbeaten
-            props · {withSlips.length} with a live builder
+            props · {withBankers.length} bankers · {withExtended.length}{" "}
+            extended
           </p>
         )}
       </div>

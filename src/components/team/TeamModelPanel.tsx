@@ -15,7 +15,8 @@ export default function TeamModelPanel({
   const [open, setOpen] = useState(false);
 
   const unbeaten = entry.perfectProps.length;
-  const hasSlip = Boolean(entry.slip);
+  const hasBanker = Boolean(entry.bankerSlip);
+  const hasExtended = Boolean(entry.extendedSlip);
 
   return (
     <article className="rounded-2xl border border-edge bg-surface overflow-hidden">
@@ -42,9 +43,14 @@ export default function TeamModelPanel({
               {unbeaten} unbeaten
             </span>
           )}
-          {hasSlip && (
+          {hasBanker && (
             <span className="rounded-full border border-gold/40 bg-gold/10 px-2.5 py-0.5 text-xs font-bold text-gold">
-              {entry.slip!.combinedFractional}
+              {entry.bankerSlip!.combinedFractional}
+            </span>
+          )}
+          {hasExtended && (
+            <span className="rounded-full border border-accent/40 bg-accent/10 px-2.5 py-0.5 text-xs font-bold text-accent">
+              {entry.extendedSlip!.combinedFractional} ext
             </span>
           )}
           <span className="text-muted">{open ? "▾" : "▸"}</span>
@@ -63,9 +69,9 @@ export default function TeamModelPanel({
               <p className="mb-3 text-sm text-muted">
                 Props that have hit in{" "}
                 <strong className="text-foreground">100%</strong> of games so
-                far — stacked into a Bet365 builder for{" "}
-                {entry.nextMatchLabel ?? "the next fixture"} using live odds
-                only.
+                far — two Bet365 builders for{" "}
+                {entry.nextMatchLabel ?? "the next fixture"}: a tight 2-leg
+                banker (~6/4) and a 4–5 leg extended acca at higher odds.
               </p>
 
               <div className="mb-4 grid gap-2 sm:grid-cols-2">
@@ -127,14 +133,35 @@ export default function TeamModelPanel({
                 </div>
               )}
 
-              {entry.slip ? (
-                <div>
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted">
-                    Unbeaten model · {entry.pricedLegs} live legs priced ·{" "}
-                    {formatPct(entry.slip.combinedProbability, 1)} combined hit
-                    rate
-                  </p>
-                  <BuilderSlipCard slip={entry.slip} liveOdds={liveOdds} />
+              {(entry.bankerSlip || entry.extendedSlip) ? (
+                <div className="flex flex-col gap-4">
+                  {entry.bankerSlip && (
+                    <div>
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-gold">
+                        6/4 banker · 2 legs ·{" "}
+                        {formatPct(entry.bankerSlip.combinedProbability, 1)}{" "}
+                        combined hit rate
+                      </p>
+                      <BuilderSlipCard
+                        slip={entry.bankerSlip}
+                        liveOdds={liveOdds}
+                      />
+                    </div>
+                  )}
+                  {entry.extendedSlip && (
+                    <div>
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-accent">
+                        Extended model · {entry.extendedSlip.legs.length} legs ·{" "}
+                        {entry.extendedSlip.combinedFractional} ·{" "}
+                        {formatPct(entry.extendedSlip.combinedProbability, 1)}{" "}
+                        combined hit rate
+                      </p>
+                      <BuilderSlipCard
+                        slip={entry.extendedSlip}
+                        liveOdds={liveOdds}
+                      />
+                    </div>
+                  )}
                 </div>
               ) : liveOdds === false ? (
                 <p className="text-xs text-muted">
@@ -148,8 +175,8 @@ export default function TeamModelPanel({
                 </p>
               ) : (
                 <p className="text-xs text-muted">
-                  Not enough live Bet365 legs to build a 4–5 leg evens+ model for
-                  the next fixture.
+                  Not enough live Bet365 legs to build the 2-leg banker or 4–5
+                  leg extended model for the next fixture.
                 </p>
               )}
             </>

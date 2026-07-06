@@ -11,11 +11,12 @@ import {
 
 const PLACEHOLDER_TEAM = /\/|winner|loser|tbd|round|group/i;
 const MIN_GAMES = 2;
-const TARGET_DECIMAL_MIN = 1.9;
-const TARGET_DECIMAL_IDEAL = 3.0;
-/** Target slip size — stack 4–5 almost-guaranteed legs. */
-const TARGET_LEGS_MIN = 4;
-const TARGET_LEGS_IDEAL = 5;
+/** 2-leg banker target — 6/4 (2.50 decimal). */
+const BANKER_LEGS = 2;
+const BANKER_DECIMAL_TARGET = 2.5;
+/** Extended acca — maximise odds with 4–5 unbeaten legs. */
+const EXTENDED_LEGS_MIN = 4;
+const EXTENDED_LEGS_IDEAL = 5;
 
 export interface TeamModelGameStat {
   matchId: number;
@@ -46,7 +47,8 @@ export interface TeamModelEntry {
   nextOpponent: string | null;
   perfectProps: TeamModelPerfectProp[];
   pricedLegs: number;
-  slip: BuilderSlip | null;
+  bankerSlip: BuilderSlip | null;
+  extendedSlip: BuilderSlip | null;
   history: TeamMatchLine[];
 }
 
@@ -360,10 +362,14 @@ function rankGuaranteeLegs(legs: BuilderLeg[]): BuilderLeg[] {
   );
 }
 
-function oddsDistance(decimal: number): number {
-  if (decimal < TARGET_DECIMAL_MIN) return 100 + (TARGET_DECIMAL_MIN - decimal);
-  if (decimal <= TARGET_DECIMAL_IDEAL) return Math.abs(decimal - 2.45);
-  return (decimal - TARGET_DECIMAL_IDEAL) * 0.5;
+/** Extended acca — same 100% props but prefer longer-priced legs to lift the odds. */
+function rankExtendedLegs(legs: BuilderLeg[]): BuilderLeg[] {
+  return [...legs].sort(
+    (a, b) =>
+      b.sample - a.sample ||
+      b.decimalOdds - a.decimalOdds ||
+      (a.type === "team" ? 0 : 1) - (b.type === "team" ? 0 : 1)
+  );
 }
 
 function* combinations<T>(items: T[], size: number): Generator<T[]> {
@@ -380,69 +386,82 @@ function* combinations<T>(items: T[], size: number): Generator<T[]> {
   }
 }
 
-function buildModelSlip(
+function buildBankerSlip(
   legs: BuilderLeg[],
   teamName: string,
   matchLabel: string
 ): BuilderSlip | null {
-  if (legs.length < TARGET_LEGS_MIN) return null;
+  if (legs.length < BANKER_LEGS) return null;
 
   const pool = rankGuaranteeLegs(legs);
+  let best: BuilderLeg[] | null = null;
+  let bestDist = Infinity;
 
-  // Prefer 5 legs, then 4 — among combos that reach evens+, pick best odds band.
-  for (const size of [TARGET_LEGS_IDEAL, TARGET_LEGS_MIN]) {
-    if (pool.length < size) continue;
+  for (const combo of combinations(pool, BANKER_LEGS)) {
+    const decimal = combineOdds(combo);
+    const dist = Math.abs(decimal - BANKER_DECIMAL_TARGET);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = combo;
+    }
+  }
 
+  if (!best) return null;
+
+  return slipFromLegs(
+    `team-model-banker-${normTeamKey(teamName)}`,
+    `Team Model Banker — ${teamName}`,
+    best,
+    `6/4 · ${matchLabel}`
+  );
+}
+
+function buildExtendedSlip(
+  legs: BuilderLeg[],
+  teamName: string,
+  matchLabel: string,
+  bankerDecimal?: number
+): BuilderSlip | null {
+  if (legs.length < EXTENDED_LEGS_MIN) return null;
+
+  const pool = rankExtendedLegs(legs);
+
+  const pickBest = (requireBeatBanker: boolean): BuilderLeg[] | null => {
     let best: BuilderLeg[] | null = null;
-    let bestDist = Infinity;
+    let bestDecimal = 0;
 
-    for (const combo of combinations(pool, size)) {
-      const decimal = combineOdds(combo);
-      if (decimal < TARGET_DECIMAL_MIN) continue;
-      const dist = oddsDistance(decimal);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = combo;
+    for (const size of [EXTENDED_LEGS_IDEAL, EXTENDED_LEGS_MIN]) {
+      if (pool.length < size) continue;
+
+      for (const combo of combinations(pool, size)) {
+        const decimal = combineOdds(combo);
+        if (requireBeatBanker && bankerDecimal && decimal <= bankerDecimal) {
+          continue;
+        }
+        if (decimal > bestDecimal) {
+          bestDecimal = decimal;
+          best = combo;
+        }
       }
+
+      if (best) return best;
     }
 
-    if (best) {
-      const decimal = combineOdds(best);
-      const targetLabel =
-        decimal >= TARGET_DECIMAL_IDEAL
-          ? `2/1+ · ${matchLabel}`
-          : `Evens+ · ${matchLabel}`;
+    return null;
+  };
 
-      return slipFromLegs(
-        `team-model-${normTeamKey(teamName)}`,
-        `Team Model — ${teamName}`,
-        best,
-        targetLabel
-      );
-    }
-  }
+  let best = pickBest(true) ?? pickBest(false);
+  if (!best) return null;
 
-  // Greedy: top guaranteed legs until we have 5 (or 4) at evens+.
-  for (const targetSize of [TARGET_LEGS_IDEAL, TARGET_LEGS_MIN]) {
-    if (pool.length < targetSize) continue;
-    const slice = pool.slice(0, targetSize);
-    if (combineOdds(slice) >= TARGET_DECIMAL_MIN) {
-      const decimal = combineOdds(slice);
-      const targetLabel =
-        decimal >= TARGET_DECIMAL_IDEAL
-          ? `2/1+ · ${matchLabel}`
-          : `Evens+ · ${matchLabel}`;
+  const decimal = combineOdds(best);
+  const sizeLabel = `${best.length}-fold`;
 
-      return slipFromLegs(
-        `team-model-${normTeamKey(teamName)}`,
-        `Team Model — ${teamName}`,
-        slice,
-        targetLabel
-      );
-    }
-  }
-
-  return null;
+  return slipFromLegs(
+    `team-model-extended-${normTeamKey(teamName)}`,
+    `Team Model Extended — ${teamName}`,
+    best,
+    `${sizeLabel} · ${matchLabel}`
+  );
 }
 
 export function buildTeamModelEntry(
@@ -496,9 +515,19 @@ export function buildTeamModelEntry(
     }
   }
 
-  const slip =
+  const bankerSlip =
     next && matchLabel
-      ? buildModelSlip(pricedLegs, teamName, matchLabel)
+      ? buildBankerSlip(pricedLegs, teamName, matchLabel)
+      : null;
+
+  const extendedSlip =
+    next && matchLabel
+      ? buildExtendedSlip(
+          pricedLegs,
+          teamName,
+          matchLabel,
+          bankerSlip?.combinedDecimal
+        )
       : null;
 
   return {
@@ -511,7 +540,8 @@ export function buildTeamModelEntry(
     nextOpponent,
     perfectProps,
     pricedLegs: pricedLegs.length,
-    slip,
+    bankerSlip,
+    extendedSlip,
     history,
   };
 }
