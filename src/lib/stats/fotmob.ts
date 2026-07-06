@@ -18,6 +18,12 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const pending = new Map<string, Promise<unknown>>();
 
+/** Drop cached FotMob payloads (use between heavy export passes). */
+export function clearFotmobCache(): void {
+  cache.clear();
+  pending.clear();
+}
+
 async function fetchJson(url: string, ttlMs: number): Promise<unknown> {
   const hit = cache.get(url);
   if (hit && hit.expires > Date.now()) return hit.data;

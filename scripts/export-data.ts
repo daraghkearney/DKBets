@@ -23,6 +23,7 @@ import {
   getTeamHistory,
   setActiveSampleMode,
 } from "../src/lib/stats/store";
+import { clearFotmobCache } from "../src/lib/stats/fotmob";
 import {
   DEFAULT_SAMPLE_MODE,
   SAMPLE_MODES,
@@ -45,8 +46,9 @@ async function writeJson(rel: string, data: unknown) {
 
 async function exportSampleMode(mode: StatsSampleMode) {
   console.log(`\n  [${mode}] exporting sample dataset …`);
+  clearFotmobCache();
+  clearPlayerIndexCache();
   setActiveSampleMode(mode);
-  clearPlayerIndexCache(mode);
   const prefix = `samples/${mode}`;
   const sampleMeta = {
     sampleMode: mode,
@@ -143,6 +145,8 @@ async function exportSampleMode(mode: StatsSampleMode) {
       }
     }
   }
+  clearFotmobCache();
+  clearPlayerIndexCache();
 }
 
 async function main() {

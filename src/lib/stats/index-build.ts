@@ -1,4 +1,4 @@
-import { getLeague, getMatchDetails, getPlayerData, pool } from "./fotmob";
+import { clearFotmobCache, getLeague, getMatchDetails, getPlayerData, pool } from "./fotmob";
 import {
   parseFixtures,
   parseMatchPlayerLines,
@@ -202,12 +202,14 @@ async function buildFromPlayerRecentMatches(
     }
   });
 
+  clearFotmobCache();
+
   const uniqueMatchIds = [...new Set([...matchMeta.keys()])];
   const linesByPlayer = new Map<number, PlayerMatchLine[]>();
   const meta = new Map<number, { name: string; teamId: number; teamName: string }>();
   const allTeamLines: TeamMatchLine[] = [];
 
-  await pool(uniqueMatchIds, 4, async (matchId) => {
+  const ingestMatch = async (matchId: number) => {
     const raw = (await getMatchDetails(matchId, true)) as any;
     const mm = matchMeta.get(matchId);
     const competition =
@@ -228,7 +230,14 @@ async function buildFromPlayerRecentMatches(
     for (const [pid, m] of parsePlayerMeta(raw)) {
       meta.set(pid, m);
     }
-  });
+  };
+
+  const chunkSize = 80;
+  for (let i = 0; i < uniqueMatchIds.length; i += chunkSize) {
+    const chunk = uniqueMatchIds.slice(i, i + chunkSize);
+    await pool(chunk, 4, ingestMatch);
+    clearFotmobCache();
+  }
 
   // Keep only lines for matches in each player's capped list
   for (const [pid, allowed] of playerMatchIds) {

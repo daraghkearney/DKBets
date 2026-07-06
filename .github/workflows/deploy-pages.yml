@@ -59,6 +59,7 @@ jobs:
       - name: Export live data
         run: npm run export:data
         env:
+          NODE_OPTIONS: --max-old-space-size=6144
           ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
 
       - name: Build static site
