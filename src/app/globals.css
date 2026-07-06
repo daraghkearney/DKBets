@@ -92,6 +92,60 @@ body {
   animation: toast-in 0.25s ease-out;
 }
 
+@keyframes pitch-shimmer {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+@keyframes lineup-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(251, 191, 36, 0.45), 0 0 40px rgba(251, 191, 36, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(251, 191, 36, 0.75), 0 0 56px rgba(251, 191, 36, 0.3);
+  }
+}
+
+@keyframes border-rotate {
+  to {
+    --border-angle: 360deg;
+  }
+}
+
+.lineup-pitch-shimmer {
+  animation: pitch-shimmer 4s ease-in-out infinite;
+}
+
+.lineup-player-glow {
+  animation: lineup-glow 2s ease-in-out infinite;
+}
+
+@property --border-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.lineup-card-border {
+  background: linear-gradient(var(--surface), var(--surface)) padding-box,
+    conic-gradient(
+        from var(--border-angle),
+        rgba(34, 197, 94, 0.6),
+        rgba(251, 191, 36, 0.4),
+        rgba(59, 130, 246, 0.5),
+        rgba(34, 197, 94, 0.6)
+      )
+      border-box;
+  border: 1px solid transparent;
+  animation: border-rotate 8s linear infinite;
+}
+
 ::-webkit-scrollbar {
   height: 8px;
   width: 8px;
