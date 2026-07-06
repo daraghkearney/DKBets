@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { formatKickoff, formatPct } from "@/lib/format";
 import {
+  bet365LegLinkLabel,
   bet365LinkHint,
   bet365LinkLabel,
   buildBet365SlipLink,
+  resolveBet365LegLink,
 } from "@/lib/builder/bet365-links";
 import type { BuilderSlip } from "@/lib/builder/types";
 
@@ -95,7 +97,9 @@ export default function BuilderSlipCard({
       )}
 
       <ol className="mt-4 flex flex-col gap-2">
-        {slip.legs.map((leg, i) => (
+        {slip.legs.map((leg, i) => {
+          const legLink = resolveBet365LegLink(leg);
+          return (
           <li
             key={leg.id}
             className="rounded-xl border border-edge bg-background/40 px-3 py-2.5"
@@ -116,20 +120,21 @@ export default function BuilderSlipCard({
               <div className="text-right text-xs">
                 <p className="tabular font-bold">{leg.fractionalOdds}</p>
                 <p className="text-muted">{formatPct(leg.hitRate, 0)} hit rate</p>
-                {leg.bet365Link && (
+                {legLink && (
                   <a
-                    href={leg.bet365Link}
+                    href={legLink.href}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="mt-1 inline-block text-[#3ecf8e] underline"
                   >
-                    Bet365
+                    {bet365LegLinkLabel(legLink)}
                   </a>
                 )}
               </div>
             </div>
           </li>
-        ))}
+          );
+        })}
       </ol>
 
       <p className="mt-4 text-[11px] text-muted">

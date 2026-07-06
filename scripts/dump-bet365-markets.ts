@@ -75,18 +75,24 @@ async function main() {
 
     dump.push({
       market: marketName,
-        rows: rows.map((r: Record<string, unknown>) => ({
-        label: r.label,
-        name: r.name,
-        hdp: r.hdp ?? r.handicap ?? r.line,
-        over: r.over,
-        under: r.under,
-        yes: r.yes,
-        price: r.price ?? r.odds ?? r.decimal,
-        link: r.link ?? r.url ?? r.href,
-        selectionId: r.selectionId ?? r.selection_id ?? r.sid ?? r.id,
-        keys: Object.keys(r),
-      })),
+      marketKeys: Object.keys(market ?? {}),
+      rows: rows.map((r: Record<string, unknown>) => {
+        const link =
+          r.link ?? r.url ?? r.href ?? r.overLink ?? r.yesLink ?? r.homeLink;
+        return {
+          label: r.label,
+          name: r.name,
+          hdp: r.hdp ?? r.handicap ?? r.line,
+          over: r.over,
+          under: r.under,
+          yes: r.yes,
+          price: r.price ?? r.odds ?? r.decimal,
+          link,
+          selectionId:
+            r.selectionId ?? r.selection_id ?? r.sid ?? r.marketId ?? r.id,
+          keys: Object.keys(r),
+        };
+      }),
     });
   }
 

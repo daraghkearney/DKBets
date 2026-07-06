@@ -1,7 +1,8 @@
+import {
+  buildBet365RedirectUrl,
+  resolveBet365LegLink,
+} from "./bet365-deeplink";
 import type { BuilderLeg, BuilderSlip } from "./types";
-
-const BET365_REDIRECT =
-  "https://www.bet365.com/dl/sportsbookredirect?bet=1&bs=";
 
 export type Bet365SlipLinkMode = "betslip" | "event";
 
@@ -13,17 +14,7 @@ export interface Bet365SlipLink {
   totalLegs: number;
 }
 
-/** Build bet365.com sportsbookredirect URL from internal selection IDs. */
-export function buildBet365RedirectUrl(legs: BuilderLeg[]): string | null {
-  if (!legs.length) return null;
-  if (!legs.every((leg) => leg.bet365SelectionId)) return null;
-
-  const bs = legs
-    .map((leg) => `|${leg.bet365SelectionId}~${leg.fractionalOdds}~0`)
-    .join("");
-
-  return `${BET365_REDIRECT}${encodeURIComponent(bs)}`;
-}
+export { buildBet365RedirectUrl, resolveBet365LegLink };
 
 /** Prefer a pre-loaded acca link, then single-leg deep link, then match page. */
 export function buildBet365SlipLink(slip: BuilderSlip): Bet365SlipLink | null {
@@ -41,28 +32,35 @@ export function buildBet365SlipLink(slip: BuilderSlip): Bet365SlipLink | null {
   }
 
   if (legs.length === 1) {
-    const leg = legs[0]!;
-    if (leg.bet365Link) {
+    const legLink = resolveBet365LegLink(legs[0]!);
+    if (legLink) {
       return {
-        href: leg.bet365Link,
-        mode: "betslip",
-        coveredLegs: 1,
-        totalLegs: 1,
-      };
-    }
-    if (leg.bet365EventUrl) {
-      return {
-        href: leg.bet365EventUrl,
-        mode: "event",
-        coveredLegs: 0,
+        href: legLink.href,
+        mode: legLink.mode,
+        coveredLegs: legLink.mode === "betslip" ? 1 : 0,
         totalLegs: 1,
       };
     }
   }
 
   const matchIds = new Set(legs.map((l) => l.matchId));
-  if (matchIds.size === 1) {
+  const isSameGame = matchIds.size === 1;
+
+  // Same-game slips: prefer per-leg deeplinks in the UI; slip button opens the match.
+  if (isSameGame) {
     const eventUrl = legs.find((l) => l.bet365EventUrl)?.bet365EventUrl;
+    const deeplinkLegs = legs.filter(
+      (l) => resolveBet365LegLink(l)?.mode === "betslip"
+    );
+    if (deeplinkLegs.length === 1) {
+      const one = resolveBet365LegLink(deeplinkLegs[0]!)!;
+      return {
+        href: one.href,
+        mode: "betslip",
+        coveredLegs: 1,
+        totalLegs: legs.length,
+      };
+    }
     if (eventUrl) {
       return {
         href: eventUrl,
@@ -73,12 +71,13 @@ export function buildBet365SlipLink(slip: BuilderSlip): Bet365SlipLink | null {
     }
   }
 
-  const linked = legs.filter((l) => l.bet365Link);
+  const linked = legs.filter((l) => l.bet365Link || l.bet365SelectionId);
   if (linked.length === 1) {
+    const one = resolveBet365LegLink(linked[0]!)!;
     return {
-      href: linked[0]!.bet365Link!,
-      mode: "betslip",
-      coveredLegs: 1,
+      href: one.href,
+      mode: one.mode,
+      coveredLegs: one.mode === "betslip" ? 1 : 0,
       totalLegs: legs.length,
     };
   }
@@ -113,7 +112,13 @@ export function bet365LinkHint(link: Bet365SlipLink): string {
     return "Pre-loaded Bet365 betslip — review and place your bet there.";
   }
   if (link.mode === "event") {
-    return "Same-game Bet Builder slips must be built on Bet365 — use the legs listed above.";
+    return "Bet365 does not expose player-prop selection IDs via our odds feed yet — open the match and add legs manually (or use per-leg links below when available).";
   }
   return "Only part of this slip could be deep-linked; add remaining legs manually on Bet365.";
+}
+
+export function bet365LegLinkLabel(
+  legLink: NonNullable<ReturnType<typeof resolveBet365LegLink>>
+): string {
+  return legLink.mode === "betslip" ? "Open leg on Bet365" : "Open match on Bet365";
 }

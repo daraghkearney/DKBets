@@ -5,6 +5,11 @@
  */
 
 import { toFractional } from "@/lib/format";
+import {
+  countBet365DeeplinkQuotes,
+  extractBet365RowLink,
+  extractBet365SelectionId,
+} from "./bet365-deeplink";
 import type { Bet365LiveBundle, Bet365LiveMap, Bet365LiveQuote } from "./bet365-live";
 import type { LegCategory } from "./types";
 
@@ -381,31 +386,12 @@ function isOnePlusLine(label: string, rowName?: string, hdp?: number): boolean {
   return true;
 }
 
-function extractRowLink(row: any): string | undefined {
-  for (const key of ["link", "url", "href", "deepLink", "deep_link", "betLink"]) {
-    const value = row?.[key];
-    if (typeof value === "string" && value.startsWith("http")) return value;
-  }
-  return undefined;
+function extractRowLink(row: any, market?: any): string | undefined {
+  return extractBet365RowLink(row ?? {}, market ?? undefined);
 }
 
-function extractSelectionId(row: any, apiEventId?: number): string | undefined {
-  for (const key of ["selectionId", "selection_id", "sid", "fid", "bs"]) {
-    const value = row?.[key];
-    if (typeof value === "string" && /^\d+-\d+$/.test(value)) return value;
-  }
-
-  const eventId = row?.eventId ?? row?.event_id ?? apiEventId;
-  const marketId = row?.marketId ?? row?.market_id ?? row?.mid ?? row?.oid;
-  if (eventId != null && marketId != null) {
-    return `${eventId}-${marketId}`;
-  }
-
-  const id = row?.id;
-  if (typeof id === "string" && /^\d+-\d+$/.test(id)) return id;
-  if (typeof id === "number" && apiEventId != null) return `${apiEventId}-${id}`;
-
-  return undefined;
+function extractSelectionId(row: any, apiEventId?: number, link?: string): string | undefined {
+  return extractBet365SelectionId(row ?? {}, apiEventId, link);
 }
 
 function extractEventUrl(data: any): string | undefined {
@@ -491,8 +477,8 @@ function parseTeamOddsApiMarket(
     if (!over) continue;
 
     storeTeamQuote(out, fotmobMatchId, team, teamMarket, over, {
-      link: extractRowLink(row) ?? extractRowLink(market),
-      selectionId: extractSelectionId(row, apiEventId),
+      link: extractRowLink(row, market) ?? undefined,
+      selectionId: extractSelectionId(row, apiEventId, extractRowLink(row, market)),
     });
     matched = true;
   }
@@ -661,6 +647,18 @@ export async function fetchBet365LiveOdds(
     console.warn("  bet365 live fetch failed:", e);
   }
 
+  const { total, withMeta } = countBet365DeeplinkQuotes(quotes.values());
+  if (total > 0) {
+    console.log(
+      `  bet365 live: ${withMeta}/${total} quotes have deeplink metadata (selectionId or link)`
+    );
+    if (withMeta === 0) {
+      console.warn(
+        "  bet365 live: odds-api.io returned prices only — pre-loaded betslips need selection IDs (contact odds-api.io or add a Bet365 ID source)"
+      );
+    }
+  }
+
   return { quotes, eventUrls };
 }
 
@@ -721,11 +719,14 @@ function parseOddsApiMarket(
     const player = extractPlayerName(label || rowName, rowName || undefined);
     const hdp = Number(row?.hdp ?? row?.handicap ?? row?.line);
     const hasHdp = Number.isFinite(hdp);
-    const meta = {
-      hdp: hasHdp ? hdp : undefined,
-      link: extractRowLink(row) ?? extractRowLink(market),
-      selectionId: extractSelectionId(row, apiEventId),
-    };
+    const meta = (() => {
+      const link = extractRowLink(row, market);
+      return {
+        hdp: hasHdp ? hdp : undefined,
+        link,
+        selectionId: extractSelectionId(row, apiEventId, link),
+      };
+    })();
 
     if (!isOnePlusLine(label, rowName, hasHdp ? hdp : undefined)) continue;
 
