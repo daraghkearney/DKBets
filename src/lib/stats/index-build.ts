@@ -23,7 +23,7 @@ export interface BuiltStatsIndex {
 }
 
 function isQualificationStage(stage: string): boolean {
-  const s = stage.toLowerCase();
+  const s = String(stage ?? "").toLowerCase();
   return (
     s.includes("qualif") ||
     s.includes("play-off") ||

@@ -180,7 +180,7 @@ export interface RawFixture {
 export function parseFixtures(league: any): RawFixture[] {
   const out: RawFixture[] = [];
   for (const rnd of league?.fixtures?.allMatches ?? []) {
-    const stage = rnd.roundName ?? rnd.round ?? "World Cup";
+    const stage = String(rnd.roundName ?? rnd.round ?? "World Cup");
     const matches =
       Array.isArray(rnd.matches) && rnd.matches.length > 0
         ? rnd.matches
