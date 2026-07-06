@@ -16,6 +16,10 @@ import {
 import { loadBuilderPayload } from "../src/lib/builder/engine";
 import { precomputeBuilderViews } from "../src/lib/builder/compose";
 import { buildStarPlayersPayload } from "../src/lib/builder/star-player";
+import {
+  loadCachedBet365EventUrls,
+  loadCachedBet365Odds,
+} from "../src/lib/builder/bet365-cache";
 
 const ROOT = path.join(process.cwd(), "public", "data");
 
@@ -93,10 +97,14 @@ async function main() {
   await writeJson("builder.json", builder);
 
   console.log("  star players: building specials …");
+  const liveOdds = await loadCachedBet365Odds({ ignoreAge: true });
+  const eventUrls = await loadCachedBet365EventUrls();
   const starPlayers = await buildStarPlayersPayload(
     builder.legs,
     upcoming,
-    loadMatchDetail
+    loadMatchDetail,
+    liveOdds ?? undefined,
+    eventUrls.size ? eventUrls : undefined
   );
   await writeJson("star-players.json", starPlayers);
 

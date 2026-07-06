@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { dataUrl } from "@/lib/basePath";
-import type { StarPlayerSpecial, StarPlayersPayload } from "@/lib/builder/star-player";
-import StarPlayerCard from "@/components/star/StarPlayerCard";
+import type { StarPlayerFixture, StarPlayersPayload } from "@/lib/builder/star-player";
+import StarPlayerFixtureCard from "@/components/star/StarPlayerFixtureCard";
 
 export default function StarPlayersPage() {
-  const [entries, setEntries] = useState<StarPlayerSpecial[]>([]);
+  const [fixtures, setFixtures] = useState<StarPlayerFixture[]>([]);
   const [liveAvailable, setLiveAvailable] = useState(false);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -21,7 +21,10 @@ export default function StarPlayersPage() {
         .catch(() => null),
     ])
       .then(([starData, builderData]: [StarPlayersPayload, { bet365LiveAvailable?: boolean } | null]) => {
-        setEntries(starData.entries ?? []);
+        const groups =
+          starData.fixtures ??
+          groupLegacyEntries(starData.entries ?? []);
+        setFixtures(groups);
         setLiveAvailable(builderData?.bet365LiveAvailable ?? false);
       })
       .catch(() => setError(true))
@@ -36,9 +39,9 @@ export default function StarPlayersPage() {
         </div>
         <h1 className="text-2xl font-bold tracking-tight">Star Player Specials</h1>
         <p className="max-w-2xl text-sm text-muted">
-          One standout player per fixture — their highest-probability stat plus a
-          multi-leg same-player Bet365 builder (2/1+ odds) built from stacked
-          high-confidence legs.
+          The standout player from each team in every fixture — gem stat plus a
+          multi-leg same-player Bet365 builder stacked to evens or 2/1 using as
+          many high-probability legs as needed.
         </p>
       </div>
 
@@ -52,22 +55,49 @@ export default function StarPlayersPage() {
         <p className="text-sm text-red-400">Could not load star player data.</p>
       )}
 
-      {!loading && !error && entries.length === 0 && (
+      {!loading && !error && fixtures.length === 0 && (
         <p className="rounded-xl border border-edge bg-surface p-6 text-sm text-muted">
-          No star player specials available yet — check back when lineups and
-          live Bet365 prices are loaded.
+          No star player specials available yet — check back when lineups are
+          loaded.
         </p>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {entries.map((entry) => (
-          <StarPlayerCard
-            key={entry.matchId}
-            entry={entry}
+        {fixtures.map((fx) => (
+          <StarPlayerFixtureCard
+            key={fx.matchId}
+            matchId={fx.matchId}
+            matchLabel={fx.matchLabel}
+            kickoff={fx.kickoff}
+            stage={fx.stage}
+            stars={fx.stars}
             liveOdds={liveAvailable}
           />
         ))}
       </div>
     </main>
+  );
+}
+
+function groupLegacyEntries(
+  entries: StarPlayerFixture["stars"]
+): StarPlayerFixture[] {
+  const map = new Map<number, StarPlayerFixture>();
+  for (const e of entries) {
+    let fx = map.get(e.matchId);
+    if (!fx) {
+      fx = {
+        matchId: e.matchId,
+        matchLabel: e.matchLabel,
+        kickoff: e.kickoff,
+        stage: e.stage,
+        stars: [],
+      };
+      map.set(e.matchId, fx);
+    }
+    fx.stars.push(e);
+  }
+  return [...map.values()].sort(
+    (a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime()
   );
 }

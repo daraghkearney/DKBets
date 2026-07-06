@@ -1,5 +1,10 @@
-import { normPlayer } from "./bet365";
-import { combineOdds, combineProbability, effectiveHitRate } from "./odds";
+import {
+  bet365DecimalOdds,
+  findLiveQuote,
+  normPlayer,
+} from "./bet365";
+import type { Bet365LiveMap } from "./bet365-live";
+import { combineOdds, combineProbability, effectiveHitRate, priceFromBet365Live } from "./odds";
 import { slipFromLegs } from "./legs";
 import type { BuilderLeg, BuilderSlip, LegCategory } from "./types";
 import type {
@@ -33,8 +38,19 @@ export interface StarPlayerSpecial {
   slip: BuilderSlip | null;
 }
 
+/** One fixture — star player from each side. */
+export interface StarPlayerFixture {
+  matchId: number;
+  matchLabel: string;
+  kickoff: string;
+  stage: string;
+  stars: StarPlayerSpecial[];
+}
+
 export interface StarPlayersPayload {
-  entries: StarPlayerSpecial[];
+  fixtures: StarPlayerFixture[];
+  /** @deprecated flat list — use fixtures */
+  entries?: StarPlayerSpecial[];
   generatedAt: string;
 }
 
@@ -76,15 +92,51 @@ const STAT_TEMPLATES: StatTemplate[] = [
     test: (l, t) => l.tackles >= t,
     thresholds: [1, 2],
   },
+  {
+    category: "cards",
+    label: (n) => `${n} to be Carded`,
+    test: (l) => l.yellowCards + l.redCards >= 1,
+    thresholds: [1],
+  },
 ];
+
+/** Evens (1/1) — minimum combined decimal target. */
+const STAR_TARGET_DECIMAL_MIN = 1.9;
+/** Ideal upper band — close to 2/1 without overshooting too far. */
+const STAR_TARGET_DECIMAL_IDEAL = 3.0;
+const STAR_MIN_LEG_HIT_RATE = 0.58;
+const STAR_MIN_LEGS = 2;
+const STAR_MAX_LEGS = 10;
+
+function normTeam(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+}
 
 function collectPlayers(detail: MatchDetailPayload): Array<{
   stats: PlayerTournamentStats;
   positionLabel?: string;
+  pickOfDayCount: number;
 }> {
   const seen = new Set<number>();
-  const out: Array<{ stats: PlayerTournamentStats; positionLabel?: string }> =
-    [];
+  const pickOfDay = new Map<number, number>();
+
+  for (const mu of detail.matchups) {
+    for (const side of [mu.a, mu.b]) {
+      if (!side.stats) continue;
+      if (mu.pickOfTheDay?.playerId === side.stats.playerId) {
+        pickOfDay.set(
+          side.stats.playerId,
+          (pickOfDay.get(side.stats.playerId) ?? 0) + 1
+        );
+      }
+    }
+  }
+
+  const out: Array<{
+    stats: PlayerTournamentStats;
+    positionLabel?: string;
+    pickOfDayCount: number;
+  }> = [];
 
   for (const mu of detail.matchups) {
     for (const side of [mu.a, mu.b]) {
@@ -93,6 +145,7 @@ function collectPlayers(detail: MatchDetailPayload): Array<{
       out.push({
         stats: side.stats,
         positionLabel: side.player.positionLabel,
+        pickOfDayCount: pickOfDay.get(side.stats.playerId) ?? 0,
       });
     }
   }
@@ -116,7 +169,7 @@ function buildStatCandidates(
       if (lines.length < 2) continue;
       const hits = lines.filter((l) => tpl.test(l, threshold)).length;
       const rate = hits / lines.length;
-      if (rate < 0.5) continue;
+      if (rate < 0.45) continue;
 
       candidates.push({
         label: tpl.label(player.name, threshold),
@@ -159,44 +212,226 @@ function categoryFromPickLabel(label: string): LegCategory {
   return "shots";
 }
 
+/** Pick the biggest name on each team — attackers and volume shooters rank highest. */
 function scoreStarPlayer(
   player: PlayerTournamentStats,
   candidates: StarPlayerGemStat[],
-  positionLabel?: string
+  positionLabel?: string,
+  pickOfDayCount = 0
 ): number {
   const bestRate = candidates[0]?.hitRate ?? 0;
-  const strong = candidates.filter((c) => c.hitRate >= 0.75).length;
+  const strong = candidates.filter((c) => c.hitRate >= 0.7).length;
+  const matches = Math.max(player.totals.matches, 1);
   const goals = player.totals.goals;
   const assists = player.totals.assists;
+  const shotsPg = player.totals.shots / matches;
+  const pos = (positionLabel ?? "").toLowerCase();
   const forward =
-    positionLabel?.toLowerCase().includes("striker") ||
-    positionLabel?.toLowerCase().includes("winger") ||
-    positionLabel?.toLowerCase().includes("forward");
+    pos.includes("striker") ||
+    pos.includes("winger") ||
+    pos.includes("forward");
+  const attackingMid =
+    pos.includes("midfield") && (goals > 0 || assists > 0 || shotsPg >= 1.5);
 
   return (
-    bestRate * 3 +
-    strong * 0.15 +
-    goals * 0.08 +
-    assists * 0.05 +
-    (forward ? 0.12 : 0) +
-    (player.totals.shots / Math.max(player.totals.matches, 1)) * 0.02
+    goals * 0.4 +
+    assists * 0.22 +
+    shotsPg * 0.12 +
+    bestRate * 1.8 +
+    strong * 0.12 +
+    pickOfDayCount * 0.35 +
+    (forward ? 0.3 : 0) +
+    (attackingMid ? 0.15 : 0) +
+    (player.totals.minutes / matches / 90) * 0.08
   );
 }
 
-/** Minimum combined decimal odds for star player builders (2/1 = 3.0). */
-const STAR_MIN_DECIMAL_ODDS = 3.0;
-/** Only stack very high-confidence legs. */
-const STAR_MIN_LEG_HIT_RATE = 0.72;
-const STAR_MIN_LEGS = 2;
-const STAR_MAX_LEGS = 6;
+function pickTeamStar(
+  players: ReturnType<typeof collectPlayers>,
+  teamName: string,
+  allPicks: PickStat[]
+): (typeof players)[0] | null {
+  const teamKey = normTeam(teamName);
+  const squad = players.filter((p) => normTeam(p.stats.teamName) === teamKey);
+  if (!squad.length) return null;
 
-function bestLegPerCategory(legs: BuilderLeg[]): BuilderLeg[] {
-  const byCat = new Map<LegCategory, BuilderLeg>();
-  for (const leg of legs) {
-    const cur = byCat.get(leg.category);
-    if (!cur || leg.hitRate > cur.hitRate) byCat.set(leg.category, leg);
+  let best: (typeof players)[0] | null = null;
+  let bestScore = -1;
+
+  for (const entry of squad) {
+    const picks = picksForPlayer(allPicks, entry.stats.name);
+    const candidates = buildStatCandidates(entry.stats, picks);
+    if (!candidates.length) continue;
+    const score = scoreStarPlayer(
+      entry.stats,
+      candidates,
+      entry.positionLabel,
+      entry.pickOfDayCount
+    );
+    if (score > bestScore) {
+      bestScore = score;
+      best = entry;
+    }
   }
-  return [...byCat.values()].sort((a, b) => b.hitRate - a.hitRate);
+
+  return best;
+}
+
+function mkStarLeg(
+  opts: {
+    matchId: number;
+    matchLabel: string;
+    kickoff: string;
+    playerName: string;
+    teamName: string;
+    market: string;
+    category: LegCategory;
+    hitRate: number;
+    sample: number;
+    tournamentHits?: number;
+    tournamentSample?: number;
+    h2hHits?: number;
+    h2hSample?: number;
+  },
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>,
+  poolLeg?: BuilderLeg
+): BuilderLeg | null {
+  if (opts.hitRate < STAR_MIN_LEG_HIT_RATE || opts.sample < 2) return null;
+
+  const quote = findLiveQuote(
+    liveOdds,
+    opts.matchId,
+    opts.playerName,
+    opts.category
+  );
+  const decimal =
+    quote?.price ??
+    poolLeg?.decimalOdds ??
+    bet365DecimalOdds(opts.hitRate, opts.category);
+  const priced = priceFromBet365Live(decimal);
+
+  return {
+    type: "player",
+    label: opts.market,
+    market: opts.market,
+    matchLabel: opts.matchLabel,
+    matchId: opts.matchId,
+    kickoff: opts.kickoff,
+    playerName: opts.playerName,
+    teamName: opts.teamName,
+    category: opts.category,
+    hitRate: opts.hitRate,
+    sample: opts.sample,
+    tournamentHits: opts.tournamentHits,
+    tournamentSample: opts.tournamentSample,
+    h2hHits: opts.h2hHits,
+    h2hSample: opts.h2hSample,
+    id: `${opts.matchId}-star-${opts.playerName}-${opts.market}`
+      .replace(/\s+/g, "-")
+      .slice(0, 80),
+    ...priced,
+    bet365Link: quote?.link ?? poolLeg?.bet365Link,
+    bet365SelectionId: quote?.selectionId ?? poolLeg?.bet365SelectionId,
+    bet365EventUrl:
+      eventUrls?.get(opts.matchId) ?? poolLeg?.bet365EventUrl,
+  };
+}
+
+function buildPlayerLegPool(
+  player: PlayerTournamentStats,
+  picks: PickStat[],
+  matchId: number,
+  matchLabel: string,
+  kickoff: string,
+  poolLegs: BuilderLeg[],
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
+): BuilderLeg[] {
+  const target = normPlayer(player.name);
+  const poolByMarket = new Map<string, BuilderLeg>();
+  for (const leg of poolLegs) {
+    if (leg.playerName && normPlayer(leg.playerName) === target) {
+      poolByMarket.set(leg.market.toLowerCase(), leg);
+    }
+  }
+
+  const legs: BuilderLeg[] = [];
+  const seen = new Set<string>();
+
+  const add = (leg: BuilderLeg | null) => {
+    if (!leg) return;
+    const key = leg.market.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    legs.push(leg);
+  };
+
+  for (const tpl of STAT_TEMPLATES) {
+    for (const threshold of tpl.thresholds) {
+      const lines = player.lines;
+      if (lines.length < 2) continue;
+      const hits = lines.filter((l) => tpl.test(l, threshold)).length;
+      const rate = hits / lines.length;
+      const hitRate = effectiveHitRate(rate, lines.length);
+      const market = tpl.label(player.name, threshold);
+      add(
+        mkStarLeg(
+          {
+            matchId,
+            matchLabel,
+            kickoff,
+            playerName: player.name,
+            teamName: player.teamName,
+            market,
+            category: tpl.category,
+            hitRate,
+            sample: lines.length,
+            tournamentHits: hits,
+            tournamentSample: lines.length,
+          },
+          liveOdds,
+          eventUrls,
+          poolByMarket.get(market.toLowerCase())
+        )
+      );
+    }
+  }
+
+  for (const pick of picks) {
+    if (pick.sample < 2) continue;
+    const hitRate = effectiveHitRate(pick.rate, pick.sample);
+    add(
+      mkStarLeg(
+        {
+          matchId,
+          matchLabel,
+          kickoff,
+          playerName: player.name,
+          teamName: player.teamName,
+          market: pick.label,
+          category: categoryFromPickLabel(pick.label),
+          hitRate,
+          sample: pick.sample,
+          tournamentHits: pick.tournamentHits,
+          tournamentSample: pick.tournamentSample,
+          h2hHits: pick.h2hHits,
+          h2hSample: pick.h2hSample,
+        },
+        liveOdds,
+        eventUrls,
+        poolByMarket.get(pick.label.toLowerCase())
+      )
+    );
+  }
+
+  return legs.sort((a, b) => b.hitRate - a.hitRate || b.sample - a.sample);
+}
+
+function oddsDistance(decimal: number): number {
+  if (decimal < STAR_TARGET_DECIMAL_MIN) return 100 + (STAR_TARGET_DECIMAL_MIN - decimal);
+  if (decimal <= STAR_TARGET_DECIMAL_IDEAL) return Math.abs(decimal - 2.45);
+  return (decimal - STAR_TARGET_DECIMAL_IDEAL) * 0.5;
 }
 
 function* combinations<T>(items: T[], size: number): Generator<T[]> {
@@ -214,52 +449,54 @@ function* combinations<T>(items: T[], size: number): Generator<T[]> {
 }
 
 /**
- * Multi-leg same-player builder: stack the highest-probability legs until
- * combined Bet365 odds reach at least 2/1 (decimal 3.0+).
+ * Stack as many high-probability legs as needed to reach evens (1.9+) or close to 2/1.
  */
 export function buildStarPlayerSlip(
-  pool: BuilderLeg[],
+  legs: BuilderLeg[],
   playerName: string,
   matchLabel: string
 ): BuilderSlip | null {
-  const target = normPlayer(playerName);
-  const playerLegs = pool.filter(
-    (l) =>
-      l.type === "player" &&
-      l.playerName &&
-      normPlayer(l.playerName) === target &&
-      l.hitRate >= STAR_MIN_LEG_HIT_RATE
-  );
-  const distinct = bestLegPerCategory(playerLegs);
-  if (distinct.length < STAR_MIN_LEGS) return null;
+  if (legs.length < STAR_MIN_LEGS) return null;
 
-  const maxSize = Math.min(STAR_MAX_LEGS, distinct.length);
+  const pool = legs
+    .filter((l) => l.hitRate >= STAR_MIN_LEG_HIT_RATE)
+    .sort((a, b) => b.hitRate - a.hitRate || b.sample - a.sample);
+
+  if (pool.length < STAR_MIN_LEGS) return null;
+
+  const maxSize = Math.min(STAR_MAX_LEGS, pool.length);
   let best: BuilderLeg[] | null = null;
   let bestProb = 0;
+  let bestDist = Infinity;
 
   for (let size = STAR_MIN_LEGS; size <= maxSize; size++) {
-    for (const combo of combinations(distinct, size)) {
-      if (combineOdds(combo) < STAR_MIN_DECIMAL_ODDS) continue;
+    for (const combo of combinations(pool, size)) {
+      const decimal = combineOdds(combo);
+      if (decimal < STAR_TARGET_DECIMAL_MIN) continue;
       const prob = combineProbability(combo);
+      const dist = oddsDistance(decimal);
       if (
-        prob > bestProb ||
+        prob > bestProb + 1e-9 ||
+        (Math.abs(prob - bestProb) < 1e-9 && dist < bestDist) ||
         (Math.abs(prob - bestProb) < 1e-9 &&
+          Math.abs(dist - bestDist) < 1e-9 &&
           combo.length < (best?.length ?? 99))
       ) {
         bestProb = prob;
+        bestDist = dist;
         best = combo;
       }
     }
   }
 
-  // Greedy fallback: add best legs until 2/1+ when combo search finds nothing
+  // Greedy: keep adding top legs until evens+
   if (!best) {
     const greedy: BuilderLeg[] = [];
-    for (const leg of distinct) {
+    for (const leg of pool) {
       greedy.push(leg);
       if (
         greedy.length >= STAR_MIN_LEGS &&
-        combineOdds(greedy) >= STAR_MIN_DECIMAL_ODDS
+        combineOdds(greedy) >= STAR_TARGET_DECIMAL_MIN
       ) {
         best = [...greedy];
         break;
@@ -267,88 +504,142 @@ export function buildStarPlayerSlip(
     }
   }
 
+  // Last resort: use as many top legs as available
+  if (!best && pool.length >= STAR_MIN_LEGS) {
+    best = pool.slice(0, Math.min(STAR_MAX_LEGS, pool.length));
+  }
+
   if (!best || best.length < STAR_MIN_LEGS) return null;
-  if (combineOdds(best) < STAR_MIN_DECIMAL_ODDS) return null;
+
+  const decimal = combineOdds(best);
+  const targetLabel =
+    decimal >= STAR_TARGET_DECIMAL_IDEAL
+      ? `2/1+ · ${matchLabel}`
+      : `Evens+ · ${matchLabel}`;
 
   return slipFromLegs(
-    `star-${best[0]!.matchId}-${target}`,
+    `star-${best[0]!.matchId}-${normPlayer(playerName)}`,
     `Star Player — ${playerName}`,
     best,
-    `2/1+ · ${matchLabel}`
+    targetLabel
   );
 }
 
-export function buildStarPlayerSpecial(
+function buildStarForTeam(
   detail: MatchDetailPayload,
-  matchLegs: BuilderLeg[]
+  teamName: string,
+  matchLegs: BuilderLeg[],
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
 ): StarPlayerSpecial | null {
   const { fixture } = detail;
   const matchLabel = `${fixture.home} v ${fixture.away}`;
   const allPicks = detail.matchups.flatMap((m) => m.picks);
   const players = collectPlayers(detail);
-  if (!players.length) return null;
+  const star = pickTeamStar(players, teamName, allPicks);
+  if (!star) return null;
 
-  let bestPlayer: (typeof players)[0] | null = null;
-  let bestCandidates: StarPlayerGemStat[] = [];
-  let bestScore = -1;
+  const picks = picksForPlayer(allPicks, star.stats.name);
+  const candidates = buildStatCandidates(star.stats, picks);
+  if (!candidates.length) return null;
 
-  for (const entry of players) {
-    const picks = picksForPlayer(allPicks, entry.stats.name);
-    const candidates = buildStatCandidates(entry.stats, picks);
-    if (!candidates.length) continue;
-    const score = scoreStarPlayer(
-      entry.stats,
-      candidates,
-      entry.positionLabel
-    );
-    if (score > bestScore) {
-      bestScore = score;
-      bestPlayer = entry;
-      bestCandidates = candidates;
-    }
-  }
-
-  if (!bestPlayer || !bestCandidates.length) return null;
-
-  const { stats, positionLabel } = bestPlayer;
-  const gemStat = bestCandidates[0]!;
-  const slip = buildStarPlayerSlip(matchLegs, stats.name, matchLabel);
+  const legPool = buildPlayerLegPool(
+    star.stats,
+    picks,
+    fixture.id,
+    matchLabel,
+    fixture.kickoff,
+    matchLegs,
+    liveOdds,
+    eventUrls
+  );
+  const slip = buildStarPlayerSlip(legPool, star.stats.name, matchLabel);
 
   return {
     matchId: fixture.id,
     matchLabel,
     kickoff: fixture.kickoff,
     stage: fixture.stage,
-    playerId: stats.playerId,
-    playerName: stats.name,
-    teamName: stats.teamName,
-    positionLabel,
-    gemStat,
+    playerId: star.stats.playerId,
+    playerName: star.stats.name,
+    teamName: star.stats.teamName,
+    positionLabel: star.positionLabel,
+    gemStat: candidates[0]!,
     slip,
   };
+}
+
+export function buildStarPlayerFixture(
+  detail: MatchDetailPayload,
+  matchLegs: BuilderLeg[],
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
+): StarPlayerFixture | null {
+  const { fixture } = detail;
+  const matchLabel = `${fixture.home} v ${fixture.away}`;
+  const stars: StarPlayerSpecial[] = [];
+
+  for (const team of [fixture.home, fixture.away]) {
+    const special = buildStarForTeam(
+      detail,
+      team,
+      matchLegs,
+      liveOdds,
+      eventUrls
+    );
+    if (special) stars.push(special);
+  }
+
+  if (!stars.length) return null;
+
+  return {
+    matchId: fixture.id,
+    matchLabel,
+    kickoff: fixture.kickoff,
+    stage: fixture.stage,
+    stars,
+  };
+}
+
+/** @deprecated use buildStarPlayerFixture */
+export function buildStarPlayerSpecial(
+  detail: MatchDetailPayload,
+  matchLegs: BuilderLeg[]
+): StarPlayerSpecial | null {
+  const fx = buildStarPlayerFixture(detail, matchLegs);
+  return fx?.stars[0] ?? null;
 }
 
 export async function buildStarPlayersPayload(
   legs: BuilderLeg[],
   fixtures: Array<{ id: number }>,
-  loadDetail: (id: number) => Promise<MatchDetailPayload | null>
+  loadDetail: (id: number) => Promise<MatchDetailPayload | null>,
+  liveOdds?: Bet365LiveMap,
+  eventUrls?: Map<number, string>
 ): Promise<StarPlayersPayload> {
-  const entries: StarPlayerSpecial[] = [];
+  const fixtureGroups: StarPlayerFixture[] = [];
 
   for (const fx of fixtures) {
     const detail = await loadDetail(fx.id);
     if (!detail) continue;
     const matchLegs = legs.filter((l) => l.matchId === fx.id);
-    const special = buildStarPlayerSpecial(detail, matchLegs);
-    if (special) entries.push(special);
+    const group = buildStarPlayerFixture(
+      detail,
+      matchLegs,
+      liveOdds,
+      eventUrls
+    );
+    if (group) fixtureGroups.push(group);
   }
 
-  entries.sort(
-    (a, b) =>
-      new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime()
+  fixtureGroups.sort(
+    (a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime()
   );
 
+  const entries = fixtureGroups.flatMap((f) => f.stars);
+
   return {
+    fixtures: fixtureGroups,
     entries,
     generatedAt: new Date().toISOString(),
   };
