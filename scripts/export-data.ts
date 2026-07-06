@@ -16,7 +16,8 @@ import {
 import { loadBuilderPayload } from "../src/lib/builder/engine";
 import { precomputeBuilderViews } from "../src/lib/builder/compose";
 import { buildStarPlayersPayload } from "../src/lib/builder/star-player";
-import { ensurePlayerIndex } from "../src/lib/stats/store";
+import { buildTeamModelPayload } from "../src/lib/builder/team-model";
+import { ensurePlayerIndex, getTeamHistory } from "../src/lib/stats/store";
 import {
   loadCachedBet365EventUrls,
   loadCachedBet365Odds,
@@ -110,6 +111,17 @@ async function main() {
     playerIndex
   );
   await writeJson("star-players.json", starPlayers);
+
+  console.log("  team model: building unbeaten team builders …");
+  const teamHistory = getTeamHistory();
+  const teamModel = buildTeamModelPayload(
+    teamHistory,
+    playerIndex ? [...playerIndex.values()] : [],
+    upcoming,
+    liveOdds ?? undefined,
+    eventUrls.size ? eventUrls : undefined
+  );
+  await writeJson("team-model.json", teamModel);
 
   try {
     const cacheFile = path.join(process.cwd(), ".cache", "bet365-live-odds.json");
