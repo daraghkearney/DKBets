@@ -1,5 +1,5 @@
 import { normPlayer } from "./bet365";
-import { effectiveHitRate } from "./odds";
+import { combineOdds, combineProbability, effectiveHitRate } from "./odds";
 import { slipFromLegs } from "./legs";
 import type { BuilderLeg, BuilderSlip, LegCategory } from "./types";
 import type {
@@ -183,6 +183,13 @@ function scoreStarPlayer(
   );
 }
 
+/** Minimum combined decimal odds for star player builders (2/1 = 3.0). */
+const STAR_MIN_DECIMAL_ODDS = 3.0;
+/** Only stack very high-confidence legs. */
+const STAR_MIN_LEG_HIT_RATE = 0.72;
+const STAR_MIN_LEGS = 2;
+const STAR_MAX_LEGS = 6;
+
 function bestLegPerCategory(legs: BuilderLeg[]): BuilderLeg[] {
   const byCat = new Map<LegCategory, BuilderLeg>();
   for (const leg of legs) {
@@ -190,10 +197,6 @@ function bestLegPerCategory(legs: BuilderLeg[]): BuilderLeg[] {
     if (!cur || leg.hitRate > cur.hitRate) byCat.set(leg.category, leg);
   }
   return [...byCat.values()].sort((a, b) => b.hitRate - a.hitRate);
-}
-
-function combineProbability(legs: BuilderLeg[]): number {
-  return legs.reduce((acc, l) => acc * l.hitRate, 1);
 }
 
 function* combinations<T>(items: T[], size: number): Generator<T[]> {
@@ -210,7 +213,10 @@ function* combinations<T>(items: T[], size: number): Generator<T[]> {
   }
 }
 
-/** Shortest slip with maximum combined model probability (same player, distinct categories). */
+/**
+ * Multi-leg same-player builder: stack the highest-probability legs until
+ * combined Bet365 odds reach at least 2/1 (decimal 3.0+).
+ */
 export function buildStarPlayerSlip(
   pool: BuilderLeg[],
   playerName: string,
@@ -221,21 +227,24 @@ export function buildStarPlayerSlip(
     (l) =>
       l.type === "player" &&
       l.playerName &&
-      normPlayer(l.playerName) === target
+      normPlayer(l.playerName) === target &&
+      l.hitRate >= STAR_MIN_LEG_HIT_RATE
   );
   const distinct = bestLegPerCategory(playerLegs);
-  if (!distinct.length) return null;
+  if (distinct.length < STAR_MIN_LEGS) return null;
 
-  const maxSize = Math.min(4, distinct.length);
+  const maxSize = Math.min(STAR_MAX_LEGS, distinct.length);
   let best: BuilderLeg[] | null = null;
   let bestProb = 0;
 
-  for (let size = 1; size <= maxSize; size++) {
+  for (let size = STAR_MIN_LEGS; size <= maxSize; size++) {
     for (const combo of combinations(distinct, size)) {
+      if (combineOdds(combo) < STAR_MIN_DECIMAL_ODDS) continue;
       const prob = combineProbability(combo);
       if (
         prob > bestProb ||
-        (Math.abs(prob - bestProb) < 1e-9 && combo.length < (best?.length ?? 99))
+        (Math.abs(prob - bestProb) < 1e-9 &&
+          combo.length < (best?.length ?? 99))
       ) {
         bestProb = prob;
         best = combo;
@@ -243,13 +252,29 @@ export function buildStarPlayerSlip(
     }
   }
 
-  if (!best?.length) return null;
+  // Greedy fallback: add best legs until 2/1+ when combo search finds nothing
+  if (!best) {
+    const greedy: BuilderLeg[] = [];
+    for (const leg of distinct) {
+      greedy.push(leg);
+      if (
+        greedy.length >= STAR_MIN_LEGS &&
+        combineOdds(greedy) >= STAR_MIN_DECIMAL_ODDS
+      ) {
+        best = [...greedy];
+        break;
+      }
+    }
+  }
+
+  if (!best || best.length < STAR_MIN_LEGS) return null;
+  if (combineOdds(best) < STAR_MIN_DECIMAL_ODDS) return null;
 
   return slipFromLegs(
     `star-${best[0]!.matchId}-${target}`,
     `Star Player — ${playerName}`,
     best,
-    `${matchLabel} · ${playerName}`
+    `2/1+ · ${matchLabel}`
   );
 }
 

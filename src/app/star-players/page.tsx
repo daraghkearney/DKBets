@@ -37,7 +37,8 @@ export default function StarPlayersPage() {
         <h1 className="text-2xl font-bold tracking-tight">Star Player Specials</h1>
         <p className="max-w-2xl text-sm text-muted">
           One standout player per fixture — their highest-probability stat plus a
-          short same-player Bet365 builder using live odds where available.
+          multi-leg same-player Bet365 builder (2/1+ odds) built from stacked
+          high-confidence legs.
         </p>
       </div>
 

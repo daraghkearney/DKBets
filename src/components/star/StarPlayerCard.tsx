@@ -65,15 +65,16 @@ export default function StarPlayerCard({
       {entry.slip ? (
         <div className="mt-4">
           <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted">
-            Max-probability Bet365 builder ({entry.slip.legs.length} leg
-            {entry.slip.legs.length === 1 ? "" : "s"})
+            High-probability Bet365 builder · 2/1+ ({entry.slip.legs.length}{" "}
+            legs)
           </p>
           <BuilderSlipCard slip={entry.slip} liveOdds={liveOdds} />
         </div>
       ) : (
         <p className="mt-4 rounded-xl border border-edge bg-background/30 p-4 text-sm text-muted">
-          No live Bet365 prices matched for this player&apos;s builder legs yet
-          — gem stat above is from tournament + H2H form.
+          Not enough high-confidence legs with live Bet365 prices to build a
+          2/1+ same-player slip yet — gem stat above is from tournament + H2H
+          form.
         </p>
       )}
     </article>
