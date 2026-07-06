@@ -48,8 +48,8 @@ export interface LineupPlayer {
   shirtNumber: string;
   positionLabel: string;
   band: "GK" | "DF" | "MF" | "FW";
-  x: number; // 0..1, small x = right side of own formation
-  y: number;
+  x: number; // 0..1 depth (lower = more defensive)
+  y: number; // 0..1 lateral (lower = left flank, higher = right flank)
 }
 
 export interface FixtureSummary {

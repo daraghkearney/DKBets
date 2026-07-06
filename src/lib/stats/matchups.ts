@@ -140,8 +140,8 @@ function pickForSlot(
 }
 
 function sideFrom(p: LineupPlayer): "L" | "C" | "R" {
-  if (p.y < 0.35) return "R";
-  if (p.y > 0.65) return "L";
+  if (p.y < 0.35) return "L";
+  if (p.y > 0.65) return "R";
   return "C";
 }
 

@@ -231,8 +231,9 @@ function bandFromPositionId(pid: number): "GK" | "DF" | "MF" | "FW" {
 
 function lateralFromY(y: number | undefined): "L" | "C" | "R" {
   if (y == null) return "C";
-  if (y < 0.35) return "R";
-  if (y > 0.65) return "L";
+  // FotMob horizontalLayout.y: low = left flank, high = right flank
+  if (y < 0.35) return "L";
+  if (y > 0.65) return "R";
   return "C";
 }
 
