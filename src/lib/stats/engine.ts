@@ -9,6 +9,7 @@ import {
 } from "./h2h";
 import {
   lineupType,
+  parseLineupBench,
   parseLineupSide,
 } from "./parse";
 import { getMatchDetails } from "./fotmob";
@@ -209,9 +210,13 @@ export async function loadMatchDetail(matchId: number): Promise<MatchDetailPaylo
       started: fx.started,
       finished: fx.finished,
     },
-    lineupType: lineupType(payload),
+    lineupType: lineupType(payload, fx.finished),
     homeFormation: lu.homeTeam?.formation ?? null,
     awayFormation: lu.awayTeam?.formation ?? null,
+    homeLineup: homePlayers,
+    awayLineup: awayPlayers,
+    homeBench: parseLineupBench(lu.homeTeam),
+    awayBench: parseLineupBench(lu.awayTeam),
     matchups,
     generatedAt: new Date().toISOString(),
   };

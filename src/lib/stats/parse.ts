@@ -206,21 +206,28 @@ export function parseFixtures(league: any): RawFixture[] {
   return out;
 }
 
-export function parseLineupSide(team: any, teamName: string): import("./types").LineupPlayer[] {
+function mapLineupPlayer(p: any, onPitch: boolean): import("./types").LineupPlayer {
+  const band = bandFromPositionId(p.positionId);
+  const side = lateralFromY(p.horizontalLayout?.y);
+  return {
+    id: p.id,
+    name: p.name,
+    shirtNumber: String(p.shirtNumber ?? ""),
+    positionLabel: labelFor(band, side),
+    band,
+    x: onPitch ? (p.horizontalLayout?.x ?? 0.5) : 0.5,
+    y: onPitch ? (p.horizontalLayout?.y ?? 0.5) : 0.5,
+  };
+}
+
+export function parseLineupSide(team: any, _teamName: string): import("./types").LineupPlayer[] {
   const starters = team?.starters ?? [];
-  return starters.map((p: any) => {
-    const band = bandFromPositionId(p.positionId);
-    const side = lateralFromY(p.horizontalLayout?.y);
-    return {
-      id: p.id,
-      name: p.name,
-      shirtNumber: String(p.shirtNumber ?? ""),
-      positionLabel: labelFor(band, side),
-      band,
-      x: p.horizontalLayout?.x ?? 0.5,
-      y: p.horizontalLayout?.y ?? 0.5,
-    };
-  });
+  return starters.map((p: any) => mapLineupPlayer(p, true));
+}
+
+export function parseLineupBench(team: any): import("./types").LineupPlayer[] {
+  const subs = team?.subs ?? [];
+  return subs.map((p: any) => mapLineupPlayer(p, false));
 }
 
 function bandFromPositionId(pid: number): "GK" | "DF" | "MF" | "FW" {
@@ -255,11 +262,17 @@ function labelFor(band: string, side: string): string {
   return "Striker";
 }
 
-export function lineupType(payload: any): "confirmed" | "predicted" | "none" {
+export function lineupType(
+  payload: any,
+  finished = false
+): "confirmed" | "predicted" | "none" {
   const t = payload?.content?.lineup?.lineupType;
   if (t === "confirmed" || t === "actual") return "confirmed";
   if (t === "predicted" || t === "possible") return "predicted";
+  if (t === "unavailable" || t === "none") return "none";
   const starters =
     payload?.content?.lineup?.homeTeam?.starters?.length ?? 0;
-  return starters >= 11 ? "predicted" : "none";
+  if (starters < 11) return "none";
+  // FotMob "standard" — treat finished matches as confirmed, upcoming as predicted.
+  return finished ? "confirmed" : "predicted";
 }

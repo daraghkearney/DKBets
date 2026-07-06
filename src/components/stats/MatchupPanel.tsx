@@ -1,13 +1,62 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatKickoff, formatPct } from "@/lib/format";
-import type { MatchDetailPayload, Matchup } from "@/lib/stats/types";
+import LineupPitch from "@/components/stats/LineupPitch";
+import LineupStatusBadge from "@/components/stats/LineupStatusBadge";
+import { effectiveLineupStatus } from "@/lib/stats/lineup-status";
+import type { LineupPlayer, MatchDetailPayload, Matchup } from "@/lib/stats/types";
 import StatBlock, { StatToggle } from "./StatBlock";
 import PlayerAvatar from "./PlayerAvatar";
 
+function resolveLineups(detail: MatchDetailPayload): {
+  homeLineup: LineupPlayer[];
+  awayLineup: LineupPlayer[];
+  homeBench: LineupPlayer[];
+  awayBench: LineupPlayer[];
+} {
+  if (detail.homeLineup?.length >= 11 || detail.awayLineup?.length >= 11) {
+    return {
+      homeLineup: detail.homeLineup ?? [],
+      awayLineup: detail.awayLineup ?? [],
+      homeBench: detail.homeBench ?? [],
+      awayBench: detail.awayBench ?? [],
+    };
+  }
+  const home = new Map<number, LineupPlayer>();
+  const away = new Map<number, LineupPlayer>();
+  for (const m of detail.matchups) {
+    home.set(m.a.player.id, m.a.player);
+    away.set(m.b.player.id, m.b.player);
+  }
+  return {
+    homeLineup: [...home.values()],
+    awayLineup: [...away.values()],
+    homeBench: [],
+    awayBench: [],
+  };
+}
+
 export default function MatchupPanel({ detail }: { detail: MatchDetailPayload }) {
+  const [now, setNow] = useState(() => new Date());
+  const lineups = useMemo(() => resolveLineups(detail), [detail]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const lineupStatus = effectiveLineupStatus(
+    {
+      lineupType: detail.lineupType,
+      fixture: detail.fixture,
+      homeLineup: lineups.homeLineup,
+      awayLineup: lineups.awayLineup,
+    },
+    now
+  );
+
   const positional = useMemo(
     () => detail.matchups.filter((m) => m.kind === "positional"),
     [detail.matchups]
@@ -24,41 +73,79 @@ export default function MatchupPanel({ detail }: { detail: MatchDetailPayload })
 
   const [selected, setSelected] = useState(0);
   const m = flat[selected];
-
-  if (!m) {
-    return (
-      <p className="text-sm text-muted">
-        No positional matchups available yet — check back when lineups are
-        published.
-      </p>
-    );
-  }
+  const highlightedIds = m
+    ? [m.a.player.id, m.b.player.id]
+    : [];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-5">
-      <div className="flex flex-col gap-4 lg:col-span-2">
-        <MatchupSection
-          title="Positional duels"
-          subtitle="Flanks, channels & central battles"
-          matchups={positional}
-          flat={flat}
-          selected={selected}
-          onSelect={setSelected}
-        />
-        {notable.length > 0 && (
-          <MatchupSection
-            title="Notable rivalries"
-            subtitle="Cross-position career history"
-            matchups={notable}
-            flat={flat}
-            selected={selected}
-            onSelect={setSelected}
+    <div className="flex flex-col gap-6">
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-wide text-foreground">
+              Lineups
+            </h2>
+            <p className="text-[11px] text-muted">
+              Select a duel below to highlight both players on the pitch
+            </p>
+          </div>
+          <LineupStatusBadge
+            detail={{
+              ...detail,
+              homeLineup: lineups.homeLineup,
+              awayLineup: lineups.awayLineup,
+            }}
           />
-        )}
-      </div>
-      <div className="lg:col-span-3">
-        <MatchupDetail matchup={m} lineupType={detail.lineupType} />
-      </div>
+        </div>
+        <LineupPitch
+          homeTeam={detail.fixture.home}
+          awayTeam={detail.fixture.away}
+          homeFormation={detail.homeFormation}
+          awayFormation={detail.awayFormation}
+          homeLineup={lineups.homeLineup}
+          awayLineup={lineups.awayLineup}
+          homeBench={lineups.homeBench}
+          awayBench={lineups.awayBench}
+          highlightedPlayerIds={highlightedIds}
+          dashed={lineupStatus === "predicted"}
+        />
+      </section>
+
+      {!m ? (
+        <p className="text-sm text-muted">
+          No positional matchups available yet — check back when lineups are
+          published.
+        </p>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-5">
+          <div className="flex flex-col gap-4 lg:col-span-2">
+            <MatchupSection
+              title="Positional duels"
+              subtitle="Flanks, channels & central battles"
+              matchups={positional}
+              flat={flat}
+              selected={selected}
+              onSelect={setSelected}
+            />
+            {notable.length > 0 && (
+              <MatchupSection
+                title="Notable rivalries"
+                subtitle="Cross-position career history"
+                matchups={notable}
+                flat={flat}
+                selected={selected}
+                onSelect={setSelected}
+              />
+            )}
+          </div>
+          <div className="lg:col-span-3">
+            <MatchupDetail
+              matchup={m}
+              lineupStatus={lineupStatus}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -129,10 +216,10 @@ function MatchupSection({
 
 function MatchupDetail({
   matchup,
-  lineupType,
+  lineupStatus,
 }: {
   matchup: Matchup;
-  lineupType: MatchDetailPayload["lineupType"];
+  lineupStatus: "confirmed" | "predicted" | "pending";
 }) {
   const [mode, setMode] = useState<"total" | "per90">("total");
   const [showHistory, setShowHistory] = useState(false);
@@ -142,6 +229,13 @@ function MatchupDetail({
   const aView = mode === "per90" ? aStats?.per90 : aStats?.totals;
   const bView = mode === "per90" ? bStats?.per90 : bStats?.totals;
 
+  const lineupLabel =
+    lineupStatus === "confirmed"
+      ? "Confirmed lineup"
+      : lineupStatus === "predicted"
+        ? "Predicted lineup"
+        : "Lineup pending";
+
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-edge bg-surface p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -150,11 +244,7 @@ function MatchupDetail({
             {matchup.slot}
           </p>
           <p className="text-xs text-muted">
-            {lineupType === "confirmed"
-              ? "Confirmed lineup"
-              : lineupType === "predicted"
-                ? "Predicted lineup — updates when confirmed"
-                : "Lineup pending"}
+            {lineupLabel}
             {matchup.isCareerRivalry && (
               <>
                 {" "}
@@ -179,6 +269,7 @@ function MatchupDetail({
           role={matchup.a.player.positionLabel}
           stats={aView}
           mode={mode}
+          highlighted
         />
         <PlayerCard
           playerId={matchup.b.player.id}
@@ -187,6 +278,7 @@ function MatchupDetail({
           role={matchup.b.player.positionLabel}
           stats={bView}
           mode={mode}
+          highlighted
         />
       </div>
 
@@ -284,6 +376,7 @@ function PlayerCard({
   role,
   stats,
   mode,
+  highlighted = false,
 }: {
   playerId: number;
   name: string;
@@ -291,10 +384,13 @@ function PlayerCard({
   role: string;
   stats: import("@/lib/stats/types").StatTotals | undefined;
   mode: "total" | "per90";
+  highlighted?: boolean;
 }) {
+  const border = highlighted ? "border-gold/50 ring-1 ring-gold/30" : "border-edge";
+
   if (!stats) {
     return (
-      <div className="rounded-xl border border-edge p-4">
+      <div className={`rounded-xl border p-4 ${border}`}>
         <div className="flex items-center gap-3">
           <PlayerAvatar playerId={playerId} name={name} />
           <div>
@@ -309,7 +405,7 @@ function PlayerCard({
     );
   }
   return (
-    <div className="rounded-xl border border-edge p-4">
+    <div className={`rounded-xl border p-4 ${border}`}>
       <div className="flex items-center gap-3">
         <PlayerAvatar playerId={playerId} name={name} />
         <div>

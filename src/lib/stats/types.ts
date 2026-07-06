@@ -117,6 +117,10 @@ export interface MatchDetailPayload {
   lineupType: "confirmed" | "predicted" | "none";
   homeFormation: string | null;
   awayFormation: string | null;
+  homeLineup: LineupPlayer[];
+  awayLineup: LineupPlayer[];
+  homeBench: LineupPlayer[];
+  awayBench: LineupPlayer[];
   matchups: Matchup[];
   generatedAt: string;
 }
