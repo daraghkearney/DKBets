@@ -13,9 +13,16 @@ import {
   type BuilderOptions,
   type BuilderScope,
 } from "@/lib/builder/compose";
+import {
+  composeContextBuilderView,
+  lookupContextPrecomputedView,
+} from "@/lib/builder/context-compose";
 import type { BuilderPayload, BuilderSlip, LegCategory } from "@/lib/builder/types";
 import BuilderSlipCard from "@/components/builder/BuilderSlipCard";
+import MatchContextPanel from "@/components/builder/MatchContextPanel";
 import UnderpricedGemCard from "@/components/builder/UnderpricedGemCard";
+
+export type BuilderMode = "standard" | "context";
 
 const DEFAULT_MAX_LEGS = 8;
 
@@ -28,6 +35,7 @@ export default function BuilderPage() {
   const [matchId, setMatchId] = useState<number | undefined>();
   const [maxLegs, setMaxLegs] = useState(DEFAULT_MAX_LEGS);
   const [categories, setCategories] = useState<LegCategory[]>([]);
+  const [builderMode, setBuilderMode] = useState<BuilderMode>("standard");
   const [runtimeComposed, setRuntimeComposed] =
     useState<BuilderComposedView | null>(null);
   const [computing, setComputing] = useState(false);
@@ -56,13 +64,16 @@ export default function BuilderPage() {
 
   const hasCategoryFilter = categories.length > 0;
 
-  const cachedView = useMemo(
-    () =>
-      data && !hasCategoryFilter
-        ? lookupPrecomputedView(data.precomputed, options)
-        : null,
-    [data, options, hasCategoryFilter]
-  );
+  const cachedView = useMemo(() => {
+    if (!data || hasCategoryFilter) return null;
+    const pre =
+      builderMode === "context"
+        ? data.contextPrecomputed ?? data.precomputed
+        : data.precomputed;
+    return builderMode === "context"
+      ? lookupContextPrecomputedView(pre, options)
+      : lookupPrecomputedView(pre, options);
+  }, [data, options, hasCategoryFilter, builderMode]);
 
   useEffect(() => {
     if (!data || cachedView) {
@@ -73,12 +84,16 @@ export default function BuilderPage() {
 
     setComputing(true);
     const timer = window.setTimeout(() => {
-      setRuntimeComposed(composeBuilderView(data.legs, options));
+      setRuntimeComposed(
+        builderMode === "context"
+          ? composeContextBuilderView(data.legs, options)
+          : composeBuilderView(data.legs, options)
+      );
       setComputing(false);
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [data, options, cachedView]);
+  }, [data, options, cachedView, builderMode]);
 
   const composed = cachedView ?? runtimeComposed;
 
@@ -95,6 +110,13 @@ export default function BuilderPage() {
   const activeTarget = ODDS_TARGETS.find((t) => t.id === targetId);
   const liveAvailable = data?.bet365LiveAvailable ?? false;
   const apiConfigured = data?.bet365ApiConfigured ?? false;
+
+  const contextReports = useMemo(() => {
+    if (!data?.context?.byMatch) return [];
+    return data.context.matchIds
+      .map((id) => data.context!.byMatch[String(id)])
+      .filter(Boolean);
+  }, [data]);
 
   const toggleCategory = (id: LegCategory) => {
     setCategories((prev) =>
@@ -157,6 +179,41 @@ export default function BuilderPage() {
             </h2>
 
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="sm:col-span-2 lg:col-span-3">
+                <p className="mb-2 text-xs font-semibold text-muted">
+                  Builder mode
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBuilderMode("standard")}
+                    className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                      builderMode === "standard"
+                        ? "border-[#126e51] bg-[#126e51]/15 text-[#3ecf8e]"
+                        : "border-edge bg-background text-muted hover:border-[#126e51]/40"
+                    }`}
+                  >
+                    Standard — probability backed
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBuilderMode("context")}
+                    className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                      builderMode === "context"
+                        ? "border-gold/50 bg-gold/15 text-gold"
+                        : "border-edge bg-background text-muted hover:border-gold/40"
+                    }`}
+                  >
+                    Add context — research backed
+                  </button>
+                </div>
+                <p className="mt-2 text-[11px] text-muted">
+                  {builderMode === "standard"
+                    ? "Maximises combined hit-rate from tournament stats and live Bet365 prices."
+                    : "Ranks legs using matchup duels, career H2H, formation fit and team tendencies — each selection includes supporting research."}
+                </p>
+              </div>
+
               <div>
                 <p className="mb-2 text-xs font-semibold text-muted">Scope</p>
                 <div className="flex flex-wrap gap-2">
@@ -271,19 +328,39 @@ export default function BuilderPage() {
             </p>
           </section>
 
+          {builderMode === "context" && contextReports.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-lg font-bold">
+                <span className="text-gold">◎</span> Match context research
+              </h2>
+              <p className="mb-4 text-xs text-muted">
+                Deep factors behind context-backed builders — career player
+                duels, formation matchups, team shot/foul profiles and
+                tournament form from FotMob data.
+              </p>
+              <MatchContextPanel
+                reports={contextReports}
+                matchId={scope === "single" ? matchId : undefined}
+              />
+            </section>
+          )}
+
           {composed?.todaysPick && (
             <section>
               <h2 className="mb-3 text-lg font-bold">
-                <span className="text-gold">★</span> Today&apos;s Pick
+                <span className="text-gold">★</span>{" "}
+                {builderMode === "context" ? "Context Pick" : "Today's Pick"}
               </h2>
               <p className="mb-4 text-xs text-muted">
-                Highest-confidence Bet365 slip for your scope — built from the
-                strongest combined probability legs in range.
+                {builderMode === "context"
+                  ? "Highest-confidence slip where research context strongly supports each leg."
+                  : "Highest-confidence Bet365 slip for your scope — built from the strongest combined probability legs in range."}
               </p>
               <BuilderSlipCard
                 slip={composed.todaysPick}
                 highlight
                 liveOdds={liveAvailable}
+                showContext={builderMode === "context"}
               />
             </section>
           )}
@@ -334,7 +411,11 @@ export default function BuilderPage() {
             </div>
 
             {selected ? (
-              <BuilderSlipCard slip={selected} liveOdds={liveAvailable} />
+              <BuilderSlipCard
+                slip={selected}
+                liveOdds={liveAvailable}
+                showContext={builderMode === "context"}
+              />
             ) : (
               <p className="rounded-xl border border-edge bg-surface p-6 text-sm text-muted">
                 {activeTarget &&

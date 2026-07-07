@@ -37,6 +37,10 @@ export interface BuilderLeg {
   tournamentHits?: number;
   tournamentSample?: number;
   matchupLabel?: string;
+  /** Context research score 0–1 (Add Context mode). */
+  contextScore?: number;
+  contextNotes?: string[];
+  contextBacked?: boolean;
 }
 
 export interface UnderpricedGem {
@@ -53,6 +57,8 @@ export interface BuilderSlip {
   combinedFractional: string;
   combinedProbability: number;
   targetLabel?: string;
+  /** Narrative summary for context-backed slips */
+  contextSummary?: string;
 }
 
 export interface OddsTarget {
@@ -69,6 +75,8 @@ export interface BuilderComposedView {
 }
 
 /** Pre-built slips keyed by maxLegs → scope (instant client scope switching). */
+import type { ContextBuilderPayload } from "./context-types";
+
 export interface BuilderPrecomputed {
   byMaxLegs: Record<
     string,
@@ -85,6 +93,10 @@ export interface BuilderPayload {
   legs: BuilderLeg[];
   /** Pre-composed views for common max-legs values (avoids heavy client work). */
   precomputed?: BuilderPrecomputed;
+  /** Context-ranked precomputed views (Add Context mode). */
+  contextPrecomputed?: BuilderPrecomputed;
+  /** Per-match research reports for Add Context mode. */
+  context?: ContextBuilderPayload;
   fixtures: Array<{
     id: number;
     home: string;

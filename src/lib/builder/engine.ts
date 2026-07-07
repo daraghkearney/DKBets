@@ -1,6 +1,11 @@
 import { loadFixtures, loadMatchDetail } from "@/lib/stats/engine";
 import { ensurePlayerIndex, getTeamHistory } from "@/lib/stats/store";
 import {
+  buildContextPayload,
+  enrichLegsWithContext,
+} from "./context-enrich";
+import { buildMatchContextReport } from "./context-research";
+import {
   BET365_CACHE_VERSION,
   loadCachedBet365EventUrls,
   loadCachedBet365Odds,
@@ -116,11 +121,13 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
   }
 
   const allLegs: import("./types").BuilderLeg[] = [];
+  const contextReports: import("./context-types").MatchContextReport[] = [];
 
   if (apiConfigured && liveBundle.quotes.size > 0) {
     for (const fx of fixtures) {
       const detail = await loadMatchDetail(fx.id);
       if (detail) {
+        contextReports.push(buildMatchContextReport(detail, teamHistory));
         allLegs.push(
           ...legsFromMatchDetail(
             detail,
@@ -133,13 +140,15 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
     }
   }
 
-  const pool = dedupeLegs(allLegs);
+  const context = buildContextPayload(contextReports);
+  const pool = enrichLegsWithContext(dedupeLegs(allLegs), context);
   console.log(
     `  bet365 builder legs built: ${pool.length} (from ${liveBundle.quotes.size} prices)`
   );
 
   return {
     legs: pool,
+    context,
     fixtures: fixtures.map((f) => ({
       id: f.id,
       home: f.home,

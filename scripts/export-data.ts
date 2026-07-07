@@ -15,6 +15,7 @@ import {
 } from "../src/lib/stats/engine";
 import { loadBuilderPayload } from "../src/lib/builder/engine";
 import { precomputeBuilderViews } from "../src/lib/builder/compose";
+import { precomputeContextBuilderViews } from "../src/lib/builder/context-compose";
 import { buildStarPlayersPayload } from "../src/lib/builder/star-player";
 import { buildTeamModelPayload } from "../src/lib/builder/team-model";
 import {
@@ -91,6 +92,11 @@ async function exportSampleMode(mode: StatsSampleMode) {
   console.log(`  [${mode}] builder …`);
   const builder = await loadBuilderPayload();
   builder.precomputed = precomputeBuilderViews(
+    builder.legs,
+    builder.fixtures,
+    Array.from({ length: 15 }, (_, i) => i + 1)
+  );
+  builder.contextPrecomputed = precomputeContextBuilderViews(
     builder.legs,
     builder.fixtures,
     Array.from({ length: 15 }, (_, i) => i + 1)

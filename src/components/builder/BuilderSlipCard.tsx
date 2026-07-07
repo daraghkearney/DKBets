@@ -15,10 +15,12 @@ export default function BuilderSlipCard({
   slip,
   highlight,
   liveOdds,
+  showContext,
 }: {
   slip: BuilderSlip;
   highlight?: boolean;
   liveOdds?: boolean;
+  showContext?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const liveLegCount = slip.legs.filter((l) => l.oddsSource === "bet365_live").length;
@@ -75,6 +77,12 @@ export default function BuilderSlipCard({
         )}
       </p>
 
+      {showContext && slip.contextSummary && (
+        <p className="mt-2 rounded-lg border border-gold/30 bg-gold/5 px-3 py-2 text-xs text-gold">
+          {slip.contextSummary}
+        </p>
+      )}
+
       {bet365Link && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <a
@@ -116,6 +124,18 @@ export default function BuilderSlipCard({
                 <p className="text-xs text-muted">
                   {leg.matchLabel} · {formatKickoff(leg.kickoff)} UTC
                 </p>
+                {showContext && leg.contextNotes && leg.contextNotes.length > 0 && (
+                  <ul className="mt-1.5 list-inside list-disc text-[11px] text-gold/90">
+                    {leg.contextNotes.map((note, ni) => (
+                      <li key={ni}>{note}</li>
+                    ))}
+                  </ul>
+                )}
+                {showContext && (leg.contextScore ?? 0) > 0 && (
+                  <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-gold/70">
+                    Context score {Math.round((leg.contextScore ?? 0) * 100)}%
+                  </p>
+                )}
               </div>
               <div className="text-right text-xs">
                 <p className="tabular font-bold">{leg.fractionalOdds}</p>
