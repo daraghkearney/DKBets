@@ -114,4 +114,8 @@ export interface BuilderPayload {
   generatedAt: string;
   sampleMode?: string;
   sampleLabel?: string;
+  /** Tavily API key present at export time */
+  webResearchConfigured?: boolean;
+  /** Web research ran this export (REFRESH_WEB_RESEARCH / ENABLE_WEB_RESEARCH) */
+  webResearchEnabled?: boolean;
 }

@@ -1,6 +1,10 @@
 "use client";
 
-import type { ContextInsightKind, MatchContextReport } from "@/lib/builder/context-types";
+import type {
+  ContextInsightKind,
+  ContextInsightSource,
+  MatchContextReport,
+} from "@/lib/builder/context-types";
 
 const KIND_LABEL: Record<ContextInsightKind, string> = {
   player_duel: "Player duel",
@@ -9,6 +13,9 @@ const KIND_LABEL: Record<ContextInsightKind, string> = {
   tactical_edge: "Tactical edge",
   career_h2h: "Career H2H",
   tournament_form: "Tournament form",
+  web_preview: "Web — tactical preview",
+  web_h2h: "Web — form & H2H",
+  web_duel: "Web — player duel",
 };
 
 const KIND_COLOR: Record<ContextInsightKind, string> = {
@@ -18,7 +25,31 @@ const KIND_COLOR: Record<ContextInsightKind, string> = {
   tactical_edge: "text-orange-400 border-orange-500/30 bg-orange-500/10",
   career_h2h: "text-gold border-gold/40 bg-gold/10",
   tournament_form: "text-sky-400 border-sky-500/30 bg-sky-500/10",
+  web_preview: "text-amber-300 border-amber-500/35 bg-amber-500/10",
+  web_h2h: "text-amber-300 border-amber-500/35 bg-amber-500/10",
+  web_duel: "text-amber-300 border-amber-500/35 bg-amber-500/10",
 };
+
+const SOURCE_LABEL: Record<ContextInsightSource, string> = {
+  fotmob: "FotMob",
+  web: "Web",
+};
+
+function sourceBadge(source: ContextInsightSource | undefined) {
+  const id = source ?? "fotmob";
+  const isWeb = id === "web";
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+        isWeb
+          ? "bg-amber-500/20 text-amber-200"
+          : "bg-black/30 text-muted"
+      }`}
+    >
+      {SOURCE_LABEL[id]}
+    </span>
+  );
+}
 
 export default function MatchContextPanel({
   reports,
@@ -47,9 +78,16 @@ export default function MatchContextPanel({
           className="overflow-hidden rounded-2xl border border-edge bg-gradient-to-br from-surface via-surface to-surface-2"
         >
           <div className="border-b border-edge/60 px-4 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#3ecf8e]">
-              Match context
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#3ecf8e]">
+                Match context
+              </p>
+              {report.webResearchAvailable && (
+                <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200">
+                  Web sources
+                </span>
+              )}
+            </div>
             <h3 className="text-base font-bold">{report.matchLabel}</h3>
             <p className="mt-1 text-xs leading-relaxed text-muted">
               {report.summary}
@@ -62,21 +100,35 @@ export default function MatchContextPanel({
           </div>
 
           <div className="grid gap-3 px-4 py-4 sm:grid-cols-2">
-            {report.insights.slice(0, 8).map((insight) => (
+            {report.insights.slice(0, 10).map((insight) => (
               <div
                 key={insight.id}
                 className={`rounded-xl border p-3 ${KIND_COLOR[insight.kind]}`}
               >
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-bold uppercase tracking-wide opacity-80">
-                    {KIND_LABEL[insight.kind]}
-                  </p>
-                  <span className="rounded-full bg-black/30 px-2 py-0.5 text-[10px] font-bold tabular">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-80">
+                      {KIND_LABEL[insight.kind]}
+                    </p>
+                    {sourceBadge(insight.source)}
+                  </div>
+                  <span className="shrink-0 rounded-full bg-black/30 px-2 py-0.5 text-[10px] font-bold tabular">
                     {Math.round(insight.confidence * 100)}%
                   </span>
                 </div>
                 <p className="text-sm font-semibold text-foreground">
-                  {insight.title}
+                  {insight.sourceUrl ? (
+                    <a
+                      href={insight.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline decoration-dotted underline-offset-2 hover:text-gold"
+                    >
+                      {insight.title}
+                    </a>
+                  ) : (
+                    insight.title
+                  )}
                 </p>
                 <p className="mt-1 text-xs leading-relaxed opacity-90">
                   {insight.body}

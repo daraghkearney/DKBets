@@ -395,7 +395,10 @@ export function buildMatchContextReport(
     homeFormation: detail.homeFormation,
     awayFormation: detail.awayFormation,
     summary,
-    insights: insights.slice(0, 14),
+    insights: insights.slice(0, 14).map((i) => ({
+      ...i,
+      source: i.source ?? "fotmob",
+    })),
     duels,
     homeTendencies: homeT,
     awayTendencies: awayT,

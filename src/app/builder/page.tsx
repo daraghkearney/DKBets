@@ -210,7 +210,9 @@ export default function BuilderPage() {
                 <p className="mt-2 text-[11px] text-muted">
                   {builderMode === "standard"
                     ? "Maximises combined hit-rate from tournament stats and live Bet365 prices."
-                    : "Ranks legs using matchup duels, career H2H, formation fit and team tendencies — each selection includes supporting research."}
+                    : data?.webResearchConfigured
+                      ? "Ranks legs using FotMob duels, formations and team tendencies — plus Tavily web previews when cached at export."
+                      : "Ranks legs using matchup duels, career H2H, formation fit and team tendencies — each selection includes supporting research."}
                 </p>
               </div>
 
@@ -336,7 +338,10 @@ export default function BuilderPage() {
               <p className="mb-4 text-xs text-muted">
                 Deep factors behind context-backed builders — career player
                 duels, formation matchups, team shot/foul profiles and
-                tournament form from FotMob data.
+                tournament form from FotMob
+                {data?.webResearchConfigured
+                  ? ", plus tactical previews and H2H notes from web sources (Tavily)."
+                  : " data."}
               </p>
               <MatchContextPanel
                 reports={contextReports}

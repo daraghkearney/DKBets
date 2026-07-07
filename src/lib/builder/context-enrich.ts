@@ -38,6 +38,7 @@ export function scoreLegContext(
 
     if (boost >= 0.35) {
       score += boost;
+      if (insight.source === "web") score += 0.08;
       if (notes.length < 3) notes.push(insight.body);
     }
   }

@@ -5,6 +5,7 @@ import {
   enrichLegsWithContext,
 } from "./context-enrich";
 import { buildMatchContextReport } from "./context-research";
+import { augmentMatchContextWithWeb, isWebResearchConfigured, shouldRefreshWebResearch } from "./web-research";
 import {
   BET365_CACHE_VERSION,
   loadCachedBet365EventUrls,
@@ -127,7 +128,9 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
     for (const fx of fixtures) {
       const detail = await loadMatchDetail(fx.id);
       if (detail) {
-        contextReports.push(buildMatchContextReport(detail, teamHistory));
+        let report = buildMatchContextReport(detail, teamHistory);
+        report = await augmentMatchContextWithWeb(report);
+        contextReports.push(report);
         allLegs.push(
           ...legsFromMatchDetail(
             detail,
@@ -142,6 +145,12 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
 
   const context = buildContextPayload(contextReports);
   const pool = enrichLegsWithContext(dedupeLegs(allLegs), context);
+  const webResearchConfigured = isWebResearchConfigured();
+  if (webResearchConfigured) {
+    const webCount = contextReports.filter((r) => r.webResearchAvailable).length;
+    const mode = shouldRefreshWebResearch() ? "refresh" : "cache";
+    console.log(`  web research (${mode}): ${webCount}/${contextReports.length} matches augmented`);
+  }
   console.log(
     `  bet365 builder legs built: ${pool.length} (from ${liveBundle.quotes.size} prices)`
   );
@@ -160,6 +169,8 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
     bet365LiveAvailable: pool.length > 0,
     bet365ApiConfigured: apiConfigured,
     bet365PriceCount: liveBundle.quotes.size,
+    webResearchConfigured,
+    webResearchEnabled: shouldRefreshWebResearch(),
     generatedAt: new Date().toISOString(),
   };
 }

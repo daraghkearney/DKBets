@@ -9,6 +9,10 @@ on:
         description: Fetch fresh Bet365 odds from odds-api.io (~3 API calls)
         type: boolean
         default: true
+      web_research:
+        description: Refresh Tavily web research (~3–5 queries per match; uses cache when false)
+        type: boolean
+        default: true
   schedule:
     # Hourly Bet365 refresh — ~3 odds-api.io calls/run (free tier: 100/hr)
     - cron: "0 * * * *"
@@ -30,6 +34,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       REFRESH_BET365_ODDS: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.refresh_odds) }}
+      REFRESH_WEB_RESEARCH: ${{ github.event_name == 'schedule' && 'false' || (github.event_name == 'workflow_dispatch' && !inputs.web_research && 'false') || 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +52,13 @@ jobs:
           key: bet365-live-v5
           restore-keys: bet365-live-v
 
+      - name: Restore web research cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/web-research
+          key: web-research-v1
+          restore-keys: web-research-v1
+
       - name: Install
         run: npm ci
 
@@ -61,6 +73,7 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
 
       - name: Build static site
         run: npm run build

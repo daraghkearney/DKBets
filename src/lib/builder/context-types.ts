@@ -6,7 +6,12 @@ export type ContextInsightKind =
   | "formation"
   | "tactical_edge"
   | "career_h2h"
-  | "tournament_form";
+  | "tournament_form"
+  | "web_preview"
+  | "web_h2h"
+  | "web_duel";
+
+export type ContextInsightSource = "fotmob" | "web";
 
 export interface ContextInsight {
   id: string;
@@ -19,6 +24,8 @@ export interface ContextInsight {
   categories: LegCategory[];
   playerNames?: string[];
   matchupSlot?: string;
+  source?: ContextInsightSource;
+  sourceUrl?: string;
 }
 
 export interface DuelStatSummary {
@@ -64,6 +71,8 @@ export interface MatchContextReport {
   duels: DuelContextReport[];
   homeTendencies: TeamTendencyReport | null;
   awayTendencies: TeamTendencyReport | null;
+  /** True when Tavily web research was merged at export. */
+  webResearchAvailable?: boolean;
 }
 
 export interface ContextBuilderPayload {
