@@ -1,29 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { sportDataUrl } from "@/lib/sports/paths";
-import type { HorseRacingPayload } from "@/lib/horse-racing/types";
+import { useRacingSelection } from "@/components/horse-racing/RacingSelectionProvider";
 
-export default function TipsterIntelPage({ meeting }: { meeting: string }) {
-  const [data, setData] = useState<HorseRacingPayload | null>(null);
-
-  useEffect(() => {
-    fetch(sportDataUrl("horse-racing", meeting, "/hub.json"), { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setData)
-      .catch(() => {});
-  }, [meeting]);
+export default function TipsterIntelPage() {
+  const { calendar, selectedMeeting, tipsters } = useRacingSelection();
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-bold">Tipster intelligence</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted">
-        Web-sourced consensus from proven racing publications and analysts —
-        Racing Post, Timeform, At The Races and festival specialists.
+        {selectedMeeting
+          ? `Web-sourced tips for ${selectedMeeting.name}.`
+          : "Select a day and meeting above."}
       </p>
-      {data?.tipsters.length ? (
+
+      {tipsters.length ? (
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
-          {data.tipsters.map((t) => (
+          {tipsters.map((t) => (
             <div
               key={t.id}
               className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5"
@@ -54,7 +47,9 @@ export default function TipsterIntelPage({ meeting }: { meeting: string }) {
         </div>
       ) : (
         <p className="mt-8 text-sm text-muted">
-          No tipster data yet — run export with Tavily web research enabled.
+          {calendar?.tipsters.length
+            ? "No tipster signals for this meeting — try Today or another course."
+            : "No tipster data yet — run export with Tavily web research enabled."}
         </p>
       )}
     </div>

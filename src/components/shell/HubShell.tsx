@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SampleModeProvider } from "@/components/SampleModeProvider";
 import SampleModeSelector from "@/components/SampleModeSelector";
+import RacingDayMeetingBar from "@/components/horse-racing/RacingDayMeetingBar";
+import { RacingSelectionProvider } from "@/components/horse-racing/RacingSelectionProvider";
 import { useSport } from "@/components/SportProvider";
 import { isLandingPath, sportRoute } from "@/lib/sports/paths";
 
@@ -28,6 +30,12 @@ const RACING_LINKS = [
   { section: "tipsters", label: "Tipster Intel", icon: "★" },
 ] as const;
 
+const RACING_MEETING_HINTS: Record<string, string | undefined> = {
+  "todays-races": undefined,
+  cheltenham: "cheltenham",
+  punchestown: "punchestown",
+};
+
 export default function HubShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { sport, competition, sportConfig, competitionConfig, hubUrl, isHub } =
@@ -45,6 +53,20 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
         : RACING_LINKS;
 
   const showSampleSelector = sport === "football" && competition === "world-cup";
+  const isRacing = sport === "horse-racing";
+  const racingMeetingHint =
+    competition && isRacing
+      ? RACING_MEETING_HINTS[competition]
+      : undefined;
+
+  const body = isRacing ? (
+    <RacingSelectionProvider defaultMeetingHint={racingMeetingHint}>
+      <RacingDayMeetingBar />
+      {children}
+    </RacingSelectionProvider>
+  ) : (
+    children
+  );
 
   return (
     <SampleModeProvider>
@@ -111,7 +133,7 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
         </nav>
         {showSampleSelector && <SampleModeSelector />}
       </header>
-      {children}
+      {body}
       <footer className="mt-auto border-t border-edge py-6 text-center text-[11px] text-muted">
         DKBets · {sportConfig?.label} · {competitionConfig?.dataSource} · 18+ ·
         GambleAware.org

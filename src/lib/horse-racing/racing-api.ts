@@ -234,6 +234,7 @@ function mapRace(api: ApiRace): HorseRace {
 
   return {
     id: String(id),
+    date: String(api.date ?? ""),
     time: String(time),
     name: String(api.race_name ?? "Race"),
     course: String(api.course ?? ""),
@@ -287,70 +288,98 @@ async function mapRunner(
   return enrichRunner(base, race.course, race.distanceYards);
 }
 
-export async function fetchLiveRacecards(
-  meeting: string
+async function buildRacesFromApi(
+  raw: ApiRace[],
+  creds: RacingApiCredentials
+): Promise<HorseRace[]> {
+  const fetchHistory = process.env.RACING_FETCH_HISTORY === "true";
+  const races: HorseRace[] = [];
+
+  for (const apiRace of raw.slice(0, 20)) {
+    const race = mapRace(apiRace);
+    const runners = apiRace.runners ?? [];
+    const mapped: HorseRunner[] = [];
+
+    for (const [i, r] of runners.entries()) {
+      mapped.push(
+        await mapRunner(r, race, creds, fetchHistory && i < 3)
+      );
+    }
+
+    race.runners = mapped;
+    if (mapped.length) races.push(race);
+  }
+
+  return races;
+}
+
+function endpointsForDate(isoDate: string, dayOffset: number): string[] {
+  if (dayOffset === 0) {
+    return [
+      "/racecards/free?day=today",
+      "/racecards/basic?day=today",
+    ];
+  }
+  if (dayOffset === 1) {
+    return [
+      "/racecards/free?day=tomorrow",
+      "/racecards/basic?day=tomorrow",
+    ];
+  }
+  const q = encodeURIComponent(isoDate);
+  return [
+    `/racecards/pro?date=${q}`,
+    `/racecards/free?date=${q}`,
+    `/racecards/basic?date=${q}`,
+    `/racecards/summaries?date=${q}`,
+  ];
+}
+
+/** Fetch all UK/IRE racecards for a single calendar date. */
+export async function fetchRacecardsForDate(
+  isoDate: string,
+  dayOffset: number
 ): Promise<RacingFetchResult> {
   const creds = getRacingApiCredentials();
   if (!creds) {
     return { races: [], debug: "no credentials" };
   }
 
-  const filter = MEETING_FILTER[meeting] ?? (() => true);
-  const endpoints = [
-    "/racecards/free?day=today",
-    "/racecards/basic?day=today",
-    "/racecards/free?day=tomorrow",
-    "/racecards/basic?day=tomorrow",
-  ];
-
   const notes: string[] = [];
 
-  for (const path of endpoints) {
+  for (const path of endpointsForDate(isoDate, dayOffset)) {
     const { data, status, note } = await racingFetch<RacecardsResponse>(path, creds);
     notes.push(`${path} → ${note}${status ? ` (${status})` : ""}`);
-
     if (!data) continue;
 
-    const raw = flattenRacecards(data).filter((r) =>
-      filter(String(r.course ?? ""))
-    );
-
+    const raw = flattenRacecards(data);
     if (!raw.length) {
-      notes.push(`${path}: 0 races after filter`);
+      notes.push(`${path}: empty`);
       continue;
     }
 
-    console.log(`  racing api: ${raw.length} races from ${path} for ${meeting}`);
-
-    const fetchHistory = process.env.RACING_FETCH_HISTORY === "true";
-    const races: HorseRace[] = [];
-
-    for (const apiRace of raw.slice(0, 12)) {
-      const race = mapRace(apiRace);
-      const runners = apiRace.runners ?? [];
-      const mapped: HorseRunner[] = [];
-
-      for (const [i, r] of runners.entries()) {
-        mapped.push(
-          await mapRunner(r, race, creds, fetchHistory && i < 3)
-        );
-      }
-
-      race.runners = mapped;
-      if (mapped.length) races.push(race);
-    }
-
+    const races = await buildRacesFromApi(raw, creds);
     if (races.length) {
-      return {
-        races,
-        debug: notes.join("; "),
-      };
+      console.log(`  racing api: ${races.length} races for ${isoDate} via ${path}`);
+      return { races, debug: notes.join("; ") };
     }
-    notes.push(`${path}: races had no runners`);
+    notes.push(`${path}: no runners`);
   }
 
-  console.warn(`  racing api: all endpoints failed for ${meeting}`);
-  for (const n of notes) console.warn(`    ${n}`);
-
   return { races: [], debug: notes.join("; ") };
+}
+
+/** @deprecated Use fetchRacecardsForDate — kept for legacy hub export */
+export async function fetchLiveRacecards(
+  meeting: string
+): Promise<RacingFetchResult> {
+  const filter = MEETING_FILTER[meeting] ?? (() => true);
+  const result = await fetchRacecardsForDate(
+    new Date().toISOString().slice(0, 10),
+    0
+  );
+  return {
+    races: result.races.filter((r) => filter(r.course)),
+    debug: result.debug,
+  };
 }

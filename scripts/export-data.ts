@@ -32,6 +32,7 @@ import {
   type StatsSampleMode,
 } from "../src/lib/stats/sample-mode";
 import { buildHorseRacingPayload } from "../src/lib/horse-racing/engine";
+import { buildRacingCalendarPayload } from "../src/lib/horse-racing/calendar";
 import { buildNbaPayload } from "../src/lib/nba/client";
 import { SPORTS } from "../src/lib/sports/config";
 import {
@@ -215,6 +216,19 @@ async function main() {
   }
 
   const racingMeetings = ["todays-races", "cheltenham", "punchestown"] as const;
+
+  console.log("\n  [horse-racing] exporting week calendar …");
+  try {
+    const calendar = await buildRacingCalendarPayload();
+    await writeJson("horse-racing/todays-races/calendar.json", calendar);
+    const dayCount = calendar.days.filter((d) => d.meetings.length).length;
+    console.log(
+      `  racing calendar: ${dayCount} days with meetings, ${calendar.tipsters.length} tipsters`
+    );
+  } catch (e) {
+    console.warn("  racing calendar: export failed", e);
+  }
+
   for (const meeting of racingMeetings) {
     console.log(`\n  [horse-racing/${meeting}] exporting …`);
     try {

@@ -1,27 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { sportDataUrl } from "@/lib/sports/paths";
-import type { HorseRacingPayload } from "@/lib/horse-racing/types";
+import { useRacingSelection } from "@/components/horse-racing/RacingSelectionProvider";
 
-export default function RacingAnalysisPage({ meeting }: { meeting: string }) {
-  const [data, setData] = useState<HorseRacingPayload | null>(null);
-
-  useEffect(() => {
-    fetch(sportDataUrl("horse-racing", meeting, "/hub.json"), { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setData)
-      .catch(() => {});
-  }, [meeting]);
+export default function RacingAnalysisPage() {
+  const { selectedMeeting, races } = useRacingSelection();
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-bold">Deep race analysis</h1>
       <p className="mt-2 text-sm text-muted">
-        Distance suitability, course history and recent form scoring for every
-        runner.
+        {selectedMeeting
+          ? `${selectedMeeting.name} — distance suitability, course history and recent form.`
+          : "Select a day and meeting above."}
       </p>
-      {data?.races.map((race) => (
+
+      {races.map((race) => (
         <section key={race.id} className="mt-8">
           <h2 className="text-lg font-bold">
             {race.time} · {race.name}

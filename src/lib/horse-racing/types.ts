@@ -32,6 +32,7 @@ export interface HorseRunner {
 
 export interface HorseRace {
   id: string;
+  date?: string;
   time: string;
   name: string;
   course: string;
@@ -40,6 +41,29 @@ export interface HorseRace {
   going: string;
   raceClass: string;
   runners: HorseRunner[];
+}
+
+export interface RacingMeeting {
+  id: string;
+  name: string;
+  region?: string;
+  races: HorseRace[];
+}
+
+export interface RacingCalendarDay {
+  date: string;
+  label: string;
+  meetings: RacingMeeting[];
+}
+
+export interface RacingCalendarPayload {
+  source: string;
+  sourceLabel: string;
+  exportedAt: string;
+  racingApiDebug?: string;
+  days: RacingCalendarDay[];
+  /** Day-level tipster intel (filtered client-side by meeting) */
+  tipsters: TipsterPick[];
 }
 
 export interface TipsterPick {
