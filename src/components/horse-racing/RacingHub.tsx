@@ -28,6 +28,11 @@ export default function RacingHub({ meeting }: { meeting: string }) {
             {data?.researchSummary ??
               "Distance fit, course form and tipster intelligence."}
           </p>
+          {data?.source === "racing-api" && (
+            <span className="mt-2 inline-block rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+              Live cards · {data.sourceLabel}
+            </span>
+          )}
         </div>
       </div>
 

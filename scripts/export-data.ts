@@ -209,7 +209,7 @@ async function main() {
   try {
     const nba = await buildNbaPayload();
     await writeJson("nba/nba/hub.json", nba);
-    console.log(`  nba: ${nba.leaders.length} leaders, ${nba.scoreboard.length} games`);
+    console.log(`  nba: ${nba.leaders.length} leaders, ${nba.scoreboard.length} games, ${nba.playerProps.length} prop profiles`);
   } catch (e) {
     console.warn("  nba: export failed", e);
   }

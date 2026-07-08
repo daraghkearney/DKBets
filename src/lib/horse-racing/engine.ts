@@ -1,8 +1,9 @@
 import { distanceYards, enrichRunner } from "./form-analysis";
+import { fetchLiveRacecards, isRacingApiConfigured } from "./racing-api";
 import { fetchTipsterIntelligence } from "./tipster-research";
 import type { HorseRace, HorseRacingPayload } from "./types";
 
-/** Demo racecards — replace with Racing API when key is configured. */
+/** Demo racecards when Racing API credentials are absent. */
 function demoRaces(meeting: string): HorseRace[] {
   const course =
     meeting === "cheltenham"
@@ -61,20 +62,6 @@ function demoRaces(meeting: string): HorseRace[] {
           odds: "5/2",
           comment: "Travelled well, quickened clear",
         },
-        {
-          date: "2026-02-20",
-          course: "Fairyhouse",
-          distance: "2m 6f",
-          distanceYards: distanceYards("2m 6f"),
-          going: "Heavy",
-          position: 2,
-          runners: 14,
-          jockey: "P. Townend",
-          trainer: "W. Mullins",
-          weight: "11-5",
-          odds: "7/2",
-          comment: "Stayed on strongly",
-        },
       ],
     },
     {
@@ -86,48 +73,7 @@ function demoRaces(meeting: string): HorseRace[] {
       trainer: "G. Elliott",
       form: "3-412",
       odds: 6.0,
-      formRuns: [
-        {
-          date: "2026-03-01",
-          course,
-          distance: "3m 1f",
-          distanceYards: distanceYards("3m 1f"),
-          going: "Good",
-          position: 3,
-          runners: 16,
-          jockey: "R. Walsh",
-          trainer: "G. Elliott",
-          weight: "11-0",
-          odds: "9/2",
-          comment: "Kept on one pace",
-        },
-      ],
-    },
-    {
-      id: "h3",
-      name: "Midnight Echo",
-      age: 7,
-      weight: "10-12",
-      jockey: "D. Mullins",
-      trainer: "H. de Bromhead",
-      form: "2-155",
-      odds: 12.0,
-      formRuns: [
-        {
-          date: "2026-01-15",
-          course: "Punchestown",
-          distance: "2m 4f",
-          distanceYards: distanceYards("2m 4f"),
-          going: "Yielding",
-          position: 2,
-          runners: 18,
-          jockey: "D. Mullins",
-          trainer: "H. de Bromhead",
-          weight: "10-10",
-          odds: "14/1",
-          comment: "Ran huge from rear",
-        },
-      ],
+      formRuns: [],
     },
   ];
 
@@ -154,7 +100,26 @@ const MEETING_LABELS: Record<string, string> = {
 export async function buildHorseRacingPayload(
   meeting: string
 ): Promise<HorseRacingPayload> {
-  const races = demoRaces(meeting);
+  let races: HorseRace[] | null = null;
+  let source = "demo+web";
+  let sourceLabel = "Demo cards + Tavily tipsters";
+
+  if (isRacingApiConfigured()) {
+    console.log(`  racing api: fetching live cards for ${meeting} …`);
+    races = await fetchLiveRacecards(meeting);
+    if (races?.length) {
+      source = "racing-api";
+      sourceLabel = "The Racing API + Tavily";
+      console.log(`  racing api: ${races.length} live races for ${meeting}`);
+    } else {
+      console.warn(`  racing api: no races for ${meeting}, using demo fallback`);
+    }
+  }
+
+  if (!races?.length) {
+    races = demoRaces(meeting);
+  }
+
   const raceIds = races.map((r) => r.id);
   const tipsters = await fetchTipsterIntelligence(meeting, raceIds);
 
@@ -167,13 +132,11 @@ export async function buildHorseRacingPayload(
     meeting,
     meetingLabel: MEETING_LABELS[meeting] ?? meeting,
     date: new Date().toISOString().slice(0, 10),
-    source: process.env.RACING_API_KEY ? "racing-api" : "demo+web",
-    sourceLabel: process.env.RACING_API_KEY
-      ? "The Racing API + Tavily"
-      : "Demo cards + Tavily tipsters",
+    source,
+    sourceLabel,
     exportedAt: new Date().toISOString(),
     races,
     tipsters,
-    researchSummary: `${races.length} races analysed · ${tipsters.length} tipster signals · top form scores: ${topRunners.map((r) => r.name).join(", ") || "pending"}`,
+    researchSummary: `${races.length} races · ${source === "racing-api" ? "live cards" : "demo"} · ${tipsters.length} tipster signals · top: ${topRunners.map((r) => r.name).join(", ") || "pending"}`,
   };
 }

@@ -74,6 +74,8 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
           ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          RACING_API_USERNAME: ${{ secrets.RACING_API_USERNAME }}
+          RACING_API_PASSWORD: ${{ secrets.RACING_API_PASSWORD }}
 
       - name: Build static site
         run: npm run build
