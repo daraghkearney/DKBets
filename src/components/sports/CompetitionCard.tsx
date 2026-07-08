@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { CompetitionConfig, SportConfig } from "@/lib/sports/config";
-import { competitionPath } from "@/lib/sports/paths";
+import { competitionRoute } from "@/lib/sports/paths";
 
 export default function CompetitionCard({
   sport,
@@ -9,7 +9,7 @@ export default function CompetitionCard({
   sport: SportConfig;
   competition: CompetitionConfig;
 }) {
-  const href = competitionPath(sport.id, competition.id);
+  const href = competitionRoute(sport.id, competition.id);
 
   return (
     <Link

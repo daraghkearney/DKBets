@@ -13,7 +13,7 @@ import {
   type SportConfig,
   type SportId,
 } from "@/lib/sports/config";
-import { hubPath, parseHubPath } from "@/lib/sports/paths";
+import { hubRoute, parseHubPath } from "@/lib/sports/paths";
 
 interface SportContextValue {
   sport: SportId | null;
@@ -52,7 +52,7 @@ export function SportProvider({ children }: { children: React.ReactNode }) {
       sportConfig,
       competitionConfig,
       hubUrl: (section = "") =>
-        hubPath(parsed.sport, parsed.competition, section),
+        hubRoute(parsed.sport, parsed.competition, section),
       isHub: true,
     };
   }, [pathname, parsed]);

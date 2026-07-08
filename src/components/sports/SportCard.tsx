@@ -1,13 +1,13 @@
 import Link from "next/link";
 import type { SportConfig } from "@/lib/sports/config";
-import { sportPath } from "@/lib/sports/paths";
+import { sportRoute } from "@/lib/sports/paths";
 
 export default function SportCard({ sport }: { sport: SportConfig }) {
   const liveCount = sport.competitions.filter((c) => c.live).length;
 
   return (
     <Link
-      href={sportPath(sport.id)}
+      href={sportRoute(sport.id)}
       className={`group relative overflow-hidden rounded-3xl border border-edge/80 bg-gradient-to-br ${sport.gradient} p-6 transition-all duration-300 hover:-translate-y-1 hover:border-white/10 ${sport.glow}`}
     >
       <div

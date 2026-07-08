@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { SampleModeProvider } from "@/components/SampleModeProvider";
 import SampleModeSelector from "@/components/SampleModeSelector";
 import { useSport } from "@/components/SportProvider";
-import { isLandingPath } from "@/lib/sports/paths";
+import { isLandingPath, sportRoute } from "@/lib/sports/paths";
 
 const FOOTBALL_LINKS = [
   { section: "", label: "Odds & Arbs", icon: "◎" },
@@ -76,7 +76,7 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
               </div>
             </Link>
             <Link
-              href={`/${sport}`}
+              href={sportRoute(sport!)}
               className="rounded-xl border border-edge px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:border-accent/40 hover:text-foreground"
             >
               ← Change {sport === "horse-racing" ? "meeting" : "competition"}

@@ -1,23 +1,23 @@
 import { basePath } from "@/lib/basePath";
 import type { SportId } from "./config";
 
-export function sportPath(sport: SportId): string {
-  return `${basePath}/${sport}`;
+/** App routes for Next.js Link — do NOT include basePath (Next adds it). */
+export function sportRoute(sport: SportId): string {
+  return `/${sport}/`;
 }
 
-export function competitionPath(sport: SportId, competition: string): string {
-  return `${basePath}/${sport}/${competition}`;
+export function competitionRoute(sport: SportId, competition: string): string {
+  return `/${sport}/${competition}/`;
 }
 
-export function hubPath(
+export function hubRoute(
   sport: SportId,
   competition: string,
   section = ""
 ): string {
-  const base = competitionPath(sport, competition);
-  if (!section) return `${base}/`;
+  if (!section) return `/${sport}/${competition}/`;
   const seg = section.startsWith("/") ? section : `/${section}`;
-  return `${base}${seg}/`;
+  return `/${sport}/${competition}${seg}/`;
 }
 
 /** Static JSON for a sport/competition export bundle. */
