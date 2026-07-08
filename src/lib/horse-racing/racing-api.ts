@@ -13,9 +13,14 @@ export interface RacingApiCredentials {
   password: string;
 }
 
+export interface RacingFetchResult {
+  races: HorseRace[];
+  debug: string;
+}
+
 export function getRacingApiCredentials(): RacingApiCredentials | null {
-  const user = process.env.RACING_API_USERNAME;
-  const pass = process.env.RACING_API_PASSWORD;
+  const user = process.env.RACING_API_USERNAME?.trim();
+  const pass = process.env.RACING_API_PASSWORD?.trim();
   if (user && pass) return { username: user, password: pass };
 
   const combined = process.env.RACING_API_KEY;
@@ -37,7 +42,7 @@ function authHeader(creds: RacingApiCredentials): string {
 async function racingFetch<T>(
   path: string,
   creds: RacingApiCredentials
-): Promise<T | null> {
+): Promise<{ data: T | null; status: number; note: string }> {
   try {
     const res = await fetch(`${BASE}${path}`, {
       headers: {
@@ -48,17 +53,14 @@ async function racingFetch<T>(
       cache: "no-store",
     });
     if (res.status === 401 || res.status === 403) {
-      console.warn("  racing api: auth failed — check RACING_API_USERNAME/PASSWORD");
-      return null;
+      return { data: null, status: res.status, note: "auth failed" };
     }
     if (!res.ok) {
-      console.warn(`  racing api: ${res.status} for ${path}`);
-      return null;
+      return { data: null, status: res.status, note: `HTTP ${res.status}` };
     }
-    return (await res.json()) as T;
+    return { data: (await res.json()) as T, status: res.status, note: "ok" };
   } catch (e) {
-    console.warn("  racing api: fetch failed", e);
-    return null;
+    return { data: null, status: 0, note: `fetch error: ${e}` };
   }
 }
 
@@ -212,7 +214,7 @@ async function fetchHorseFormRuns(
   horseId: string,
   creds: RacingApiCredentials
 ): Promise<HorseFormRun[]> {
-  const data = await racingFetch<HorseResultsResponse>(
+  const { data } = await racingFetch<HorseResultsResponse>(
     `/horses/${encodeURIComponent(horseId)}/results?limit=8`,
     creds
   );
@@ -287,56 +289,68 @@ async function mapRunner(
 
 export async function fetchLiveRacecards(
   meeting: string
-): Promise<HorseRace[] | null> {
+): Promise<RacingFetchResult> {
   const creds = getRacingApiCredentials();
   if (!creds) {
-    console.warn("  racing api: no credentials (RACING_API_USERNAME/PASSWORD)");
-    return null;
+    return { races: [], debug: "no credentials" };
   }
 
   const filter = MEETING_FILTER[meeting] ?? (() => true);
-
-  // Free plan: basic endpoint. Standard may 404 on free tier.
-  let data = await racingFetch<RacecardsResponse>(
+  const endpoints = [
+    "/racecards/free?day=today",
     "/racecards/basic?day=today",
-    creds
-  );
-  if (!data) {
-    data = await racingFetch<RacecardsResponse>(
-      "/racecards/standard?day=today",
-      creds
+    "/racecards/free?day=tomorrow",
+    "/racecards/basic?day=tomorrow",
+  ];
+
+  const notes: string[] = [];
+
+  for (const path of endpoints) {
+    const { data, status, note } = await racingFetch<RacecardsResponse>(path, creds);
+    notes.push(`${path} → ${note}${status ? ` (${status})` : ""}`);
+
+    if (!data) continue;
+
+    const raw = flattenRacecards(data).filter((r) =>
+      filter(String(r.course ?? ""))
     );
-  }
-  if (!data) return null;
 
-  const raw = flattenRacecards(data).filter((r) =>
-    filter(String(r.course ?? ""))
-  );
-
-  if (!raw.length) {
-    console.warn(`  racing api: 0 races after filter for ${meeting}`);
-    return null;
-  }
-
-  console.log(`  racing api: ${raw.length} raw races for ${meeting}`);
-
-  const fetchHistory = process.env.RACING_FETCH_HISTORY === "true";
-  const races: HorseRace[] = [];
-
-  for (const apiRace of raw.slice(0, 10)) {
-    const race = mapRace(apiRace);
-    const runners = apiRace.runners ?? [];
-    const mapped: HorseRunner[] = [];
-
-    for (const [i, r] of runners.entries()) {
-      mapped.push(
-        await mapRunner(r, race, creds, fetchHistory && i < 3)
-      );
+    if (!raw.length) {
+      notes.push(`${path}: 0 races after filter`);
+      continue;
     }
 
-    race.runners = mapped;
-    if (mapped.length) races.push(race);
+    console.log(`  racing api: ${raw.length} races from ${path} for ${meeting}`);
+
+    const fetchHistory = process.env.RACING_FETCH_HISTORY === "true";
+    const races: HorseRace[] = [];
+
+    for (const apiRace of raw.slice(0, 12)) {
+      const race = mapRace(apiRace);
+      const runners = apiRace.runners ?? [];
+      const mapped: HorseRunner[] = [];
+
+      for (const [i, r] of runners.entries()) {
+        mapped.push(
+          await mapRunner(r, race, creds, fetchHistory && i < 3)
+        );
+      }
+
+      race.runners = mapped;
+      if (mapped.length) races.push(race);
+    }
+
+    if (races.length) {
+      return {
+        races,
+        debug: notes.join("; "),
+      };
+    }
+    notes.push(`${path}: races had no runners`);
   }
 
-  return races.length ? races : null;
+  console.warn(`  racing api: all endpoints failed for ${meeting}`);
+  for (const n of notes) console.warn(`    ${n}`);
+
+  return { races: [], debug: notes.join("; ") };
 }

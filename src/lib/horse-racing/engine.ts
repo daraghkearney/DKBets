@@ -103,16 +103,19 @@ export async function buildHorseRacingPayload(
   let races: HorseRace[] | null = null;
   let source = "demo+web";
   let sourceLabel = "Demo cards + Tavily tipsters";
+  let racingApiDebug: string | undefined;
 
   if (isRacingApiConfigured()) {
     console.log(`  racing api: fetching live cards for ${meeting} …`);
-    races = await fetchLiveRacecards(meeting);
-    if (races?.length) {
+    const result = await fetchLiveRacecards(meeting);
+    racingApiDebug = result.debug;
+    if (result.races.length) {
+      races = result.races;
       source = "racing-api";
       sourceLabel = "The Racing API + Tavily";
       console.log(`  racing api: ${races.length} live races for ${meeting}`);
     } else {
-      console.warn(`  racing api: no races for ${meeting}, using demo fallback`);
+      console.warn(`  racing api: no races for ${meeting} — ${result.debug}`);
     }
   }
 
@@ -138,5 +141,6 @@ export async function buildHorseRacingPayload(
     races,
     tipsters,
     researchSummary: `${races.length} races · ${source === "racing-api" ? "live cards" : "demo"} · ${tipsters.length} tipster signals · top: ${topRunners.map((r) => r.name).join(", ") || "pending"}`,
+    racingApiDebug,
   };
 }

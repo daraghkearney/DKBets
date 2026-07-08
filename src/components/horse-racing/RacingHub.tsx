@@ -33,6 +33,11 @@ export default function RacingHub({ meeting }: { meeting: string }) {
               Live cards · {data.sourceLabel}
             </span>
           )}
+          {data?.source !== "racing-api" && data?.racingApiDebug && (
+            <p className="mt-2 text-[11px] text-amber-300">
+              Demo cards shown — API: {data.racingApiDebug.slice(0, 120)}
+            </p>
+          )}
         </div>
       </div>
 

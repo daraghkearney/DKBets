@@ -63,4 +63,6 @@ export interface HorseRacingPayload {
   races: HorseRace[];
   tipsters: TipsterPick[];
   researchSummary: string;
+  /** Present when live API was attempted — helps diagnose demo fallback */
+  racingApiDebug?: string;
 }
