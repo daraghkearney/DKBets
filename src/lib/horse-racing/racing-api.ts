@@ -1,13 +1,9 @@
 /**
  * The Racing API client — UK & Ireland live racecards.
  * https://api.theracingapi.com/documentation/
- *
- * Auth: HTTP Basic (username + password from dashboard).
- * Env: RACING_API_USERNAME + RACING_API_PASSWORD
- *      or RACING_API_KEY="username:password"
  */
 
-import { distanceYards, enrichRunner } from "./form-analysis";
+import { distanceYards, enrichRunner, parseFormPositions } from "./form-analysis";
 import type { HorseFormRun, HorseRace, HorseRunner } from "./types";
 
 const BASE = "https://api.theracingapi.com/v1";
@@ -66,7 +62,6 @@ async function racingFetch<T>(
   }
 }
 
-/** Course name matchers per meeting slug */
 const MEETING_FILTER: Record<string, (course: string) => boolean> = {
   "todays-races": () => true,
   cheltenham: (c) => /cheltenham/i.test(c),
@@ -80,32 +75,37 @@ interface ApiRunner {
   number?: string | number;
   age?: string | number;
   weight?: string;
-  weight_lbs?: string | number;
+  lbs?: string;
   jockey?: string;
   trainer?: string;
   form?: string;
   sp_dec?: string | number;
   odds?: Array<{ decimal?: string | number }>;
   comment?: string;
+  spotlight?: string;
 }
 
 interface ApiRace {
   race_id?: string;
   course?: string;
+  date?: string;
   off?: string;
+  off_time?: string;
   off_dt?: string;
   race_name?: string;
   dist?: string;
   dist_y?: string | number;
   dist_f?: string | number;
+  distance_f?: string | number;
   going?: string;
   class?: string;
+  race_class?: string;
   runners?: ApiRunner[];
 }
 
 interface RacecardsResponse {
   racecards?: ApiRace[];
-  /** Some endpoints nest under courses */
+  results?: ApiRace[];
   courses?: Array<{ course?: string; races?: ApiRace[] }>;
 }
 
@@ -114,18 +114,32 @@ interface HorseResultRow {
   course?: string;
   dist?: string;
   dist_y?: string | number;
+  distance_f?: string | number;
   going?: string;
   position?: string | number;
   runners?: string | number;
   jockey?: string;
   trainer?: string;
   weight?: string;
+  lbs?: string;
   sp?: string;
   comment?: string;
 }
 
 interface HorseResultsResponse {
   results?: HorseResultRow[];
+}
+
+function flattenRacecards(data: RacecardsResponse): ApiRace[] {
+  if (data.racecards?.length) return data.racecards;
+  if (data.results?.length) return data.results;
+  const out: ApiRace[] = [];
+  for (const c of data.courses ?? []) {
+    for (const r of c.races ?? []) {
+      out.push({ ...r, course: r.course ?? c.course });
+    }
+  }
+  return out;
 }
 
 function parseOdds(runner: ApiRunner): number | null {
@@ -148,7 +162,7 @@ function parsePosition(raw: string | number | undefined): number {
 }
 
 function mapFormRun(row: HorseResultRow): HorseFormRun {
-  const dist = String(row.dist ?? "");
+  const dist = String(row.dist ?? row.distance_f ?? "");
   const yards =
     row.dist_y != null
       ? Number(row.dist_y)
@@ -163,10 +177,35 @@ function mapFormRun(row: HorseResultRow): HorseFormRun {
     runners: Number(row.runners ?? 0) || 12,
     jockey: String(row.jockey ?? ""),
     trainer: String(row.trainer ?? ""),
-    weight: String(row.weight ?? ""),
+    weight: String(row.weight ?? row.lbs ?? ""),
     odds: String(row.sp ?? ""),
     comment: String(row.comment ?? ""),
   };
+}
+
+/** Minimal form runs from the form string when full history unavailable. */
+function formRunsFromString(
+  form: string,
+  course: string,
+  distance: string,
+  yards: number
+): HorseFormRun[] {
+  const positions = parseFormPositions(form);
+  if (!positions.length) return [];
+  return positions.slice(0, 6).map((pos, i) => ({
+    date: `recent-${i}`,
+    course,
+    distance,
+    distanceYards: yards,
+    going: "",
+    position: pos,
+    runners: 12,
+    jockey: "",
+    trainer: "",
+    weight: "",
+    odds: "",
+    comment: `Form figure ${form[i] ?? ""}`,
+  }));
 }
 
 async function fetchHorseFormRuns(
@@ -180,32 +219,26 @@ async function fetchHorseFormRuns(
   return (data?.results ?? []).map(mapFormRun);
 }
 
-function flattenRacecards(data: RacecardsResponse): ApiRace[] {
-  if (data.racecards?.length) return data.racecards;
-  const out: ApiRace[] = [];
-  for (const c of data.courses ?? []) {
-    for (const r of c.races ?? []) {
-      out.push({ ...r, course: r.course ?? c.course });
-    }
-  }
-  return out;
-}
-
 function mapRace(api: ApiRace): HorseRace {
-  const distStr = String(api.dist ?? api.dist_f ?? "");
+  const distStr = String(
+    api.dist ?? api.distance_f ?? api.dist_f ?? ""
+  );
   const yards =
     api.dist_y != null ? Number(api.dist_y) : distanceYards(distStr);
-  const time = api.off ?? (api.off_dt ? api.off_dt.slice(11, 16) : "TBC");
+  const time = api.off_time ?? api.off ?? (api.off_dt ? api.off_dt.slice(11, 16) : "TBC");
+  const id =
+    api.race_id ??
+    `${api.course}-${api.date ?? "today"}-${time}`.replace(/\s+/g, "-");
 
   return {
-    id: String(api.race_id ?? `${api.course}-${time}`),
+    id: String(id),
     time: String(time),
     name: String(api.race_name ?? "Race"),
     course: String(api.course ?? ""),
     distance: distStr || `${yards}y`,
     distanceYards: yards,
     going: String(api.going ?? ""),
-    raceClass: String(api.class ?? ""),
+    raceClass: String(api.race_class ?? api.class ?? ""),
     runners: [],
   };
 }
@@ -219,7 +252,15 @@ async function mapRunner(
   let formRuns: HorseFormRun[] = [];
   if (fetchHistory && api.horse_id) {
     formRuns = await fetchHorseFormRuns(api.horse_id, creds);
-    await new Promise((r) => setTimeout(r, 550));
+    await new Promise((r) => setTimeout(r, 520));
+  }
+  if (!formRuns.length && api.form) {
+    formRuns = formRunsFromString(
+      api.form,
+      race.course,
+      race.distance,
+      race.distanceYards
+    );
   }
 
   const base: Omit<
@@ -233,7 +274,7 @@ async function mapRunner(
     id: String(api.horse_id ?? `${race.id}-${api.number ?? api.horse}`),
     name: String(api.horse ?? "Unknown"),
     age: Number(api.age ?? 0) || 5,
-    weight: String(api.weight ?? ""),
+    weight: String(api.lbs ?? api.weight ?? ""),
     jockey: String(api.jockey ?? ""),
     trainer: String(api.trainer ?? ""),
     form: String(api.form ?? ""),
@@ -248,49 +289,54 @@ export async function fetchLiveRacecards(
   meeting: string
 ): Promise<HorseRace[] | null> {
   const creds = getRacingApiCredentials();
-  if (!creds) return null;
+  if (!creds) {
+    console.warn("  racing api: no credentials (RACING_API_USERNAME/PASSWORD)");
+    return null;
+  }
 
   const filter = MEETING_FILTER[meeting] ?? (() => true);
 
-  const data = await racingFetch<RacecardsResponse>(
-    "/racecards/standard?day=today",
+  // Free plan: basic endpoint. Standard may 404 on free tier.
+  let data = await racingFetch<RacecardsResponse>(
+    "/racecards/basic?day=today",
     creds
   );
   if (!data) {
-    const basic = await racingFetch<RacecardsResponse>(
-      "/racecards/basic?day=today",
+    data = await racingFetch<RacecardsResponse>(
+      "/racecards/standard?day=today",
       creds
     );
-    if (!basic) return null;
-    return buildFromApi(basic, filter, creds);
   }
+  if (!data) return null;
 
-  return buildFromApi(data, filter, creds);
-}
-
-async function buildFromApi(
-  data: RacecardsResponse,
-  filter: (course: string) => boolean,
-  creds: RacingApiCredentials
-): Promise<HorseRace[]> {
   const raw = flattenRacecards(data).filter((r) =>
     filter(String(r.course ?? ""))
   );
 
+  if (!raw.length) {
+    console.warn(`  racing api: 0 races after filter for ${meeting}`);
+    return null;
+  }
+
+  console.log(`  racing api: ${raw.length} raw races for ${meeting}`);
+
+  const fetchHistory = process.env.RACING_FETCH_HISTORY === "true";
   const races: HorseRace[] = [];
-  for (const apiRace of raw.slice(0, 12)) {
+
+  for (const apiRace of raw.slice(0, 10)) {
     const race = mapRace(apiRace);
     const runners = apiRace.runners ?? [];
     const mapped: HorseRunner[] = [];
 
     for (const [i, r] of runners.entries()) {
-      const fetchHistory = i < 4;
-      mapped.push(await mapRunner(r, race, creds, fetchHistory));
+      mapped.push(
+        await mapRunner(r, race, creds, fetchHistory && i < 3)
+      );
     }
 
     race.runners = mapped;
-    races.push(race);
+    if (mapped.length) races.push(race);
   }
 
-  return races;
+  return races.length ? races : null;
 }
