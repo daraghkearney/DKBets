@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AppShell from "@/components/AppShell";
+import { SportProvider } from "@/components/SportProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,9 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DKBets · World Cup Hub",
+  title: "DKBets · Multi-Sport Research Hub",
   description:
-    "World Cup 2026 odds comparison, matched betting arbs, live player stats and 1v1 matchup analysis powered by real bookmaker feeds and FotMob.",
+    "Football, NBA and horse racing — deep stats, probability models, builder intelligence and tipster research.",
 };
 
 export default function RootLayout({
@@ -30,7 +31,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        <AppShell>{children}</AppShell>
+        <SportProvider>
+          <AppShell>{children}</AppShell>
+        </SportProvider>
       </body>
     </html>
   );

@@ -146,6 +146,24 @@ body {
   animation: border-rotate 8s linear infinite;
 }
 
+@keyframes sport-card-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.sport-hero-glow {
+  background: radial-gradient(
+    ellipse 80% 50% at 50% -20%,
+    rgba(34, 197, 94, 0.12),
+    transparent
+  );
+}
+
 ::-webkit-scrollbar {
   height: 8px;
   width: 8px;

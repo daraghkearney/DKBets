@@ -31,6 +31,9 @@ import {
   sampleModeLabel,
   type StatsSampleMode,
 } from "../src/lib/stats/sample-mode";
+import { buildHorseRacingPayload } from "../src/lib/horse-racing/engine";
+import { buildNbaPayload } from "../src/lib/nba/client";
+import { SPORTS } from "../src/lib/sports/config";
 import {
   loadCachedBet365EventUrls,
   loadCachedBet365Odds,
@@ -187,6 +190,42 @@ async function main() {
     await writeJson("bet365-prices.json", JSON.parse(raw));
   } catch {
     /* no price cache this run */
+  }
+
+  await writeJson("sports-manifest.json", {
+    sports: SPORTS.map((s) => ({
+      id: s.id,
+      label: s.label,
+      competitions: s.competitions.map((c) => ({
+        id: c.id,
+        label: c.label,
+        live: c.live,
+      })),
+    })),
+    exportedAt: new Date().toISOString(),
+  });
+
+  console.log("\n  [nba] exporting NBA.com stats …");
+  try {
+    const nba = await buildNbaPayload();
+    await writeJson("nba/nba/hub.json", nba);
+    console.log(`  nba: ${nba.leaders.length} leaders, ${nba.scoreboard.length} games`);
+  } catch (e) {
+    console.warn("  nba: export failed", e);
+  }
+
+  const racingMeetings = ["todays-races", "cheltenham", "punchestown"] as const;
+  for (const meeting of racingMeetings) {
+    console.log(`\n  [horse-racing/${meeting}] exporting …`);
+    try {
+      const payload = await buildHorseRacingPayload(meeting);
+      await writeJson(`horse-racing/${meeting}/hub.json`, payload);
+      console.log(
+        `  racing: ${payload.races.length} races, ${payload.tipsters.length} tipsters`
+      );
+    } catch (e) {
+      console.warn(`  racing/${meeting}: export failed`, e);
+    }
   }
 
   console.log("\nDone.");

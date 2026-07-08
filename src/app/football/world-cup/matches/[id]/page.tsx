@@ -1,7 +1,6 @@
 import { readFile } from "fs/promises";
 import path from "path";
-import { use } from "react";
-import LegacyRedirect from "@/components/LegacyRedirect";
+import MatchDetailClient from "./MatchDetailClient";
 
 export async function generateStaticParams() {
   return readFixtureIds().catch(() => [{ id: "0" }]);
@@ -17,11 +16,6 @@ async function readFixtureIds(): Promise<Array<{ id: string }>> {
   return ids.map((id) => ({ id: String(id) }));
 }
 
-export default function MatchDetailRedirect({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
-  return <LegacyRedirect to={`/football/world-cup/matches/${id}/`} />;
+export default function MatchDetailPage() {
+  return <MatchDetailClient />;
 }

@@ -1,0 +1,5 @@
+import RacingHub from "@/components/horse-racing/RacingHub";
+
+export default function PunchestownPage() {
+  return <RacingHub meeting="punchestown" />;
+}

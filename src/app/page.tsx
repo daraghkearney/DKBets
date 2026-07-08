@@ -1,111 +1,75 @@
-"use client";
+import Link from "next/link";
+import SportCard from "@/components/sports/SportCard";
+import { SPORTS } from "@/lib/sports/config";
 
-import { useMemo, useState } from "react";
-import ArbAlerts from "@/components/ArbAlerts";
-import ArbTable from "@/components/ArbTable";
-import BookmakerFilter from "@/components/BookmakerFilter";
-import Guide from "@/components/Guide";
-import OddsToolbar from "@/components/OddsToolbar";
-import OddsGrid from "@/components/OddsGrid";
-import StakeCalculator from "@/components/StakeCalculator";
-import StandoutPicks from "@/components/StandoutPicks";
-import WatchList from "@/components/WatchList";
-import { findArbs, findNearArbs } from "@/lib/arb";
-import { BOOKMAKER_IDS } from "@/lib/bookmakers";
-import type { Currency, OddsFormat } from "@/lib/format";
-import type { ArbOpportunity, BookmakerId } from "@/lib/types";
-import { useOdds } from "@/lib/useOdds";
-
-const REFRESH_MS = 10_000;
-
-export default function Home() {
-  const { snapshot, error, refreshing, lastUpdated, secondsToRefresh, refresh } =
-    useOdds(REFRESH_MS);
-
-  const [oddsFormat, setOddsFormat] = useState<OddsFormat>("decimal");
-  const [currency, setCurrency] = useState<Currency>("EUR");
-  const [enabled, setEnabled] = useState<BookmakerId[]>([...BOOKMAKER_IDS]);
-  const [calcArb, setCalcArb] = useState<ArbOpportunity | null>(null);
-
-  const arbs = useMemo(
-    () => (snapshot ? findArbs(snapshot.matches, enabled) : []),
-    [snapshot, enabled]
-  );
-  const nearArbs = useMemo(
-    () => (snapshot ? findNearArbs(snapshot.matches, enabled) : []),
-    [snapshot, enabled]
-  );
-
-  const toggleBookmaker = (id: BookmakerId) => {
-    setEnabled((prev) => {
-      if (prev.includes(id)) {
-        // Need at least two bookmakers for an arb to exist
-        if (prev.length <= 2) return prev;
-        return prev.filter((b) => b !== id);
-      }
-      return [...prev, id];
-    });
-  };
-
+export default function HomePage() {
   return (
-    <div className="min-h-screen">
-      <OddsToolbar
-        snapshot={snapshot}
-        lastUpdated={lastUpdated}
-        secondsToRefresh={secondsToRefresh}
-        refreshing={refreshing}
-        error={error}
-        onRefresh={refresh}
-        oddsFormat={oddsFormat}
-        setOddsFormat={setOddsFormat}
-        currency={currency}
-        setCurrency={setCurrency}
-      />
+    <div className="relative min-h-[calc(100vh-8rem)] overflow-hidden">
+      {/* Ambient background */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-1/4 top-0 h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-emerald-500/5 blur-[120px]" />
+        <div className="absolute right-1/4 top-1/3 h-[400px] w-[400px] rounded-full bg-orange-500/5 blur-[100px]" />
+        <div className="absolute bottom-0 left-1/2 h-[300px] w-[600px] -translate-x-1/2 rounded-full bg-amber-500/5 blur-[100px]" />
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px)",
+            backgroundSize: "48px 48px",
+          }}
+        />
+      </div>
 
-      <main className="mx-auto flex max-w-7xl flex-col gap-10 px-4 py-8 sm:px-6">
-        {!snapshot ? (
-          <div className="flex flex-col items-center gap-3 py-24 text-muted">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-edge border-t-accent" />
-            <p className="text-sm">Pulling live World Cup odds…</p>
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <BookmakerFilter enabled={enabled} onToggle={toggleBookmaker} />
-              <ArbAlerts arbs={arbs} thresholdPct={1} onSelect={setCalcArb} />
+      <div className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-accent">
+            Research-first betting intelligence
+          </p>
+          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl lg:text-6xl">
+            Choose your{" "}
+            <span className="bg-gradient-to-r from-accent via-gold to-orange-400 bg-clip-text text-transparent">
+              sport
+            </span>
+          </h1>
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
+            Deep player stats, probability models and web-sourced context —
+            tailored pipelines for football, NBA and horse racing.
+          </p>
+        </div>
+
+        <div className="mt-14 grid gap-6 md:grid-cols-3">
+          {SPORTS.map((sport) => (
+            <SportCard key={sport.id} sport={sport} />
+          ))}
+        </div>
+
+        <div className="mx-auto mt-16 grid max-w-4xl gap-4 sm:grid-cols-3">
+          {[
+            { n: "3", label: "Sports", sub: "Football · NBA · Racing" },
+            { n: "12+", label: "Competitions", sub: "Leagues & festivals" },
+            { n: "Web+", label: "Research layers", sub: "Stats + tipster intel" },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-2xl border border-edge/60 bg-surface/50 px-5 py-4 text-center"
+            >
+              <p className="text-2xl font-black text-foreground">{stat.n}</p>
+              <p className="text-sm font-semibold">{stat.label}</p>
+              <p className="text-[11px] text-muted">{stat.sub}</p>
             </div>
+          ))}
+        </div>
 
-            <StandoutPicks
-              arbs={arbs}
-              oddsFormat={oddsFormat}
-              onCalculate={setCalcArb}
-            />
-
-            <ArbTable
-              arbs={arbs}
-              oddsFormat={oddsFormat}
-              onCalculate={setCalcArb}
-            />
-
-            <WatchList nearArbs={nearArbs} oddsFormat={oddsFormat} />
-
-            <OddsGrid
-              matches={snapshot.matches}
-              enabled={enabled}
-              oddsFormat={oddsFormat}
-            />
-
-            <Guide />
-          </>
-        )}
-      </main>
-
-      <StakeCalculator
-        arb={calcArb}
-        currency={currency}
-        oddsFormat={oddsFormat}
-        onClose={() => setCalcArb(null)}
-      />
+        <p className="mt-12 text-center text-xs text-muted">
+          Previously World Cup only — now multi-sport.{" "}
+          <Link
+            href="/football/world-cup/"
+            className="text-accent underline underline-offset-2"
+          >
+            Jump straight to World Cup →
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }
