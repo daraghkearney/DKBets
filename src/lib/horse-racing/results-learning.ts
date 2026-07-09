@@ -106,6 +106,25 @@ async function saveModel(model: RacingModelInfo): Promise<void> {
   );
 }
 
+async function saveReview(review: RacingWinnerReview): Promise<void> {
+  await mkdir(MODEL_DIR, { recursive: true });
+  await writeFile(
+    path.join(MODEL_DIR, "review.json"),
+    JSON.stringify(review),
+    "utf8"
+  );
+}
+
+async function loadReview(date: string): Promise<RacingWinnerReview | undefined> {
+  try {
+    const raw = await readFile(path.join(MODEL_DIR, "review.json"), "utf8");
+    const review = JSON.parse(raw) as RacingWinnerReview;
+    return review.date === date ? review : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function savePredictionLog(
   date: string,
   races: HorseRace[]
@@ -334,6 +353,14 @@ export async function learnFromYesterday(): Promise<{
   if (!isRacingApiConfigured()) return { model };
 
   const yesterday = toIsoDate(addDays(new Date(), -1));
+
+  // The export runs hourly — only learn from each race day once,
+  // otherwise one day's results would be counted ~24 times.
+  if (model.lastLearnedDate === yesterday) {
+    console.log(`  racing learn: already learned from ${yesterday} — skipping`);
+    return { model, review: await loadReview(yesterday) };
+  }
+
   console.log(`  racing learn: fetching results for ${yesterday} …`);
   const { races: results, debug } = await fetchResultsForDate(yesterday);
   if (!results.length) {
@@ -375,6 +402,7 @@ export async function learnFromYesterday(): Promise<{
   if (!learnings.length) return { model };
 
   model = updateWeights(model, learnings);
+  model.lastLearnedDate = yesterday;
   await saveModel(model);
   console.log(
     `  racing learn: weights updated from ${learnings.length} races (total samples ${model.samples})`
@@ -412,6 +440,7 @@ export async function learnFromYesterday(): Promise<{
     totalRaces: learnings.length,
     summary,
   };
+  await saveReview(review);
 
   return { model, review };
 }

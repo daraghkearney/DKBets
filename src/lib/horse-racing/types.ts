@@ -89,6 +89,8 @@ export interface RacingModelInfo {
   /** Number of completed races the weights were learned from */
   samples: number;
   updatedAt: string;
+  /** Last results date already learned from (prevents double-counting) */
+  lastLearnedDate?: string;
   /** Mean factor edge of winners vs field, per factor */
   factorEdges?: Partial<Record<RacingFactorKey, number>>;
 }
