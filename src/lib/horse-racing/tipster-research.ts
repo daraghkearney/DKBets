@@ -84,7 +84,8 @@ interface ResearchQuery {
 
 function buildQueries(ctx: TipsterResearchContext): ResearchQuery[] {
   const today = new Date().toISOString().slice(0, 10);
-  const where = (ctx.courses ?? []).slice(0, 4).join(" ") || "UK Ireland";
+  const courseText = (ctx.courses ?? []).slice(0, 6).join(" ");
+  const where = courseText || "UK Ireland";
   return [
     {
       query: `"Pro Sports Advice" OR PSA horse racing tip today ${today} leaked shared`,
@@ -394,16 +395,30 @@ export async function fetchTipsterIntelligence(
   if (!isTipsterResearchConfigured()) return [];
 
   const cached = await loadCachedTipsters(meeting);
-  if (cached?.length && !shouldRefreshTipsterResearch()) {
-    console.log(`  racing tipsters: cache hit ${meeting} (${cached.length})`);
-    return cached;
-  }
-  if (cached?.length && shouldRefreshTipsterResearch()) {
-    console.log(`  racing tipsters: refreshing ${meeting} …`);
-  }
 
-  if (!shouldRefreshTipsterResearch()) {
-    return cached ?? [];
+  // If new meetings appeared since the cache was built (e.g. Irish cards
+  // arriving later), the cached research never covered them — force a
+  // refresh even outside a scheduled research window.
+  const currentCourses = (ctx.courses ?? []).map((c) => normalizeName(c));
+  const cachedCourses = (cached?.courses ?? []).map((c) => normalizeName(c));
+  const missingCourses = currentCourses.filter(
+    (c) => !cachedCourses.includes(c)
+  );
+  const staleCoverage = Boolean(cached && missingCourses.length);
+
+  if (cached && !shouldRefreshTipsterResearch() && !staleCoverage) {
+    console.log(
+      `  racing tipsters: cache hit ${meeting} (${cached.picks.length})`
+    );
+    return cached.picks;
+  }
+  if (staleCoverage) {
+    console.log(
+      `  racing tipsters: cache missing courses [${missingCourses.join(", ")}] — refreshing`
+    );
+  } else if (!shouldRefreshTipsterResearch()) {
+    // No cache and no research window — don't burn Tavily quota hourly
+    return cached?.picks ?? [];
   }
 
   const queries = buildQueries(ctx);
@@ -421,11 +436,11 @@ export async function fetchTipsterIntelligence(
 
   const hotCount = picks.filter((p) => p.hot).length;
   if (picks.length) {
-    await saveCachedTipsters(meeting, picks);
+    await saveCachedTipsters(meeting, picks, ctx.courses ?? []);
     console.log(
       `  racing tipsters: ${meeting} — ${picks.length} verified signals (${hotCount} red-hot)`
     );
   }
 
-  return picks.length ? picks : (cached ?? []);
+  return picks.length ? picks : (cached?.picks ?? []);
 }

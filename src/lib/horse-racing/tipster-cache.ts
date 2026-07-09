@@ -9,6 +9,13 @@ interface TipsterCacheEntry {
   savedAt: string;
   meeting: string;
   picks: TipsterPick[];
+  /** Courses on the cards when this research ran */
+  courses?: string[];
+}
+
+export interface CachedTipsters {
+  picks: TipsterPick[];
+  courses: string[];
 }
 
 function cachePath(meeting: string): string {
@@ -17,14 +24,15 @@ function cachePath(meeting: string): string {
 
 export async function loadCachedTipsters(
   meeting: string
-): Promise<TipsterPick[] | null> {
+): Promise<CachedTipsters | null> {
   try {
     const raw = await readFile(cachePath(meeting), "utf8");
     const data = JSON.parse(raw) as TipsterCacheEntry;
     if (Date.now() - new Date(data.savedAt).getTime() > CACHE_MAX_AGE_MS) {
       return null;
     }
-    return data.picks ?? null;
+    if (!data.picks?.length) return null;
+    return { picks: data.picks, courses: data.courses ?? [] };
   } catch {
     return null;
   }
@@ -32,13 +40,15 @@ export async function loadCachedTipsters(
 
 export async function saveCachedTipsters(
   meeting: string,
-  picks: TipsterPick[]
+  picks: TipsterPick[],
+  courses: string[]
 ): Promise<void> {
   await mkdir(CACHE_DIR, { recursive: true });
   const payload: TipsterCacheEntry = {
     savedAt: new Date().toISOString(),
     meeting,
     picks,
+    courses,
   };
   await writeFile(cachePath(meeting), JSON.stringify(payload), "utf8");
 }
