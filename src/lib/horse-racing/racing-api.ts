@@ -316,7 +316,11 @@ function mapResultRace(api: ApiResultRace): ResultRace {
   };
 }
 
-/** Full results for a calendar date (used for next-day learning). */
+/**
+ * Full results for a calendar date (used for next-day learning).
+ * The results endpoints are paginated (max 50/page), so we page through
+ * until the day is complete — a full UK+IRE day can be 60+ races.
+ */
 export async function fetchResultsForDate(
   isoDate: string
 ): Promise<{ races: ResultRace[]; debug: string }> {
@@ -330,20 +334,36 @@ export async function fetchResultsForDate(
     ...(isoDate === today ? ["/results/today"] : []),
   ];
 
+  const PAGE = 50;
+  const MAX_RACES = 250;
   const notes: string[] = [];
-  for (const path of endpoints) {
-    const { data, status, note } = await racingFetch<ResultsResponse>(
-      path,
-      creds
-    );
-    notes.push(`${path} → ${note}${status ? ` (${status})` : ""}`);
-    if (!data?.results?.length) continue;
 
-    const races = data.results
+  for (const base of endpoints) {
+    const sep = base.includes("?") ? "&" : "?";
+    const all: ApiResultRace[] = [];
+
+    for (let skip = 0; skip < MAX_RACES; skip += PAGE) {
+      const { data, status, note } = await racingFetch<ResultsResponse>(
+        `${base}${sep}limit=${PAGE}&skip=${skip}`,
+        creds
+      );
+      if (skip === 0) {
+        notes.push(`${base} → ${note}${status ? ` (${status})` : ""}`);
+      }
+      if (!data?.results?.length) break;
+      all.push(...data.results);
+      if (data.results.length < PAGE) break;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+
+    if (!all.length) continue;
+
+    const races = all
       .map(mapResultRace)
       .filter((r) => !r.date || r.date.startsWith(isoDate))
       .filter((r) => r.runners.some((x) => x.position === 1));
     if (races.length) {
+      notes.push(`${races.length} races over ${Math.ceil(all.length / PAGE)} pages`);
       return { races, debug: notes.join("; ") };
     }
   }
@@ -450,7 +470,7 @@ async function buildRacesFromApi(
   const fetchHistory = process.env.RACING_FETCH_HISTORY === "true";
   const races: HorseRace[] = [];
 
-  for (const apiRace of raw.slice(0, 20)) {
+  for (const apiRace of raw) {
     const race = mapRace(apiRace);
     const runners = apiRace.runners ?? [];
     const mapped: HorseRunner[] = [];
@@ -468,24 +488,26 @@ async function buildRacesFromApi(
   return races;
 }
 
+const REGIONS = "region_codes=gb&region_codes=ire";
+
 function endpointsForDate(isoDate: string, dayOffset: number): string[] {
   if (dayOffset === 0) {
     return [
-      "/racecards/free?day=today",
-      "/racecards/basic?day=today",
+      `/racecards/free?day=today&${REGIONS}`,
+      `/racecards/basic?day=today&${REGIONS}`,
     ];
   }
   if (dayOffset === 1) {
     return [
-      "/racecards/free?day=tomorrow",
-      "/racecards/basic?day=tomorrow",
+      `/racecards/free?day=tomorrow&${REGIONS}`,
+      `/racecards/basic?day=tomorrow&${REGIONS}`,
     ];
   }
   const q = encodeURIComponent(isoDate);
   return [
     `/racecards/pro?date=${q}`,
-    `/racecards/free?date=${q}`,
-    `/racecards/basic?date=${q}`,
+    `/racecards/free?date=${q}&${REGIONS}`,
+    `/racecards/basic?date=${q}&${REGIONS}`,
     `/racecards/summaries?date=${q}`,
   ];
 }
