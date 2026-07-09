@@ -1,6 +1,8 @@
 import { courseSlug, racingWeekDays } from "./dates";
 import { fetchRacecardsForDate, isRacingApiConfigured } from "./racing-api";
 import { fetchTipsterIntelligence } from "./tipster-research";
+import { applyModel } from "./model";
+import { learnFromYesterday, savePredictionLog } from "./results-learning";
 import type {
   HorseRace,
   RacingCalendarDay,
@@ -46,6 +48,15 @@ function demoRacesForDate(date: string): HorseRace[] {
 }
 
 export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayload> {
+  // Learn from yesterday's results BEFORE scoring today, so today's
+  // predictions use the freshest weights.
+  const { model, review } = await learnFromYesterday();
+  console.log(
+    `  racing model: weights ${Object.entries(model.weights)
+      .map(([k, v]) => `${k}=${(v as number).toFixed(2)}`)
+      .join(" ")} (${model.samples} samples)`
+  );
+
   const week = racingWeekDays();
   const days: RacingCalendarDay[] = [];
   const debugNotes: string[] = [];
@@ -96,9 +107,36 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
 
   const todayIso = week[0]?.date;
   const tipsterDay = days.find((d) => d.date === todayIso) ?? days[0];
-  const raceIds =
-    tipsterDay?.meetings.flatMap((m) => m.races.map((r) => r.id)) ?? [];
-  const tipsters = await fetchTipsterIntelligence("todays-races", raceIds);
+  const todayRaces =
+    tipsterDay?.meetings.flatMap((m) => m.races) ?? [];
+  const raceIds = todayRaces.map((r) => r.id);
+  const courses = [...new Set(todayRaces.map((r) => r.course))].filter(Boolean);
+
+  const tipsters = await fetchTipsterIntelligence("todays-races", raceIds, {
+    courses,
+  });
+
+  // Apply learned weights + tipster boosts to every day's cards
+  for (const day of days) {
+    for (const meeting of day.meetings) {
+      applyModel(meeting.races, tipsters, model.weights);
+      meeting.races.forEach((race) =>
+        race.runners.sort((a, b) => b.overallScore - a.overallScore)
+      );
+    }
+  }
+
+  // Log today's predictions so tomorrow's run can learn from results
+  if (todayIso && todayRaces.some((r) => !r.id.startsWith("demo-"))) {
+    try {
+      await savePredictionLog(todayIso, todayRaces);
+      console.log(
+        `  racing model: logged predictions for ${todayRaces.length} races (${todayIso})`
+      );
+    } catch (e) {
+      console.warn("  racing model: failed to log predictions", e);
+    }
+  }
 
   return {
     source,
@@ -107,5 +145,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     racingApiDebug: debugNotes.join(" | "),
     days: days.map(({ date, label, meetings }) => ({ date, label, meetings })),
     tipsters,
+    model,
+    review,
   };
 }

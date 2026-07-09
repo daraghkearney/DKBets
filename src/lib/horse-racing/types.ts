@@ -26,7 +26,12 @@ export interface HorseRunner {
   distanceFitScore: number;
   courseFitScore: number;
   recentFormScore: number;
+  goingFitScore: number;
+  freshnessScore: number;
+  marketScore: number;
+  tipsterScore: number;
   overallScore: number;
+  predictedRank?: number;
   notes: string[];
 }
 
@@ -64,6 +69,50 @@ export interface RacingCalendarPayload {
   days: RacingCalendarDay[];
   /** Day-level tipster intel (filtered client-side by meeting) */
   tipsters: TipsterPick[];
+  /** Current learned model state (weights + sample size) */
+  model?: RacingModelInfo;
+  /** Review of yesterday's winners vs our predictions */
+  review?: RacingWinnerReview;
+}
+
+export type RacingFactorKey =
+  | "market"
+  | "going"
+  | "distance"
+  | "course"
+  | "form"
+  | "freshness"
+  | "tipster";
+
+export interface RacingModelInfo {
+  weights: Record<RacingFactorKey, number>;
+  /** Number of completed races the weights were learned from */
+  samples: number;
+  updatedAt: string;
+  /** Mean factor edge of winners vs field, per factor */
+  factorEdges?: Partial<Record<RacingFactorKey, number>>;
+}
+
+export interface RacingWinnerReviewRace {
+  raceId: string;
+  course: string;
+  time: string;
+  name: string;
+  winner: string;
+  winnerSp?: number;
+  /** Where our model ranked the winner (1 = we predicted it) */
+  ourRank?: number;
+  fieldSize?: number;
+  /** Factors where the winner led the field — what would have found it */
+  winningFactors: RacingFactorKey[];
+}
+
+export interface RacingWinnerReview {
+  date: string;
+  races: RacingWinnerReviewRace[];
+  correctWinners: number;
+  totalRaces: number;
+  summary: string;
 }
 
 export interface TipsterPick {

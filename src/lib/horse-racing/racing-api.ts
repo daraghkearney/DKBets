@@ -221,6 +221,122 @@ async function fetchHorseFormRuns(
   return (data?.results ?? []).map(mapFormRun);
 }
 
+/** Public wrapper — used by results learning to analyse winners. */
+export async function fetchHorseHistory(
+  horseId: string
+): Promise<HorseFormRun[]> {
+  const creds = getRacingApiCredentials();
+  if (!creds) return [];
+  return fetchHorseFormRuns(horseId, creds);
+}
+
+export interface ResultRunner {
+  horseId: string;
+  name: string;
+  position: number;
+  sp: number | null;
+}
+
+export interface ResultRace {
+  raceId: string;
+  date: string;
+  course: string;
+  time: string;
+  name: string;
+  going: string;
+  distance: string;
+  distanceYards: number;
+  runners: ResultRunner[];
+}
+
+interface ApiResultRunner {
+  horse_id?: string;
+  horse?: string;
+  position?: string | number;
+  sp_dec?: string | number;
+  sp?: string;
+}
+
+interface ApiResultRace {
+  race_id?: string;
+  date?: string;
+  course?: string;
+  off?: string;
+  off_time?: string;
+  off_dt?: string;
+  race_name?: string;
+  going?: string;
+  dist?: string;
+  dist_y?: string | number;
+  runners?: ApiResultRunner[];
+}
+
+interface ResultsResponse {
+  results?: ApiResultRace[];
+}
+
+function mapResultRace(api: ApiResultRace): ResultRace {
+  const dist = String(api.dist ?? "");
+  const time =
+    api.off_time ?? api.off ?? (api.off_dt ? api.off_dt.slice(11, 16) : "");
+  return {
+    raceId: String(api.race_id ?? `${api.course}-${api.date}-${time}`),
+    date: String(api.date ?? ""),
+    course: String(api.course ?? ""),
+    time: String(time),
+    name: String(api.race_name ?? "Race"),
+    going: String(api.going ?? ""),
+    distance: dist,
+    distanceYards:
+      api.dist_y != null ? Number(api.dist_y) : distanceYards(dist || "0f"),
+    runners: (api.runners ?? []).map((r) => ({
+      horseId: String(r.horse_id ?? ""),
+      name: String(r.horse ?? ""),
+      position: parsePosition(r.position),
+      sp: (() => {
+        const n = Number(r.sp_dec);
+        if (Number.isFinite(n) && n > 1) return n;
+        return null;
+      })(),
+    })),
+  };
+}
+
+/** Full results for a calendar date (used for next-day learning). */
+export async function fetchResultsForDate(
+  isoDate: string
+): Promise<{ races: ResultRace[]; debug: string }> {
+  const creds = getRacingApiCredentials();
+  if (!creds) return { races: [], debug: "no credentials" };
+
+  const q = encodeURIComponent(isoDate);
+  const today = new Date().toISOString().slice(0, 10);
+  const endpoints = [
+    `/results?start_date=${q}&end_date=${q}`,
+    ...(isoDate === today ? ["/results/today"] : []),
+  ];
+
+  const notes: string[] = [];
+  for (const path of endpoints) {
+    const { data, status, note } = await racingFetch<ResultsResponse>(
+      path,
+      creds
+    );
+    notes.push(`${path} → ${note}${status ? ` (${status})` : ""}`);
+    if (!data?.results?.length) continue;
+
+    const races = data.results
+      .map(mapResultRace)
+      .filter((r) => !r.date || r.date.startsWith(isoDate))
+      .filter((r) => r.runners.some((x) => x.position === 1));
+    if (races.length) {
+      return { races, debug: notes.join("; ") };
+    }
+  }
+
+  return { races: [], debug: notes.join("; ") };
+}
+
 function mapRace(api: ApiRace): HorseRace {
   const distStr = String(
     api.dist ?? api.distance_f ?? api.dist_f ?? ""
@@ -271,6 +387,10 @@ async function mapRunner(
     | "distanceFitScore"
     | "courseFitScore"
     | "recentFormScore"
+    | "goingFitScore"
+    | "freshnessScore"
+    | "marketScore"
+    | "tipsterScore"
     | "overallScore"
     | "notes"
   > = {
@@ -285,7 +405,7 @@ async function mapRunner(
     formRuns,
   };
 
-  return enrichRunner(base, race.course, race.distanceYards);
+  return enrichRunner(base, race.course, race.distanceYards, race.going);
 }
 
 async function buildRacesFromApi(
