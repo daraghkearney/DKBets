@@ -11,6 +11,8 @@ export interface HorseFormRun {
   weight: string;
   odds: string;
   comment: string;
+  /** Race class/grade of the historical run, when known */
+  raceClass?: string;
 }
 
 export interface HorseRunner {
@@ -22,6 +24,12 @@ export interface HorseRunner {
   trainer: string;
   form: string;
   odds: number | null;
+  /** Official rating (OFR) when published */
+  officialRating: number | null;
+  /** Days since last run, from the racecard */
+  lastRunDays: number | null;
+  headgear: string;
+  draw: string;
   formRuns: HorseFormRun[];
   distanceFitScore: number;
   courseFitScore: number;
@@ -30,6 +38,10 @@ export interface HorseRunner {
   freshnessScore: number;
   marketScore: number;
   tipsterScore: number;
+  classFitScore: number;
+  ratingScore: number;
+  trainerScore: number;
+  jockeyScore: number;
   overallScore: number;
   predictedRank?: number;
   notes: string[];
@@ -45,6 +57,8 @@ export interface HorseRace {
   distanceYards: number;
   going: string;
   raceClass: string;
+  /** Pattern/grade, e.g. "Grade 1", "Group 2", "Listed" */
+  pattern?: string;
   runners: HorseRunner[];
 }
 
@@ -77,10 +91,14 @@ export interface RacingCalendarPayload {
 
 export type RacingFactorKey =
   | "market"
+  | "rating"
   | "going"
   | "distance"
   | "course"
   | "form"
+  | "class"
+  | "trainer"
+  | "jockey"
   | "freshness"
   | "tipster";
 
@@ -126,6 +144,12 @@ export interface TipsterPick {
   trackRecord: string;
   sourceUrl?: string;
   rationale: string;
+  /** Red-hot: elite/high-strike-rate tipster matched to an actual runner */
+  hot?: boolean;
+  /** Where the tip surfaced, e.g. "reddit", "twitter", "web" */
+  platform?: string;
+  /** Set when the tipped horse was matched to a runner on today's cards */
+  matchedRunner?: string;
 }
 
 export interface HorseRacingPayload {

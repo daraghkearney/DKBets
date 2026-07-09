@@ -2,6 +2,7 @@ import { courseSlug, racingWeekDays } from "./dates";
 import { fetchRacecardsForDate, isRacingApiConfigured } from "./racing-api";
 import { fetchTipsterIntelligence } from "./tipster-research";
 import { applyModel } from "./model";
+import { loadPeopleStats } from "./people-stats";
 import { learnFromYesterday, savePredictionLog } from "./results-learning";
 import type {
   HorseRace,
@@ -111,15 +112,20 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     tipsterDay?.meetings.flatMap((m) => m.races) ?? [];
   const raceIds = todayRaces.map((r) => r.id);
   const courses = [...new Set(todayRaces.map((r) => r.course))].filter(Boolean);
+  const runnerNames = todayRaces.flatMap((r) =>
+    r.runners.map((x) => x.name)
+  );
 
   const tipsters = await fetchTipsterIntelligence("todays-races", raceIds, {
     courses,
+    runnerNames,
   });
 
-  // Apply learned weights + tipster boosts to every day's cards
+  // Apply strike rates, learned weights and tipster boosts to every day
+  const peopleStats = await loadPeopleStats();
   for (const day of days) {
     for (const meeting of day.meetings) {
-      applyModel(meeting.races, tipsters, model.weights);
+      applyModel(meeting.races, tipsters, model.weights, peopleStats);
       meeting.races.forEach((race) =>
         race.runners.sort((a, b) => b.overallScore - a.overallScore)
       );

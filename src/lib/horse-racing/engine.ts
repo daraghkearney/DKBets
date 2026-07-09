@@ -47,6 +47,10 @@ function demoRaces(meeting: string): HorseRace[] {
       trainer: "W. Mullins",
       form: "121-3",
       odds: 3.5,
+      officialRating: 145,
+      lastRunDays: 28,
+      headgear: "",
+      draw: "",
       formRuns: [
         {
           date: "2026-03-12",
@@ -73,6 +77,10 @@ function demoRaces(meeting: string): HorseRace[] {
       trainer: "G. Elliott",
       form: "3-412",
       odds: 6.0,
+      officialRating: 138,
+      lastRunDays: 42,
+      headgear: "",
+      draw: "",
       formRuns: [],
     },
   ];
@@ -81,8 +89,12 @@ function demoRaces(meeting: string): HorseRace[] {
     race.runners = runners.map((r) =>
       enrichRunner(
         { ...r, id: `${race.id}-${r.id}` },
-        race.course,
-        race.distanceYards
+        {
+          course: race.course,
+          distanceYards: race.distanceYards,
+          going: race.going,
+          raceClass: race.raceClass,
+        }
       )
     );
   }

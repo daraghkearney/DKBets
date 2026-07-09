@@ -72,8 +72,11 @@ jobs:
           path: |
             .cache/racing-model
             .cache/racing-predictions
-          key: racing-model-v1-${{ github.run_id }}
-          restore-keys: racing-model-v1-
+            .cache/racing-stats
+          key: racing-model-v2-${{ github.run_id }}
+          restore-keys: |
+            racing-model-v2-
+            racing-model-v1-
 
       - name: Install
         run: npm ci

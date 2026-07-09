@@ -45,6 +45,84 @@ export function goingScale(going: string): number | null {
 }
 
 /**
+ * Class/grade rank: lower = better company.
+ * Grade/Group 1 → 1 … Class 7 → 7; Listed sits between 2 and 3.
+ */
+export function classRank(raceClass: string, pattern = ""): number | null {
+  const p = pattern.toLowerCase();
+  const g = p.match(/(?:grade|group)\s*(\d)/);
+  if (g) return Number(g[1]);
+  if (/listed/.test(p)) return 2.5;
+  const c = raceClass.toLowerCase().match(/(?:class\s*)?(\d)/);
+  if (c) return Number(c[1]);
+  return null;
+}
+
+/**
+ * Class suitability — proven at this level, dropping in class (a known
+ * positive angle), or stepping up into unknown company?
+ */
+export function scoreClassFit(
+  runs: HorseFormRun[],
+  raceClass: string,
+  pattern = ""
+): { score: number; notes: string[] } {
+  const today = classRank(raceClass, pattern);
+  if (today == null) return { score: 0.5, notes: [] };
+
+  const classified = runs
+    .map((r) => ({ run: r, rank: classRank(r.raceClass ?? "", "") }))
+    .filter((x): x is { run: HorseFormRun; rank: number } => x.rank != null);
+
+  if (!classified.length) {
+    return { score: 0.5, notes: ["Class profile unknown"] };
+  }
+
+  const lastRank = classified[0].rank;
+  const atOrAbove = classified.filter((x) => x.rank <= today);
+  const placedAbove = classified.some(
+    (x) => x.rank < today && x.run.position <= 3
+  );
+  const placedAtLevel = classified.some(
+    (x) => x.rank === today && x.run.position <= 3
+  );
+
+  // Dropping in class after competitive runs in better company
+  if (lastRank < today && placedAbove) {
+    return {
+      score: 0.82,
+      notes: [
+        `Class drop — placed in ${lastRank < today - 1 ? "much " : ""}better company`,
+      ],
+    };
+  }
+  if (lastRank < today) {
+    return { score: 0.66, notes: ["Dropping in class"] };
+  }
+
+  // Stepping up beyond anything tried
+  const bestTried = Math.min(...classified.map((x) => x.rank));
+  if (today < bestTried) {
+    const wonLately = classified.slice(0, 3).some((x) => x.run.position === 1);
+    return wonLately
+      ? { score: 0.55, notes: ["Steps up in class after winning"] }
+      : { score: 0.38, notes: ["Unproven at this level — step up in class"] };
+  }
+
+  if (placedAtLevel || placedAbove) {
+    const placeRate =
+      atOrAbove.filter((x) => x.run.position <= 3).length /
+      Math.max(1, atOrAbove.length);
+    return {
+      score: Math.min(0.9, 0.5 + placeRate * 0.4),
+      notes: [`Proven at this level (${Math.round(placeRate * 100)}% placed)`],
+    };
+  }
+
+  return { score: 0.44, notes: ["Yet to place at this level"] };
+}
+
+/**
  * Ground suitability — does this horse handle today's going?
  * Compares historical runs on similar ground (±1 on the scale).
  */
@@ -73,7 +151,6 @@ export function scoreGoingFit(
     notes.push(
       `Never run on ground like ${raceGoing} (${withGoing.length} runs on different going)`
     );
-    // Bigger gap from proven ground = bigger risk
     return { score: Math.max(0.28, 0.48 - gap * 0.05), notes };
   }
 
@@ -90,18 +167,25 @@ export function scoreGoingFit(
   };
 }
 
-/** Days since last run — fitness/freshness sweet spot is ~15-60 days. */
-export function scoreFreshness(runs: HorseFormRun[]): {
+/**
+ * Fitness/freshness. Prefers the racecard's own days-since-last-run
+ * figure; falls back to form-run dates. Sweet spot ~15-60 days.
+ */
+export function scoreFreshness(
+  runs: HorseFormRun[],
+  lastRunDays: number | null = null
+): {
   score: number;
   notes: string[];
 } {
-  const dates = runs
-    .map((r) => new Date(r.date).getTime())
-    .filter((t) => Number.isFinite(t) && t > 0);
-  if (!dates.length) return { score: 0.5, notes: [] };
-
-  const last = Math.max(...dates);
-  const days = Math.round((Date.now() - last) / 86_400_000);
+  let days = lastRunDays;
+  if (days == null) {
+    const dates = runs
+      .map((r) => new Date(r.date).getTime())
+      .filter((t) => Number.isFinite(t) && t > 0);
+    if (!dates.length) return { score: 0.5, notes: [] };
+    days = Math.round((Date.now() - Math.max(...dates)) / 86_400_000);
+  }
   if (days < 0 || days > 1500) return { score: 0.5, notes: [] };
 
   let score: number;
@@ -211,18 +295,50 @@ export function scoreRecentForm(runs: HorseFormRun[]): {
 }
 
 /**
- * Default factor weights. Market leads (best single predictor),
- * then recent form and ground conditions. Replaced daily by weights
- * learned from actual results (see results-learning.ts).
+ * Official rating relative to the rest of the field. The handicapper's
+ * own assessment — a strong "class within the race" signal. Computed
+ * per race (needs the whole field), so it lives outside enrichRunner.
+ */
+export function applyRatingScores(runners: HorseRunner[]): void {
+  const rated = runners.filter((r) => r.officialRating != null);
+  if (rated.length < 3) {
+    for (const r of runners) r.ratingScore = 0.5;
+    return;
+  }
+  const ratings = rated.map((r) => r.officialRating as number);
+  const min = Math.min(...ratings);
+  const max = Math.max(...ratings);
+  const span = Math.max(1, max - min);
+  for (const r of runners) {
+    if (r.officialRating == null) {
+      r.ratingScore = 0.45;
+      continue;
+    }
+    r.ratingScore = 0.25 + ((r.officialRating - min) / span) * 0.65;
+    if (r.officialRating === max) {
+      r.notes.push(`Top-rated in field (OR ${r.officialRating})`);
+    }
+  }
+}
+
+/**
+ * Default factor weights, informed by published prediction research:
+ * market leads, then handicapper rating, ground match, form cycle and
+ * class suitability. Replaced daily by weights learned from actual
+ * results (see results-learning.ts).
  */
 export const DEFAULT_FACTOR_WEIGHTS: Record<RacingFactorKey, number> = {
-  market: 0.28,
-  form: 0.17,
-  going: 0.14,
-  distance: 0.13,
-  course: 0.09,
-  freshness: 0.08,
-  tipster: 0.11,
+  market: 0.2,
+  rating: 0.12,
+  form: 0.11,
+  going: 0.11,
+  distance: 0.09,
+  class: 0.09,
+  trainer: 0.07,
+  jockey: 0.06,
+  course: 0.06,
+  freshness: 0.04,
+  tipster: 0.05,
 };
 
 export function factorScores(
@@ -230,9 +346,13 @@ export function factorScores(
 ): Record<RacingFactorKey, number> {
   return {
     market: runner.marketScore,
+    rating: runner.ratingScore,
     form: runner.recentFormScore,
     going: runner.goingFitScore,
     distance: runner.distanceFitScore,
+    class: runner.classFitScore,
+    trainer: runner.trainerScore,
+    jockey: runner.jockeyScore,
     course: runner.courseFitScore,
     freshness: runner.freshnessScore,
     tipster: runner.tipsterScore,
@@ -253,6 +373,14 @@ export function computeOverall(
   return weightSum > 0 ? total / weightSum : 0.5;
 }
 
+export interface EnrichContext {
+  course: string;
+  distanceYards: number;
+  going?: string;
+  raceClass?: string;
+  pattern?: string;
+}
+
 export function enrichRunner(
   runner: Omit<
     HorseRunner,
@@ -263,19 +391,39 @@ export function enrichRunner(
     | "freshnessScore"
     | "marketScore"
     | "tipsterScore"
+    | "classFitScore"
+    | "ratingScore"
+    | "trainerScore"
+    | "jockeyScore"
     | "overallScore"
     | "notes"
   >,
-  raceCourse: string,
-  raceYards: number,
-  raceGoing = ""
+  ctx: EnrichContext
 ): HorseRunner {
-  const dist = scoreDistanceFit(runner.formRuns, raceYards);
-  const course = scoreCourseFit(runner.formRuns, raceCourse);
+  const dist = scoreDistanceFit(runner.formRuns, ctx.distanceYards);
+  const course = scoreCourseFit(runner.formRuns, ctx.course);
   const recent = scoreRecentForm(runner.formRuns);
-  const going = scoreGoingFit(runner.formRuns, raceGoing);
-  const fresh = scoreFreshness(runner.formRuns);
+  const going = scoreGoingFit(runner.formRuns, ctx.going ?? "");
+  const fresh = scoreFreshness(runner.formRuns, runner.lastRunDays);
   const market = scoreMarket(runner.odds);
+  const cls = scoreClassFit(
+    runner.formRuns,
+    ctx.raceClass ?? "",
+    ctx.pattern ?? ""
+  );
+
+  const notes = [
+    ...market.notes,
+    ...going.notes,
+    ...cls.notes,
+    ...dist.notes,
+    ...course.notes,
+    ...recent.notes,
+    ...fresh.notes,
+  ];
+  if (runner.headgear && /^(b|v|h|t)1?$/i.test(runner.headgear.trim())) {
+    notes.push(`Headgear: ${runner.headgear}`);
+  }
 
   const enriched: HorseRunner = {
     ...runner,
@@ -285,16 +433,14 @@ export function enrichRunner(
     goingFitScore: going.score,
     freshnessScore: fresh.score,
     marketScore: market.score,
+    classFitScore: cls.score,
+    // Field-relative and archive-based factors are filled by applyModel
+    ratingScore: 0.5,
+    trainerScore: 0.5,
+    jockeyScore: 0.5,
     tipsterScore: 0.5,
     overallScore: 0.5,
-    notes: [
-      ...market.notes,
-      ...going.notes,
-      ...dist.notes,
-      ...course.notes,
-      ...recent.notes,
-      ...fresh.notes,
-    ],
+    notes,
   };
 
   enriched.overallScore = computeOverall(enriched);

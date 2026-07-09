@@ -5,13 +5,18 @@ import type {
   HorseRace,
   RacingFactorKey,
   RacingWinnerReview,
+  TipsterPick,
 } from "@/lib/horse-racing/types";
 
 const FACTOR_LABELS: Record<RacingFactorKey, string> = {
   market: "Market",
+  rating: "Rating",
   form: "Form",
   going: "Ground",
   distance: "Trip",
+  class: "Class",
+  trainer: "Trainer",
+  jockey: "Jockey",
   course: "Course",
   freshness: "Fitness",
   tipster: "Tipsters",
@@ -103,7 +108,35 @@ function ModelWeightsRow({
   );
 }
 
-function RaceCard({ race }: { race: HorseRace }) {
+function HotTipBanner({ pick }: { pick: TipsterPick }) {
+  return (
+    <div className="border-b border-red-500/30 bg-gradient-to-r from-red-500/15 via-amber-500/10 to-transparent px-4 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-red-300">
+        🔥 Red-hot tip
+      </p>
+      <p className="mt-0.5 text-sm font-bold">
+        {pick.matchedRunner ?? pick.horse}
+        <span className="ml-2 font-normal text-muted">
+          — {pick.tipster}
+          {pick.platform && pick.platform !== "web" && (
+            <span className="ml-1 text-[11px]">(via {pick.platform})</span>
+          )}
+        </span>
+      </p>
+      <p className="mt-1 text-xs leading-relaxed text-muted">
+        {pick.trackRecord} · {pick.rationale.slice(0, 180)}
+      </p>
+    </div>
+  );
+}
+
+function RaceCard({
+  race,
+  hotPicks,
+}: {
+  race: HorseRace;
+  hotPicks: TipsterPick[];
+}) {
   return (
     <section className="overflow-hidden rounded-2xl border border-edge bg-surface">
       <div className="border-b border-edge px-4 py-3">
@@ -115,6 +148,9 @@ function RaceCard({ race }: { race: HorseRace }) {
           {race.distance} · {race.going} · {race.raceClass}
         </p>
       </div>
+      {hotPicks.map((p) => (
+        <HotTipBanner key={p.id} pick={p} />
+      ))}
       <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
         {[...race.runners]
           .sort((a, b) => b.overallScore - a.overallScore)
@@ -151,7 +187,7 @@ function RaceCard({ race }: { race: HorseRace }) {
                   <span className="ml-1 tabular">· {r.odds.toFixed(1)}</span>
                 )}
               </p>
-              <div className="mt-2 grid grid-cols-4 gap-1 text-center text-[10px]">
+              <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[10px]">
                 <div>
                   <p className="text-muted">Market</p>
                   <p className="font-bold tabular">{pct(r.marketScore)}</p>
@@ -161,12 +197,20 @@ function RaceCard({ race }: { race: HorseRace }) {
                   <p className="font-bold tabular">{pct(r.goingFitScore)}</p>
                 </div>
                 <div>
-                  <p className="text-muted">Trip</p>
-                  <p className="font-bold tabular">{pct(r.distanceFitScore)}</p>
+                  <p className="text-muted">Class</p>
+                  <p className="font-bold tabular">{pct(r.classFitScore)}</p>
                 </div>
                 <div>
                   <p className="text-muted">Form</p>
                   <p className="font-bold tabular">{pct(r.recentFormScore)}</p>
+                </div>
+                <div>
+                  <p className="text-muted">Trainer</p>
+                  <p className="font-bold tabular">{pct(r.trainerScore)}</p>
+                </div>
+                <div>
+                  <p className="text-muted">Jockey</p>
+                  <p className="font-bold tabular">{pct(r.jockeyScore)}</p>
                 </div>
               </div>
               {i === 0 && r.notes.length > 0 && (
@@ -244,7 +288,13 @@ export default function RacingHub() {
           {calendar?.review && <WinnerReviewPanel review={calendar.review} />}
 
           {races.map((race) => (
-            <RaceCard key={race.id} race={race} />
+            <RaceCard
+              key={race.id}
+              race={race}
+              hotPicks={tipsters.filter(
+                (t) => t.hot && t.raceId === race.id
+              )}
+            />
           ))}
 
           {races.length > 0 && tipsters.length > 0 && (
@@ -257,9 +307,16 @@ export default function RacingHub() {
                 {tipsters.map((t) => (
                   <div
                     key={t.id}
-                    className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4"
+                    className={`rounded-xl border p-4 ${
+                      t.hot
+                        ? "border-red-500/40 bg-red-500/5"
+                        : "border-amber-500/30 bg-amber-500/5"
+                    }`}
                   >
-                    <p className="text-sm font-bold">{t.tipster}</p>
+                    <p className="text-sm font-bold">
+                      {t.hot && <span className="mr-1">🔥</span>}
+                      {t.tipster}
+                    </p>
                     <p className="text-xs text-muted">{t.trackRecord}</p>
                     <p className="mt-2 text-sm font-semibold">{t.horse}</p>
                     <p className="mt-1 text-xs leading-relaxed text-muted">

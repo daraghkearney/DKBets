@@ -20,8 +20,9 @@ const QUERY_DELAY_MS = 500;
 
 /**
  * Mainstream outlets are excluded from insider searches — their tips are
- * already priced into the market. We hunt independent tipsters, stable
- * whispers and forum intelligence instead.
+ * already priced into the market. We hunt elite paid services (often
+ * leaked by members on social platforms), independent tipsters and
+ * stable whispers instead.
  */
 const MAINSTREAM_DOMAINS = [
   "racingpost.com",
@@ -39,6 +40,25 @@ const MAINSTREAM_DOMAINS = [
   "oddschecker.com",
 ];
 
+const SOCIAL_DOMAINS = ["reddit.com", "x.com", "twitter.com", "threads.net"];
+
+/**
+ * Elite/high-hit-rate tipsters and paid services whose picks members
+ * often leak publicly. A pick attributed to one of these (and matched
+ * to an actual runner) is flagged red-hot.
+ */
+const ELITE_TIPSTERS = [
+  "Pro Sports Advice",
+  "PSA",
+  "Hugh Taylor",
+  "Andy Holding",
+  "Patrick Veitch",
+  "Racing Consultants",
+  "The Value Bettor",
+  "Northern Monkey",
+  "Mark Howard",
+];
+
 export function isTipsterResearchConfigured(): boolean {
   return Boolean(process.env.TAVILY_API_KEY);
 }
@@ -52,28 +72,54 @@ export function shouldRefreshTipsterResearch(): boolean {
 export interface TipsterResearchContext {
   /** Course names racing today, e.g. ["Leopardstown", "Ascot"] */
   courses?: string[];
+  /** Runner names on today's cards — used to validate extracted picks */
+  runnerNames?: string[];
 }
 
-function insiderQueries(
-  meeting: string,
-  ctx: TipsterResearchContext
-): string[] {
+interface ResearchQuery {
+  query: string;
+  domains?: "social" | "no-mainstream";
+  platform: string;
+}
+
+function buildQueries(ctx: TipsterResearchContext): ResearchQuery[] {
   const today = new Date().toISOString().slice(0, 10);
-  const courseText = (ctx.courses ?? []).slice(0, 4).join(" ");
-  const where = courseText || meeting.replace(/-/g, " ");
+  const where = (ctx.courses ?? []).slice(0, 4).join(" ") || "UK Ireland";
   return [
-    `horse racing insider whispers stable tips today ${today} ${where}`,
-    `independent horse racing tipster high strike rate proven record nap today ${where}`,
-    `well backed gamble horses today market movers ${today} ${where}`,
-    `racing forum tips today members selections ${where}`,
-    `each way value tips today small independent tipster ${today}`,
+    {
+      query: `"Pro Sports Advice" OR PSA horse racing tip today ${today} leaked shared`,
+      domains: "social",
+      platform: "leak",
+    },
+    {
+      query: `horse racing nap today ${today} ${ELITE_TIPSTERS.slice(2, 6).map((t) => `"${t}"`).join(" OR ")}`,
+      domains: "no-mainstream",
+      platform: "web",
+    },
+    {
+      query: `reddit horse racing tips today ${today} ${where} nap best bet`,
+      domains: "social",
+      platform: "reddit",
+    },
+    {
+      query: `horse racing insider whispers stable tips well backed today ${today} ${where}`,
+      domains: "no-mainstream",
+      platform: "web",
+    },
+    {
+      query: `independent horse racing tipster high strike rate proven record tips today ${where}`,
+      domains: "no-mainstream",
+      platform: "web",
+    },
+    {
+      query: `horse racing market movers steamers gamble today ${today} ${where}`,
+      domains: "no-mainstream",
+      platform: "web",
+    },
   ];
 }
 
-async function tavilySearch(
-  query: string,
-  excludeMainstream: boolean
-): Promise<TavilyResponse | null> {
+async function tavilySearch(q: ResearchQuery): Promise<TavilyResponse | null> {
   const key = process.env.TAVILY_API_KEY;
   if (!key) return null;
   try {
@@ -82,11 +128,13 @@ async function tavilySearch(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         api_key: key,
-        query,
+        query: q.query,
         search_depth: "advanced",
         max_results: 6,
         include_answer: true,
-        ...(excludeMainstream ? { exclude_domains: MAINSTREAM_DOMAINS } : {}),
+        ...(q.domains === "social"
+          ? { include_domains: SOCIAL_DOMAINS }
+          : { exclude_domains: MAINSTREAM_DOMAINS }),
       }),
       signal: AbortSignal.timeout(25_000),
     });
@@ -101,19 +149,59 @@ async function tavilySearch(
   }
 }
 
+// ---------------------------------------------------------------- filtering
+
+/** Strip scraped-page junk (nav crumbs, markdown headers, pipes). */
+function cleanSnippet(text: string): string {
+  return text
+    .replace(/#{2,}/g, " ")
+    .replace(/\s*\|+\s*/g, " · ")
+    .replace(/-{3,}/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/** Reject navigation chrome, sales pages and content-free snippets. */
+function isMeaningful(text: string): boolean {
+  if (text.length < 60) return false;
+  const junkHits = (
+    text.match(
+      /buy tips|view profile|view tipster|sign up|subscribe|join now|log in|cookie|privacy policy|terms of use|©/gi
+    ) ?? []
+  ).length;
+  if (junkHits >= 2) return false;
+  // Require some actual sentence structure
+  const words = text.split(/\s+/).length;
+  if (words < 12) return false;
+  const separators = (text.match(/·/g) ?? []).length;
+  if (separators > words / 4) return false;
+  return true;
+}
+
 /** Pull a stated strike rate or win record out of tipster copy. */
 function extractTrackRecord(text: string): {
   label: string;
   boost: number;
+  elite: boolean;
 } {
-  const sr = text.match(/(\d{1,2}(?:\.\d)?)\s?%\s*(?:strike\s*rate|SR\b|win\s*rate)/i);
+  const sr = text.match(
+    /(\d{1,2}(?:\.\d)?)\s?%\s*(?:strike\s*rate|SR\b|win\s*rate)/i
+  );
   if (sr) {
     const rate = Number(sr[1]);
     if (rate >= 25)
-      return { label: `Claimed ${rate}% strike rate — elite`, boost: 0.15 };
+      return {
+        label: `Claimed ${rate}% strike rate — elite`,
+        boost: 0.15,
+        elite: true,
+      };
     if (rate >= 18)
-      return { label: `Claimed ${rate}% strike rate — strong`, boost: 0.08 };
-    return { label: `Claimed ${rate}% strike rate`, boost: 0 };
+      return {
+        label: `Claimed ${rate}% strike rate — strong`,
+        boost: 0.08,
+        elite: false,
+      };
+    return { label: `Claimed ${rate}% strike rate`, boost: 0, elite: false };
   }
   const wins = text.match(/(\d+)\s*winners?\s*(?:from|in|out of)\s*(\d+)/i);
   if (wins) {
@@ -122,28 +210,60 @@ function extractTrackRecord(text: string): {
       return {
         label: `${wins[1]} winners from ${wins[2]} — proven record`,
         boost: 0.12,
+        elite: true,
       };
-    return { label: `${wins[1]} winners from ${wins[2]}`, boost: 0.04 };
+    return { label: `${wins[1]} winners from ${wins[2]}`, boost: 0.04, elite: false };
   }
   if (/insider|whisper|stable|gallop|yard/i.test(text)) {
-    return { label: "Insider/stable intelligence", boost: 0.06 };
+    return { label: "Insider/stable intelligence", boost: 0.06, elite: false };
   }
-  return { label: "Independent racing source", boost: 0 };
+  return { label: "Independent racing source", boost: 0, elite: false };
 }
 
-function isMainstreamUrl(url: string): boolean {
-  const lower = url.toLowerCase();
-  return MAINSTREAM_DOMAINS.some((d) => lower.includes(d));
+function eliteTipsterMentioned(text: string): string | null {
+  for (const name of ELITE_TIPSTERS) {
+    const pattern =
+      name === "PSA"
+        ? /\bPSA\b/
+        : new RegExp(name.replace(/\s+/g, "\\s+"), "i");
+    if (pattern.test(text)) return name;
+  }
+  return null;
+}
+
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Find which of today's actual runners is named in the text. Much more
+ * reliable than regex-guessing horse names from prose.
+ */
+function findRunnerInText(
+  text: string,
+  runnerNames: string[]
+): string | null {
+  const haystack = ` ${normalizeName(text)} `;
+  let best: string | null = null;
+  for (const name of runnerNames) {
+    const needle = normalizeName(name);
+    if (needle.length < 5) continue;
+    if (haystack.includes(` ${needle} `)) {
+      // Prefer the longest match (avoids partial-name collisions)
+      if (!best || needle.length > normalizeName(best).length) best = name;
+    }
+  }
+  return best;
 }
 
 function extractHorseName(text: string): string | null {
   const patterns = [
-    // "back Golden Trail", "nap: Golden Trail", "tip is Golden Trail"
     /(?:back|nap[:\s]+|tip(?:\s+is)?[:\s]+|selection[:\s]+|fancied)\s+([A-Z][A-Za-z']+(?:\s+[A-Z][A-Za-z']+){0,3})/,
-    // "Golden Trail is the pick/tip/nap"
     /\b([A-Z][a-z']+(?:\s+[A-Z][a-z']+){0,3})\b[^.]{0,40}?(?:is the (?:nap|pick|tip|selection)|looks the bet|can win)/,
-    // fallback: capitalised phrase near tip words
-    /\b([A-Z][a-z']+(?:\s+[A-Z][a-z']+){0,3})\b.*?(?:tip|pick|selection|back|nap)/i,
   ];
   for (const p of patterns) {
     const m = text.match(p);
@@ -152,51 +272,117 @@ function extractHorseName(text: string): string | null {
   return null;
 }
 
+function detectPlatform(url: string, fallback: string): string {
+  const lower = url.toLowerCase();
+  if (lower.includes("reddit.com")) return "reddit";
+  if (lower.includes("twitter.com") || lower.includes("x.com")) return "twitter";
+  return fallback;
+}
+
 function picksFromResponse(
   meeting: string,
+  q: ResearchQuery,
   response: TavilyResponse,
-  raceIds: string[],
+  ctx: TipsterResearchContext,
   startIndex: number
 ): TipsterPick[] {
   const picks: TipsterPick[] = [];
+  const runnerNames = ctx.runnerNames ?? [];
 
-  if (response.answer?.trim() && response.answer.trim().length > 40) {
-    const record = extractTrackRecord(response.answer);
-    picks.push({
-      id: `tip-answer-${meeting}-${startIndex + picks.length}`,
-      tipster: "Insider consensus",
-      horse: extractHorseName(response.answer) ?? "See analysis",
-      raceId: raceIds[0] ?? "race-1",
-      confidence: Math.min(0.92, 0.78 + record.boost),
-      trackRecord: record.label,
-      rationale: response.answer.trim().slice(0, 480),
+  const candidates: Array<{
+    text: string;
+    title: string;
+    url?: string;
+    score: number;
+  }> = [];
+
+  if (response.answer?.trim()) {
+    candidates.push({
+      text: response.answer.trim(),
+      title: "Consensus",
+      score: 0.6,
+    });
+  }
+  for (const hit of response.results ?? []) {
+    candidates.push({
+      text: (hit.content ?? hit.title ?? "").trim(),
+      title: hit.title ?? "Racing source",
+      url: hit.url,
+      score: hit.score ?? 0.3,
     });
   }
 
-  for (const hit of response.results ?? []) {
-    const text = (hit.content ?? hit.title ?? "").trim();
-    if (text.length < 50) continue;
-    const record = extractTrackRecord(`${hit.title ?? ""} ${text}`);
-    const mainstream = isMainstreamUrl(hit.url ?? "");
+  for (const c of candidates) {
+    const text = cleanSnippet(c.text);
+    if (!isMeaningful(text)) continue;
+
+    const combined = `${c.title} ${text}`;
+    const record = extractTrackRecord(combined);
+    const elite = eliteTipsterMentioned(combined);
+
+    // Prefer verified runner names over regex guessing
+    const matchedRunner = runnerNames.length
+      ? findRunnerInText(text, runnerNames)
+      : null;
+    const horse = matchedRunner ?? extractHorseName(text);
+    // Insist on a horse we can point at — no more "Selection in article"
+    if (!horse) continue;
+
+    const platform = detectPlatform(c.url ?? "", q.platform);
+    const hot = Boolean(
+      matchedRunner && (elite || record.elite || platform === "leak")
+    );
+
+    const tipsterName =
+      elite ??
+      cleanSnippet(c.title.split(/[|–—-]/)[0] ?? "").slice(0, 50) ??
+      "Racing source";
+
     picks.push({
       id: `tip-${meeting}-${startIndex + picks.length}`,
-      tipster: (hit.title?.split(/[|–-]/)[0]?.trim() ?? "Racing source").slice(0, 60),
-      horse: extractHorseName(text) ?? "Selection in article",
-      raceId: raceIds[picks.length % Math.max(1, raceIds.length)] ?? "race-1",
+      tipster: tipsterName || "Racing source",
+      horse,
+      raceId: "",
       confidence: Math.min(
-        0.92,
-        (mainstream ? 0.45 : 0.55) + (hit.score ?? 0.3) * 0.35 + record.boost
+        0.95,
+        0.5 +
+          c.score * 0.25 +
+          record.boost +
+          (elite ? 0.12 : 0) +
+          (matchedRunner ? 0.08 : 0)
       ),
-      trackRecord: mainstream
-        ? `Mainstream — context only · ${record.label}`
+      trackRecord: elite
+        ? `Elite tipster · ${record.label}`
         : record.label,
-      sourceUrl: hit.url,
+      sourceUrl: c.url,
       rationale: text.slice(0, 420),
+      hot,
+      platform,
+      matchedRunner: matchedRunner ?? undefined,
     });
-    if (picks.length >= 12) break;
+    if (picks.length >= 8) break;
   }
 
   return picks;
+}
+
+function dedupePicks(picks: TipsterPick[]): TipsterPick[] {
+  const seen = new Map<string, TipsterPick>();
+  for (const p of picks) {
+    const key = normalizeName(p.horse);
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, p);
+    } else {
+      // Same horse from multiple sources — keep the strongest, bump confidence
+      const keep = existing.confidence >= p.confidence ? existing : p;
+      keep.confidence = Math.min(0.97, Math.max(existing.confidence, p.confidence) + 0.05);
+      keep.hot = existing.hot || p.hot;
+      keep.trackRecord = `${keep.trackRecord} · multiple sources`;
+      seen.set(key, keep);
+    }
+  }
+  return [...seen.values()];
 }
 
 export async function fetchTipsterIntelligence(
@@ -204,6 +390,7 @@ export async function fetchTipsterIntelligence(
   raceIds: string[],
   ctx: TipsterResearchContext = {}
 ): Promise<TipsterPick[]> {
+  void raceIds;
   if (!isTipsterResearchConfigured()) return [];
 
   const cached = await loadCachedTipsters(meeting);
@@ -219,19 +406,25 @@ export async function fetchTipsterIntelligence(
     return cached ?? [];
   }
 
-  const queries = insiderQueries(meeting, ctx);
+  const queries = buildQueries(ctx);
   const all: TipsterPick[] = [];
 
   for (const q of queries) {
-    const res = await tavilySearch(q, true);
-    if (res) all.push(...picksFromResponse(meeting, res, raceIds, all.length));
+    const res = await tavilySearch(q);
+    if (res) all.push(...picksFromResponse(meeting, q, res, ctx, all.length));
     await new Promise((r) => setTimeout(r, QUERY_DELAY_MS));
   }
 
-  const picks = all.sort((a, b) => b.confidence - a.confidence).slice(0, 18);
+  const picks = dedupePicks(all)
+    .sort((a, b) => Number(b.hot ?? false) - Number(a.hot ?? false) || b.confidence - a.confidence)
+    .slice(0, 16);
+
+  const hotCount = picks.filter((p) => p.hot).length;
   if (picks.length) {
     await saveCachedTipsters(meeting, picks);
-    console.log(`  racing tipsters: ${meeting} — ${picks.length} insider signals`);
+    console.log(
+      `  racing tipsters: ${meeting} — ${picks.length} verified signals (${hotCount} red-hot)`
+    );
   }
 
   return picks.length ? picks : (cached ?? []);

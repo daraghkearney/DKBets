@@ -23,6 +23,11 @@ import {
 } from "./form-analysis";
 import { normalizeHorseName } from "./model";
 import {
+  ingestResults,
+  loadPeopleStats,
+  savePeopleStats,
+} from "./people-stats";
+import {
   fetchHorseHistory,
   fetchResultsForDate,
   isRacingApiConfigured,
@@ -46,9 +51,13 @@ const FACTOR_KEYS = Object.keys(
 
 export const FACTOR_LABELS: Record<RacingFactorKey, string> = {
   market: "Market support",
+  rating: "Official rating",
   form: "Recent form",
   going: "Ground suitability",
   distance: "Trip suitability",
+  class: "Class suitability",
+  trainer: "Trainer strike rate",
+  jockey: "Jockey strike rate",
   course: "Course form",
   freshness: "Fitness/freshness",
   tipster: "Tipster backing",
@@ -340,6 +349,51 @@ function updateWeights(
 }
 
 const COLD_RACE_LIMIT = 15;
+const STATS_SEED_DAYS = 10;
+
+/**
+ * Keep the trainer/jockey strike-rate archive current: seed it from the
+ * recent past on first run, then ingest each new day of results once.
+ * Returns yesterday's results if they were fetched, to avoid refetching.
+ */
+async function updatePeopleStatsArchive(
+  yesterday: string
+): Promise<ResultRace[] | null> {
+  const stats = await loadPeopleStats();
+
+  const targets: string[] = [];
+  if (!stats.dates.length) {
+    console.log(
+      `  racing stats: empty archive — seeding from last ${STATS_SEED_DAYS} days of results`
+    );
+    for (let i = STATS_SEED_DAYS; i >= 2; i--) {
+      targets.push(toIsoDate(addDays(new Date(), -i)));
+    }
+  }
+  targets.push(yesterday);
+
+  let changed = false;
+  let yesterdayResults: ResultRace[] | null = null;
+
+  for (const date of targets) {
+    if (stats.dates.includes(date)) continue;
+    const { races } = await fetchResultsForDate(date);
+    if (date === yesterday) yesterdayResults = races;
+    if (races.length && ingestResults(stats, date, races)) {
+      changed = true;
+      console.log(`  racing stats: ingested ${races.length} races from ${date}`);
+    }
+    await new Promise((r) => setTimeout(r, 600));
+  }
+
+  if (changed) {
+    await savePeopleStats(stats);
+    console.log(
+      `  racing stats: ${Object.keys(stats.trainers).length} trainers, ${Object.keys(stats.jockeys).length} jockeys tracked`
+    );
+  }
+  return yesterdayResults;
+}
 
 /**
  * Main entry: review yesterday's results, update the model weights,
@@ -354,6 +408,14 @@ export async function learnFromYesterday(): Promise<{
 
   const yesterday = toIsoDate(addDays(new Date(), -1));
 
+  // Always keep the strike-rate archive current (idempotent per date)
+  let results: ResultRace[] = [];
+  try {
+    results = (await updatePeopleStatsArchive(yesterday)) ?? [];
+  } catch (e) {
+    console.warn("  racing stats: archive update failed", e);
+  }
+
   // The export runs hourly — only learn from each race day once,
   // otherwise one day's results would be counted ~24 times.
   if (model.lastLearnedDate === yesterday) {
@@ -361,11 +423,14 @@ export async function learnFromYesterday(): Promise<{
     return { model, review: await loadReview(yesterday) };
   }
 
-  console.log(`  racing learn: fetching results for ${yesterday} …`);
-  const { races: results, debug } = await fetchResultsForDate(yesterday);
   if (!results.length) {
-    console.warn(`  racing learn: no results — ${debug}`);
-    return { model };
+    console.log(`  racing learn: fetching results for ${yesterday} …`);
+    const fetched = await fetchResultsForDate(yesterday);
+    results = fetched.races;
+    if (!results.length) {
+      console.warn(`  racing learn: no results — ${fetched.debug}`);
+      return { model };
+    }
   }
   console.log(`  racing learn: ${results.length} completed races`);
 

@@ -81,6 +81,10 @@ interface ApiRunner {
   jockey?: string;
   trainer?: string;
   form?: string;
+  ofr?: string | number;
+  last_run?: string | number;
+  headgear?: string;
+  draw?: string | number;
   sp_dec?: string | number;
   odds?: Array<{ decimal?: string | number }>;
   comment?: string;
@@ -102,6 +106,7 @@ interface ApiRace {
   going?: string;
   class?: string;
   race_class?: string;
+  pattern?: string;
   runners?: ApiRunner[];
 }
 
@@ -126,6 +131,8 @@ interface HorseResultRow {
   lbs?: string;
   sp?: string;
   comment?: string;
+  class?: string;
+  race_class?: string;
 }
 
 interface HorseResultsResponse {
@@ -182,6 +189,7 @@ function mapFormRun(row: HorseResultRow): HorseFormRun {
     weight: String(row.weight ?? row.lbs ?? ""),
     odds: String(row.sp ?? ""),
     comment: String(row.comment ?? ""),
+    raceClass: String(row.race_class ?? row.class ?? ""),
   };
 }
 
@@ -235,6 +243,8 @@ export interface ResultRunner {
   name: string;
   position: number;
   sp: number | null;
+  jockey: string;
+  trainer: string;
 }
 
 export interface ResultRace {
@@ -255,6 +265,8 @@ interface ApiResultRunner {
   position?: string | number;
   sp_dec?: string | number;
   sp?: string;
+  jockey?: string;
+  trainer?: string;
 }
 
 interface ApiResultRace {
@@ -293,6 +305,8 @@ function mapResultRace(api: ApiResultRace): ResultRace {
       horseId: String(r.horse_id ?? ""),
       name: String(r.horse ?? ""),
       position: parsePosition(r.position),
+      jockey: String(r.jockey ?? ""),
+      trainer: String(r.trainer ?? ""),
       sp: (() => {
         const n = Number(r.sp_dec);
         if (Number.isFinite(n) && n > 1) return n;
@@ -358,6 +372,7 @@ function mapRace(api: ApiRace): HorseRace {
     distanceYards: yards,
     going: String(api.going ?? ""),
     raceClass: String(api.race_class ?? api.class ?? ""),
+    pattern: String(api.pattern ?? ""),
     runners: [],
   };
 }
@@ -391,6 +406,10 @@ async function mapRunner(
     | "freshnessScore"
     | "marketScore"
     | "tipsterScore"
+    | "classFitScore"
+    | "ratingScore"
+    | "trainerScore"
+    | "jockeyScore"
     | "overallScore"
     | "notes"
   > = {
@@ -402,10 +421,26 @@ async function mapRunner(
     trainer: String(api.trainer ?? ""),
     form: String(api.form ?? ""),
     odds: parseOdds(api),
+    officialRating: (() => {
+      const n = Number(api.ofr);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    })(),
+    lastRunDays: (() => {
+      const n = Number(api.last_run);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    })(),
+    headgear: String(api.headgear ?? ""),
+    draw: String(api.draw ?? ""),
     formRuns,
   };
 
-  return enrichRunner(base, race.course, race.distanceYards, race.going);
+  return enrichRunner(base, {
+    course: race.course,
+    distanceYards: race.distanceYards,
+    going: race.going,
+    raceClass: race.raceClass,
+    pattern: race.pattern,
+  });
 }
 
 async function buildRacesFromApi(
