@@ -3,7 +3,7 @@
  * https://api.theracingapi.com/documentation/
  */
 
-import { toIsoDate, ukToday } from "./dates";
+import { toIsoDate, to24hTime, ukToday } from "./dates";
 import { distanceYards, enrichRunner, parseFormPositions } from "./form-analysis";
 import { fetchHrnResultsForDate } from "./hrnet";
 import type { HorseFormRun, HorseRace, HorseRunner } from "./types";
@@ -410,7 +410,9 @@ function mapRace(api: ApiRace): HorseRace {
   );
   const yards =
     api.dist_y != null ? Number(api.dist_y) : distanceYards(distStr);
-  const time = api.off_time ?? api.off ?? (api.off_dt ? api.off_dt.slice(11, 16) : "TBC");
+  const time = to24hTime(
+    api.off_time ?? api.off ?? (api.off_dt ? api.off_dt.slice(11, 16) : "TBC")
+  );
   const id =
     api.race_id ??
     `${api.course}-${api.date ?? "today"}-${time}`.replace(/\s+/g, "-");

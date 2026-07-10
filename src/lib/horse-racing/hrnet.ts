@@ -18,11 +18,11 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v2";
-const CARDS_TTL_MS = 45 * 60 * 1000;
-const RESULTS_TTL_MS = 30 * 60 * 1000; // only for today's partial results
-
-const FETCH_DELAY_MS = 350;
+const CARDS_CACHE_VERSION = "v3";
+const CARDS_TTL_MS = 90 * 60 * 1000;
+const RESULTS_TTL_MS = 30 * 60 * 1000;
+const FETCH_CONCURRENCY = 8;
+const FETCH_RETRIES = 3;
 
 export interface HrnRunner {
   name: string;
@@ -89,16 +89,48 @@ export interface HrnResultRace {
 async function hrnFetch(pathname: string): Promise<string | null> {
   try {
     const res = await fetch(`${HRN_BASE}${pathname}`, {
-      headers: { "User-Agent": UA, Accept: "text/html" },
-      signal: AbortSignal.timeout(20_000),
+      headers: {
+        "User-Agent": UA,
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "en-GB,en;q=0.9",
+        Referer: `${HRN_BASE}/racecards`,
+      },
+      signal: AbortSignal.timeout(25_000),
       cache: "no-store",
       redirect: "follow",
     });
     if (!res.ok) return null;
-    return await res.text();
+    const html = await res.text();
+    return html.length > 1000 ? html : null;
   } catch {
     return null;
   }
+}
+
+async function hrnFetchRetry(pathname: string): Promise<string | null> {
+  for (let attempt = 0; attempt < FETCH_RETRIES; attempt++) {
+    const html = await hrnFetch(pathname);
+    if (html) return html;
+    await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+  return null;
+}
+
+async function mapPool<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 /** ISO 2026-07-10 → HRN URL date 10-07-26 */
@@ -295,7 +327,10 @@ async function saveCache(file: string, data: object): Promise<void> {
  * Scrape all HRN racecards for a date. One index fetch + one fetch per
  * race, throttled; cached so hourly CI runs refresh at most once/45min.
  */
-export async function fetchHrnRacecards(isoDate: string): Promise<HrnRace[]> {
+export async function fetchHrnRacecards(
+  isoDate: string,
+  courseFilter?: string[]
+): Promise<HrnRace[]> {
   const cacheFile = `cards-${CARDS_CACHE_VERSION}-${isoDate}.json`;
   const cached = await loadCache<CardsCacheEntry>(cacheFile, CARDS_TTL_MS);
   if (cached) {
@@ -306,17 +341,25 @@ export async function fetchHrnRacecards(isoDate: string): Promise<HrnRace[]> {
   }
 
   const d = hrnDate(isoDate);
-  const index = await hrnFetch(`/racecards/${d}`);
+  let index =
+    (await hrnFetchRetry(`/racecards/${d}`)) ??
+    (await hrnFetchRetry("/racecards"));
   if (!index) {
     console.warn(`  hrn cards: index fetch failed for ${isoDate}`);
     return [];
   }
 
+  const allowed = courseFilter?.length
+    ? new Set(courseFilter.map((c) => c.toLowerCase()))
+    : null;
+
   const links = [
     ...new Set(
       [...index.matchAll(
         new RegExp(`href="/([a-z-]+)/${d}/(\\d{1,2}:\\d{2})"`, "g")
-      )].map((m) => `${m[1]}|${m[2]}`)
+      )]
+        .filter((m) => !allowed || allowed.has(m[1].toLowerCase()))
+        .map((m) => `${m[1]}|${m[2]}`)
     ),
   ];
   if (!links.length) {
@@ -324,21 +367,20 @@ export async function fetchHrnRacecards(isoDate: string): Promise<HrnRace[]> {
     return [];
   }
 
-  const races: HrnRace[] = [];
-  for (const link of links) {
+  const parsed = await mapPool(links, FETCH_CONCURRENCY, async (link) => {
     const [slug, time] = link.split("|");
-    const html = await hrnFetch(`/${slug}/${d}/${time}`);
-    if (html) {
-      const race = parseRacePage(html, slug, time);
-      if (race) races.push(race);
-    }
-    await new Promise((r) => setTimeout(r, FETCH_DELAY_MS));
-  }
+    const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
+    return html ? parseRacePage(html, slug, time) : null;
+  });
+
+  const races = parsed.filter((r): r is HrnRace => r != null);
 
   console.log(
     `  hrn cards: scraped ${races.length}/${links.length} races for ${isoDate}`
   );
-  if (races.length) await saveCache(cacheFile, { races });
+  if (races.length >= Math.min(links.length, 8)) {
+    await saveCache(cacheFile, { races });
+  }
   return races;
 }
 
@@ -428,12 +470,11 @@ export async function fetchHrnResultsForDate(
     ),
   ];
 
-  const races: HrnResultRace[] = [];
-  for (const slug of slugs) {
-    const html = await hrnFetch(`/results/${slug}/${d}`);
-    if (html) races.push(...parseResultsPage(html, slug));
-    await new Promise((r) => setTimeout(r, FETCH_DELAY_MS));
-  }
+  const parsed = await mapPool(slugs, FETCH_CONCURRENCY, async (slug) => {
+    const html = await hrnFetchRetry(`/results/${slug}/${d}`);
+    return html ? parseResultsPage(html, slug) : [];
+  });
+  const races = parsed.flat();
 
   console.log(
     `  hrn results: ${races.length} races from ${slugs.length} courses (${isoDate})`

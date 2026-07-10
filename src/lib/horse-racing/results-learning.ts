@@ -349,7 +349,7 @@ function updateWeights(
 }
 
 const COLD_RACE_LIMIT = 15;
-const STATS_SEED_DAYS = 10;
+const STATS_SEED_DAYS = 3;
 
 /**
  * Keep the trainer/jockey strike-rate archive current: seed it from the

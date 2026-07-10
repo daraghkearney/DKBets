@@ -108,6 +108,8 @@ export interface RacingCalendarPayload {
   model?: RacingModelInfo;
   /** Review of yesterday's winners vs our predictions */
   review?: RacingWinnerReview;
+  /** HorseRacing.net scrape/merge diagnostics */
+  hrnDebug?: string;
 }
 
 export type RacingFactorKey =

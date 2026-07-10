@@ -36,7 +36,7 @@ function findHrnRace(race: HorseRace, hrnRaces: HrnRace[]): HrnRace | null {
 
   const time = to24hTime(race.time);
   const byTime = atCourse.find((h) => to24hTime(h.time) === time);
-  if (byTime && nameOverlap(race, byTime) >= 0.3) return byTime;
+  if (byTime && nameOverlap(race, byTime) >= 0.15) return byTime;
 
   // Time mismatch (off-time changed) — fall back to best runner overlap
   let best: HrnRace | null = null;
@@ -51,6 +51,54 @@ function findHrnRace(race: HorseRace, hrnRaces: HrnRace[]): HrnRace | null {
   return best;
 }
 
+function runnerLookupKey(
+  courseSlug: string,
+  time: string,
+  name: string
+): string {
+  return `${courseSlug}|${to24hTime(time)}|${normalizeHorseName(name)}`;
+}
+
+function buildRunnerIndex(
+  hrnRaces: HrnRace[]
+): Map<string, HrnRunner> {
+  const map = new Map<string, HrnRunner>();
+  for (const race of hrnRaces) {
+    for (const runner of race.runners) {
+      if (runner.nonRunner) continue;
+      map.set(
+        runnerLookupKey(race.courseSlug, race.time, runner.name),
+        runner
+      );
+    }
+  }
+  return map;
+}
+
+function findHrnRunnerFor(
+  race: HorseRace,
+  runner: HorseRunner,
+  hrnRaces: HrnRace[],
+  index: Map<string, HrnRunner>
+): HrnRunner | null {
+  const slug = courseSlug(race.course);
+  const direct = index.get(
+    runnerLookupKey(slug, race.time, runner.name)
+  );
+  if (direct) return direct;
+
+  // Same course, same horse — time may have shifted on the API card
+  const norm = normalizeHorseName(runner.name);
+  const atCourse = hrnRaces.filter((h) => sameCourse(race.course, h.courseSlug));
+  for (const hrn of atCourse) {
+    const hit = hrn.runners.find(
+      (r) => !r.nonRunner && normalizeHorseName(r.name) === norm
+    );
+    if (hit) return hit;
+  }
+  return null;
+}
+
 function pushNote(runner: HorseRunner, note: string): void {
   if (!runner.notes.includes(note)) runner.notes.push(note);
 }
@@ -58,7 +106,11 @@ function pushNote(runner: HorseRunner, note: string): void {
 function mergeRunner(runner: HorseRunner, hr: HrnRunner): void {
   if (hr.nonRunner) return;
 
-  if (runner.odds == null && hr.odds != null && hr.odds > 1) {
+  if (
+    hr.odds != null &&
+    hr.odds > 1 &&
+    (runner.odds == null || runner.marketScore <= 0.46)
+  ) {
     runner.odds = hr.odds;
     const mk = scoreMarket(hr.odds);
     runner.marketScore = mk.score;
@@ -102,29 +154,42 @@ function mergeRunner(runner: HorseRunner, hr: HrnRunner): void {
   }
 }
 
-/** Enrich a day's races in place. Returns how many races were matched. */
+/** Enrich a day's races in place. Returns match stats. */
 export function mergeHrnIntoRaces(
   races: HorseRace[],
   hrnRaces: HrnRace[]
-): number {
-  let matched = 0;
+): { races: number; runners: number } {
+  const index = buildRunnerIndex(hrnRaces);
+  let racesMatched = 0;
+  let runnersMerged = 0;
+
   for (const race of races) {
     const hrn = findHrnRace(race, hrnRaces);
-    if (!hrn) continue;
-    matched++;
+    if (hrn) {
+      racesMatched++;
+      if (hrn.verdict) race.verdict = hrn.verdict;
+      if (!race.going && hrn.going) race.going = hrn.going;
+    }
 
-    if (hrn.verdict) race.verdict = hrn.verdict;
-    if (!race.going && hrn.going) race.going = hrn.going;
-
-    const byName = new Map(
-      hrn.runners.map((r) => [normalizeHorseName(r.name), r])
-    );
     for (const runner of race.runners) {
-      const hr = byName.get(normalizeHorseName(runner.name));
-      if (hr) mergeRunner(runner, hr);
+      const before = runner.odds;
+      const hr =
+        (hrn
+          ? hrn.runners.find(
+              (r) =>
+                !r.nonRunner &&
+                normalizeHorseName(r.name) === normalizeHorseName(runner.name)
+            )
+          : null) ?? findHrnRunnerFor(race, runner, hrnRaces, index);
+      if (!hr) continue;
+      mergeRunner(runner, hr);
+      if (runner.odds !== before || (runner.tipCount ?? 0) > 0) {
+        runnersMerged++;
+      }
     }
   }
-  return matched;
+
+  return { races: racesMatched, runners: runnersMerged };
 }
 
 function formRunsFromHrn(

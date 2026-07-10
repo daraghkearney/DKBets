@@ -72,6 +72,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
   let sourceLabel = "HorseRacing.net";
   let anyLive = false;
   let anyHrn = false;
+  const hrnNotes: string[] = [];
 
   for (const day of week) {
     console.log(`  racing calendar: ${day.date} (${day.label}) …`);
@@ -87,43 +88,36 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
       debugNotes.push(`${day.date}: no racing API credentials`);
     }
 
-    const needsHrn =
-      day.offset <= 1 &&
-      (!races.length ||
-        races.every((r) => r.id.startsWith("demo-") || !r.runners.length));
-
-    if (needsHrn) {
+    if (day.offset <= 1) {
       try {
-        const hrn = await fetchHrnRacecards(day.date);
+        const courseFilter = races.length
+          ? [...new Set(races.map((r) => courseSlug(r.course)))]
+          : undefined;
+        const hrn = await fetchHrnRacecards(day.date, courseFilter);
         if (hrn.length) {
           anyHrn = true;
           if (races.length && races.some((r) => r.runners.length)) {
-            mergeHrnIntoRaces(races, hrn);
+            const { races: rm, runners: um } = mergeHrnIntoRaces(races, hrn);
+            hrnNotes.push(
+              `${day.date}: ${rm}/${races.length} races, ${um} runners enriched`
+            );
             console.log(
-              `  hrn merge: ${day.date} — enriched API cards (${hrn.length} scraped races)`
+              `  hrn merge: ${day.date} — ${rm}/${races.length} races, ${um} runners`
             );
           } else {
             races = racesFromHrn(hrn, day.date);
+            hrnNotes.push(`${day.date}: built ${races.length} races from scrape`);
             console.log(
               `  hrn cards: ${day.date} — built ${races.length} races from scrape`
             );
           }
+        } else {
+          hrnNotes.push(`${day.date}: scrape returned 0 races`);
         }
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        hrnNotes.push(`${day.date}: failed (${msg})`);
         console.warn(`  hrn cards: failed for ${day.date}`, e);
-      }
-    } else if (day.offset <= 1 && races.length) {
-      try {
-        const hrn = await fetchHrnRacecards(day.date);
-        if (hrn.length) {
-          anyHrn = true;
-          const matched = mergeHrnIntoRaces(races, hrn);
-          console.log(
-            `  hrn merge: ${day.date} — enriched ${matched}/${races.length} races`
-          );
-        }
-      } catch (e) {
-        console.warn(`  hrn merge: failed for ${day.date}`, e);
       }
     }
 
@@ -209,5 +203,6 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     tipsters,
     model,
     review,
+    hrnDebug: hrnNotes.join(" | ") || undefined,
   };
 }

@@ -211,6 +211,11 @@ function RaceCard({
                   </span>
                 )}
               </p>
+              {(r.tipCount ?? 0) > 0 && (r.tippedBy?.length ?? 0) > 0 && (
+                <p className="mt-1 text-[10px] leading-relaxed text-amber-200/90">
+                  Tipped by {(r.tippedBy ?? []).slice(0, 3).join(", ")}
+                </p>
+              )}
               <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[10px]">
                 <div>
                   <p className="text-muted">Market</p>
@@ -237,12 +242,12 @@ function RaceCard({
                   <p className="font-bold tabular">{pct(r.jockeyScore)}</p>
                 </div>
               </div>
-              {r.spotlight && i <= 1 && (
+              {r.spotlight && (
                 <p className="mt-2 border-t border-edge/60 pt-2 text-[10px] italic leading-relaxed text-muted">
                   {r.spotlight}
                 </p>
               )}
-              {i === 0 && r.notes.length > 0 && (
+              {r.notes.length > 0 && (
                 <p
                   className={`${r.spotlight ? "mt-1" : "mt-2 border-t border-edge/60 pt-2"} text-[10px] leading-relaxed text-muted`}
                 >
@@ -278,6 +283,12 @@ export default function RacingHub() {
               "Market, ground, trip, course, form and insider tipster intelligence — weighted by results learned from every completed race day."}
           </p>
           {calendar?.source === "racing-api" && (
+            <span className="mt-2 inline-block rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+              Live cards · {calendar.sourceLabel}
+            </span>
+          )}
+          {(calendar?.source === "racing-api+hrnet" ||
+            calendar?.source === "hrnet") && (
             <span className="mt-2 inline-block rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
               Live cards · {calendar.sourceLabel}
             </span>
