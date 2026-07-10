@@ -18,15 +18,25 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v4";
+const CARDS_CACHE_VERSION = "v5";
 const CARDS_TTL_MS = 90 * 60 * 1000;
 const RESULTS_TTL_MS = 30 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
 const FETCH_RETRIES = 3;
-const TAVILY_BATCH = 20;
-const TAVILY_EXTRACT_DEPTH = "advanced" as const;
+const TAVILY_BATCH = 8;
+const TAVILY_MIN_CONTENT = 400;
+const DAY_CACHE_MIN_COVERAGE = 0.85;
 
 export type HrnFetchMode = "direct" | "tavily" | "mixed";
+
+export interface HrnScrapeStats {
+  links: number;
+  cached: number;
+  extracted: number;
+  parsed: number;
+  fetchMode: HrnFetchMode;
+  failedSamples: string[];
+}
 
 export interface HrnRunner {
   name: string;
@@ -150,51 +160,118 @@ interface TavilyExtractResponse {
   failed_results?: { url: string; error?: string }[];
 }
 
-async function tavilyExtractUrls(urls: string[]): Promise<Map<string, string>> {
-  const key = process.env.TAVILY_API_KEY;
-  const out = new Map<string, string>();
-  if (!key || !urls.length) return out;
+type TavilyDepth = "basic" | "advanced";
 
-  for (let i = 0; i < urls.length; i += TAVILY_BATCH) {
-    const batch = urls.slice(i, i + TAVILY_BATCH);
-    try {
-      const res = await fetch("https://api.tavily.com/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_key: key,
-          urls: batch,
-          extract_depth: TAVILY_EXTRACT_DEPTH,
-        }),
-        signal: AbortSignal.timeout(120_000),
-      });
-      if (!res.ok) {
-        console.warn(`  hrn tavily: extract ${res.status} (batch ${i / TAVILY_BATCH + 1})`);
-        continue;
-      }
-      const data = (await res.json()) as TavilyExtractResponse;
-      for (const row of data.results ?? []) {
-        if (row.raw_content && row.raw_content.length > 500) {
-          out.set(row.url, row.raw_content);
-        }
-      }
-      if (data.failed_results?.length) {
-        console.warn(
-          `  hrn tavily: ${data.failed_results.length} failed in batch ${i / TAVILY_BATCH + 1}`
-        );
-      }
-    } catch (e) {
-      console.warn("  hrn tavily: extract batch failed", e);
+async function tavilyExtractBatch(
+  urls: string[],
+  depth: TavilyDepth
+): Promise<{ ok: Map<string, string>; failed: Map<string, string> }> {
+  const key = process.env.TAVILY_API_KEY;
+  const ok = new Map<string, string>();
+  const failed = new Map<string, string>();
+  if (!key || !urls.length) return { ok, failed };
+
+  try {
+    const res = await fetch("https://api.tavily.com/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: key,
+        urls,
+        extract_depth: depth,
+      }),
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (!res.ok) {
+      const msg = `HTTP ${res.status}`;
+      for (const url of urls) failed.set(url, msg);
+      console.warn(`  hrn tavily: extract ${msg} (${urls.length} urls, ${depth})`);
+      return { ok, failed };
     }
-    if (i + TAVILY_BATCH < urls.length) {
-      await new Promise((r) => setTimeout(r, 350));
+    const data = (await res.json()) as TavilyExtractResponse;
+    for (const row of data.results ?? []) {
+      if (row.raw_content && row.raw_content.length >= TAVILY_MIN_CONTENT) {
+        ok.set(row.url, row.raw_content);
+      } else if (row.url) {
+        failed.set(row.url, "content too short");
+      }
+    }
+    for (const row of data.failed_results ?? []) {
+      failed.set(row.url, row.error ?? "extract failed");
+    }
+    for (const url of urls) {
+      if (!ok.has(url) && !failed.has(url)) failed.set(url, "no result");
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    for (const url of urls) failed.set(url, msg);
+    console.warn(`  hrn tavily: batch error (${depth}):`, msg);
+  }
+  return { ok, failed };
+}
+
+/** Extract with smaller batches, then per-URL retries (advanced → basic). */
+async function tavilyExtractWithRetry(
+  urls: string[]
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!urls.length || !process.env.TAVILY_API_KEY) return out;
+
+  const pending = new Set(urls);
+
+  async function absorb(batch: Map<string, string>): Promise<void> {
+    for (const [url, content] of batch) {
+      out.set(url, content);
+      pending.delete(url);
     }
   }
+
+  // Pass 1 — batched advanced
+  for (let i = 0; i < urls.length; i += TAVILY_BATCH) {
+    const batch = urls.slice(i, i + TAVILY_BATCH);
+    const { ok } = await tavilyExtractBatch(batch, "advanced");
+    await absorb(ok);
+    if (i + TAVILY_BATCH < urls.length) {
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+
+  // Pass 2 — individual advanced retries (up to 2 rounds)
+  for (let round = 0; round < 2 && pending.size; round++) {
+    const retry = [...pending];
+    console.log(
+      `  hrn tavily: retry ${round + 1} — ${retry.length} urls (advanced, single)`
+    );
+    for (const url of retry) {
+      const { ok } = await tavilyExtractBatch([url], "advanced");
+      await absorb(ok);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
+  // Pass 3 — basic depth for stubborn URLs
+  if (pending.size) {
+    const retry = [...pending];
+    console.log(`  hrn tavily: final pass — ${retry.length} urls (basic)`);
+    for (const url of retry) {
+      const { ok } = await tavilyExtractBatch([url], "basic");
+      await absorb(ok);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
+  if (pending.size) {
+    const sample = [...pending].slice(0, 5).map((u) => u.split("/").slice(-3).join("/"));
+    console.warn(
+      `  hrn tavily: ${pending.size} urls still failed after retries (e.g. ${sample.join(", ")})`
+    );
+  }
+
   return out;
 }
 
 async function tavilyExtractOne(url: string): Promise<string | null> {
-  const map = await tavilyExtractUrls([url]);
+  const map = await tavilyExtractWithRetry([url]);
   return map.get(url) ?? null;
 }
 
@@ -647,6 +724,21 @@ function parseRacePageHtml(
 interface CardsCacheEntry {
   savedAt: string;
   races: HrnRace[];
+  fetchMode?: HrnFetchMode;
+}
+
+interface RaceCacheEntry {
+  savedAt: string;
+  race: HrnRace;
+}
+
+function raceCacheFile(isoDate: string, slug: string, time: string): string {
+  return `race-${CARDS_CACHE_VERSION}-${isoDate}-${slug}-${time.replace(":", "-")}.json`;
+}
+
+function linkToUrl(d: string, link: string): string {
+  const [slug, time] = link.split("|");
+  return `${HRN_BASE}/${slug}/${d}/${time}`;
 }
 
 async function loadCache<T>(file: string, ttlMs: number): Promise<T | null> {
@@ -669,6 +761,53 @@ async function saveCache(file: string, data: object): Promise<void> {
   );
 }
 
+async function loadRaceFromCache(
+  isoDate: string,
+  slug: string,
+  time: string
+): Promise<HrnRace | null> {
+  const cached = await loadCache<RaceCacheEntry>(
+    raceCacheFile(isoDate, slug, time),
+    CARDS_TTL_MS
+  );
+  return cached?.race ?? null;
+}
+
+async function saveRaceToCache(
+  isoDate: string,
+  race: HrnRace
+): Promise<void> {
+  await saveCache(raceCacheFile(isoDate, race.courseSlug, race.time), {
+    race,
+  });
+}
+
+async function parseLinksToRaces(
+  links: string[],
+  d: string,
+  isoDate: string,
+  contents: Map<string, string>
+): Promise<{ races: HrnRace[]; parseFailed: string[] }> {
+  const races: HrnRace[] = [];
+  const parseFailed: string[] = [];
+
+  for (const link of links) {
+    const [slug, time] = link.split("|");
+    const url = linkToUrl(d, link);
+    const content = contents.get(url);
+    if (!content) continue;
+    const race = parseRacePage(content, slug, time);
+    if (race) {
+      races.push(race);
+      await saveRaceToCache(isoDate, race);
+    } else {
+      parseFailed.push(link);
+    }
+  }
+
+  return { races, parseFailed };
+}
+
 // ------------------------------------------------------------------ public
 
 /**
@@ -678,14 +817,33 @@ async function saveCache(file: string, data: object): Promise<void> {
 export async function fetchHrnRacecards(
   isoDate: string,
   courseFilter?: string[]
-): Promise<HrnRace[]> {
+): Promise<{ races: HrnRace[]; stats: HrnScrapeStats }> {
+  const emptyStats = (links = 0, mode: HrnFetchMode = "direct"): HrnScrapeStats => ({
+    links,
+    cached: 0,
+    extracted: 0,
+    parsed: 0,
+    fetchMode: mode,
+    failedSamples: [],
+  });
+
   const cacheFile = `cards-${CARDS_CACHE_VERSION}-${isoDate}.json`;
   const cached = await loadCache<CardsCacheEntry>(cacheFile, CARDS_TTL_MS);
-  if (cached) {
+  if (cached && cached.races.length) {
     console.log(
-      `  hrn cards: cache hit ${isoDate} (${cached.races.length} races)`
+      `  hrn cards: day cache hit ${isoDate} (${cached.races.length} races)`
     );
-    return cached.races;
+    return {
+      races: cached.races,
+      stats: {
+        links: cached.races.length,
+        cached: cached.races.length,
+        extracted: 0,
+        parsed: cached.races.length,
+        fetchMode: cached.fetchMode ?? "direct",
+        failedSamples: [],
+      },
+    };
   }
 
   const d = hrnDate(isoDate);
@@ -704,7 +862,7 @@ export async function fetchHrnRacecards(
 
   if (!index) {
     console.warn(`  hrn cards: index fetch failed for ${isoDate} (mode=${fetchMode})`);
-    return [];
+    return { races: [], stats: emptyStats(0, fetchMode) };
   }
 
   const allowed = courseFilter?.length
@@ -717,67 +875,129 @@ export async function fetchHrnRacecards(
 
   if (!links.length) {
     console.warn(`  hrn cards: no race links for ${isoDate}`);
-    return [];
+    return { races: [], stats: emptyStats(0, fetchMode) };
   }
 
-  let races: HrnRace[] = [];
+  const raceByLink = new Map<string, HrnRace>();
+  let cachedCount = 0;
 
-  if (fetchMode === "tavily") {
-    const urls = links.map((link) => {
-      const [slug, time] = link.split("|");
-      return `${HRN_BASE}/${slug}/${d}/${time}`;
-    });
-    const contents = await tavilyExtractUrls(urls);
-    console.log(
-      `  hrn tavily: extracted ${contents.size}/${links.length} race pages`
-    );
-    races = links
-      .map((link) => {
-        const [slug, time] = link.split("|");
-        const content = contents.get(`${HRN_BASE}/${slug}/${d}/${time}`);
-        return content ? parseRacePage(content, slug, time) : null;
-      })
-      .filter((r): r is HrnRace => r != null);
-  } else {
-    const parsed = await mapPool(links, FETCH_CONCURRENCY, async (link) => {
-      const [slug, time] = link.split("|");
-      const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
-      return html ? parseRacePage(html, slug, time) : null;
-    });
-
-    const missing: string[] = [];
-    const ok: (HrnRace | null)[] = [...parsed];
-    for (let i = 0; i < links.length; i++) {
-      if (!ok[i]) missing.push(links[i]);
+  for (const link of links) {
+    const [slug, time] = link.split("|");
+    const hit = await loadRaceFromCache(isoDate, slug, time);
+    if (hit) {
+      raceByLink.set(link, hit);
+      cachedCount++;
     }
+  }
 
-    if (missing.length && process.env.TAVILY_API_KEY) {
-      fetchMode = "mixed";
-      const urls = missing.map(
-        (link) => `${HRN_BASE}/${link.split("|")[0]}/${d}/${link.split("|")[1]}`
+  const missingLinks = links.filter((l) => !raceByLink.has(l));
+  let extracted = 0;
+
+  if (missingLinks.length) {
+    if (fetchMode === "tavily" || process.env.TAVILY_API_KEY) {
+      if (fetchMode === "direct") fetchMode = "mixed";
+      const urls = missingLinks.map((link) => linkToUrl(d, link));
+      let contents = await tavilyExtractWithRetry(urls);
+      extracted = contents.size;
+      console.log(
+        `  hrn tavily: extracted ${contents.size}/${missingLinks.length} race pages`
       );
-      const contents = await tavilyExtractUrls(urls);
-      for (let i = 0; i < missing.length; i++) {
-        const link = missing[i];
-        const [slug, time] = link.split("|");
-        const content = contents.get(`${HRN_BASE}/${slug}/${d}/${time}`);
-        if (!content) continue;
-        const race = parseRacePage(content, slug, time);
-        const idx = links.indexOf(link);
-        if (race && idx >= 0) ok[idx] = race;
+
+      let { races: parsed, parseFailed } = await parseLinksToRaces(
+        missingLinks,
+        d,
+        isoDate,
+        contents
+      );
+      for (const race of parsed) {
+        raceByLink.set(`${race.courseSlug}|${race.time}`, race);
+      }
+
+      // Re-fetch URLs where Tavily returned content but parser failed
+      const retryLinks = parseFailed.filter((link) => contents.has(linkToUrl(d, link)));
+      if (retryLinks.length) {
+        console.log(`  hrn tavily: re-extracting ${retryLinks.length} parse-failed pages`);
+        const retryUrls = retryLinks.map((link) => linkToUrl(d, link));
+        const retryContents = await tavilyExtractWithRetry(retryUrls);
+        extracted += retryContents.size;
+        const retryParsed = await parseLinksToRaces(
+          retryLinks,
+          d,
+          isoDate,
+          retryContents
+        );
+        for (const race of retryParsed.races) {
+          raceByLink.set(`${race.courseSlug}|${race.time}`, race);
+        }
+      }
+
+      // Still missing — try direct fetch as last resort (works locally)
+      const stillMissing = links.filter((l) => !raceByLink.has(l));
+      if (stillMissing.length && fetchMode !== "tavily") {
+        const directParsed = await mapPool(
+          stillMissing,
+          FETCH_CONCURRENCY,
+          async (link) => {
+            const [slug, time] = link.split("|");
+            const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
+            if (!html) return null;
+            const race = parseRacePage(html, slug, time);
+            if (race) await saveRaceToCache(isoDate, race);
+            return race;
+          }
+        );
+        for (let i = 0; i < stillMissing.length; i++) {
+          const race = directParsed[i];
+          if (race) raceByLink.set(stillMissing[i], race);
+        }
+      }
+    } else {
+      const directParsed = await mapPool(
+        missingLinks,
+        FETCH_CONCURRENCY,
+        async (link) => {
+          const [slug, time] = link.split("|");
+          const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
+          if (!html) return null;
+          const race = parseRacePage(html, slug, time);
+          if (race) await saveRaceToCache(isoDate, race);
+          return race;
+        }
+      );
+      for (let i = 0; i < missingLinks.length; i++) {
+        const race = directParsed[i];
+        if (race) raceByLink.set(missingLinks[i], race);
       }
     }
-
-    races = ok.filter((r): r is HrnRace => r != null);
   }
+
+  const races = links
+    .map((link) => raceByLink.get(link))
+    .filter((r): r is HrnRace => r != null);
+
+  const failedSamples = links
+    .filter((l) => !raceByLink.has(l))
+    .slice(0, 6)
+    .map((l) => l.replace("|", "/"));
+
+  const stats: HrnScrapeStats = {
+    links: links.length,
+    cached: cachedCount,
+    extracted,
+    parsed: races.length,
+    fetchMode,
+    failedSamples,
+  };
 
   console.log(
-    `  hrn cards: scraped ${races.length}/${links.length} races for ${isoDate} (${fetchMode})`
+    `  hrn cards: ${races.length}/${links.length} parsed for ${isoDate} (${fetchMode}, cached=${cachedCount}, extracted=${extracted})`
   );
-  if (races.length >= Math.min(links.length, 8)) {
+
+  if (races.length >= links.length * DAY_CACHE_MIN_COVERAGE) {
     await saveCache(cacheFile, { races, fetchMode });
   }
-  return races;
+
+  return { races, stats };
 }
 
 // --------------------------------------------------------- results parsing
