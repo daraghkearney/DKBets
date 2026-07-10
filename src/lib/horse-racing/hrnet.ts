@@ -18,11 +18,15 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v3";
+const CARDS_CACHE_VERSION = "v4";
 const CARDS_TTL_MS = 90 * 60 * 1000;
 const RESULTS_TTL_MS = 30 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
 const FETCH_RETRIES = 3;
+const TAVILY_BATCH = 20;
+const TAVILY_EXTRACT_DEPTH = "advanced" as const;
+
+export type HrnFetchMode = "direct" | "tavily" | "mixed";
 
 export interface HrnRunner {
   name: string;
@@ -86,6 +90,31 @@ export interface HrnResultRace {
 
 // ------------------------------------------------------------------ helpers
 
+function isHtmlContent(content: string): boolean {
+  return /<div\s+data-tip=|<h4 class="chase-title">/i.test(content);
+}
+
+function fracToDecimal(frac: string): number | null {
+  const m = frac.trim().match(/^(\d+)\/(\d+)$/);
+  if (!m) return null;
+  const n = Number(m[1]) / Number(m[2]) + 1;
+  return Number.isFinite(n) && n > 1 ? Math.round(n * 100) / 100 : null;
+}
+
+function pointersFromSpotlight(spotlight: string): {
+  courseWinner: boolean;
+  distanceWinner: boolean;
+  wonLastTimeOut: boolean;
+} {
+  const tail = spotlight.split(".").pop() ?? "";
+  const codes = tail.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+  return {
+    courseWinner: codes.includes("C") || codes.includes("CD"),
+    distanceWinner: codes.includes("D") || codes.includes("CD"),
+    wonLastTimeOut: codes.includes("W") || /\bwon last time out\b/i.test(spotlight),
+  };
+}
+
 async function hrnFetch(pathname: string): Promise<string | null> {
   try {
     const res = await fetch(`${HRN_BASE}${pathname}`, {
@@ -114,6 +143,59 @@ async function hrnFetchRetry(pathname: string): Promise<string | null> {
     await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
   }
   return null;
+}
+
+interface TavilyExtractResponse {
+  results?: { url: string; raw_content?: string }[];
+  failed_results?: { url: string; error?: string }[];
+}
+
+async function tavilyExtractUrls(urls: string[]): Promise<Map<string, string>> {
+  const key = process.env.TAVILY_API_KEY;
+  const out = new Map<string, string>();
+  if (!key || !urls.length) return out;
+
+  for (let i = 0; i < urls.length; i += TAVILY_BATCH) {
+    const batch = urls.slice(i, i + TAVILY_BATCH);
+    try {
+      const res = await fetch("https://api.tavily.com/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: key,
+          urls: batch,
+          extract_depth: TAVILY_EXTRACT_DEPTH,
+        }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!res.ok) {
+        console.warn(`  hrn tavily: extract ${res.status} (batch ${i / TAVILY_BATCH + 1})`);
+        continue;
+      }
+      const data = (await res.json()) as TavilyExtractResponse;
+      for (const row of data.results ?? []) {
+        if (row.raw_content && row.raw_content.length > 500) {
+          out.set(row.url, row.raw_content);
+        }
+      }
+      if (data.failed_results?.length) {
+        console.warn(
+          `  hrn tavily: ${data.failed_results.length} failed in batch ${i / TAVILY_BATCH + 1}`
+        );
+      }
+    } catch (e) {
+      console.warn("  hrn tavily: extract batch failed", e);
+    }
+    if (i + TAVILY_BATCH < urls.length) {
+      await new Promise((r) => setTimeout(r, 350));
+    }
+  }
+  return out;
+}
+
+async function tavilyExtractOne(url: string): Promise<string | null> {
+  const map = await tavilyExtractUrls([url]);
+  return map.get(url) ?? null;
 }
 
 async function mapPool<T, R>(
@@ -160,6 +242,261 @@ function titleCaseSlug(slug: string): string {
     .split("-")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function parseIndexLinks(content: string, d: string): string[] {
+  const htmlLinks = [
+    ...content.matchAll(
+      new RegExp(`href="/([a-z-]+)/${d}/(\\d{1,2}:\\d{2})"`, "g")
+    ),
+  ];
+  if (htmlLinks.length) {
+    return [
+      ...new Set(htmlLinks.map((m) => `${m[1]}|${m[2]}`)),
+    ];
+  }
+
+  const links: string[] = [];
+  const urlRe = new RegExp(
+    `https://www\\.horseracing\\.net/([a-z-]+)/${d.replace(/-/g, "\\-")}`,
+    "g"
+  );
+  const sections: { slug: string; start: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = urlRe.exec(content)) !== null) {
+    sections.push({ slug: m[1], start: m.index + m[0].length });
+  }
+  for (let i = 0; i < sections.length; i++) {
+    const end =
+      i + 1 < sections.length ? sections[i + 1].start - 40 : content.length;
+    const block = content.slice(sections[i].start, end);
+    for (const t of block.matchAll(/^(\d{1,2}:\d{2})$/gm)) {
+      links.push(`${sections[i].slug}|${t[1]}`);
+    }
+  }
+  return [...new Set(links)];
+}
+
+function parseRunnerMarkdown(block: string): HrnRunner | null {
+  const lines = block
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return null;
+
+  const numDraw = lines[0].match(/^(\d+)\((\d+)\)$/);
+  if (!numDraw) return null;
+
+  let idx = 1;
+  const form = lines[idx]?.match(/^[\d\-/pfpux]+$/i) ? lines[idx++] : "";
+
+  let tipCount = 0;
+  const tipLine = lines[idx]?.match(/^(\d+)\s+Tips?$/i);
+  if (tipLine) {
+    tipCount = Number(tipLine[1]);
+    idx++;
+  }
+
+  const nameLine = lines[idx++];
+  if (!nameLine) return null;
+  const nameMatch = nameLine.match(/^(.+?)\s+(\d+)$/);
+  const name = (nameMatch?.[1] ?? nameLine).trim();
+  const lastRanDays = nameMatch?.[2] ? Number(nameMatch[2]) : null;
+  if (/non.?runner|^NR$/i.test(name)) {
+    return {
+      name,
+      number: Number(numDraw[1]),
+      draw: Number(numDraw[2]),
+      form,
+      lastRanDays,
+      jockey: "",
+      jockeyPct: null,
+      trainer: "",
+      trainerPct: null,
+      age: null,
+      weight: "",
+      odds: null,
+      officialRating: null,
+      rpr: null,
+      topspeed: null,
+      tipCount: 0,
+      tippedBy: [],
+      courseWinner: false,
+      distanceWinner: false,
+      wonLastTimeOut: false,
+      spotlight: "",
+      nonRunner: true,
+    };
+  }
+
+  let jockey = "";
+  let jockeyPct: number | null = null;
+  let trainer = "";
+  let trainerPct: number | null = null;
+  let age: number | null = null;
+  let weight = "";
+  const tippedBy: string[] = [];
+  const spotlightParts: string[] = [];
+  let officialRating: number | null = null;
+  let rpr: number | null = null;
+  let topspeed: number | null = null;
+  let odds: number | null = null;
+  let afterOr = false;
+
+  for (; idx < lines.length; idx++) {
+    const line = lines[idx];
+    if (line === "Jockey" && lines[idx + 1]) {
+      const jm = lines[++idx].match(/^(.+?)\s+(\d+)%$/);
+      if (jm) {
+        jockey = jm[1].trim();
+        jockeyPct = Number(jm[2]);
+      }
+      continue;
+    }
+    if (line === "Trainer" && lines[idx + 1]) {
+      const tm = lines[++idx].match(/^(.+?)\s+(\d+)%$/);
+      if (tm) {
+        trainer = tm[1].trim();
+        trainerPct = Number(tm[2]);
+      }
+      continue;
+    }
+    const ageM = line.match(/^Age:\s*(\d+)$/i);
+    if (ageM) {
+      age = Number(ageM[1]);
+      continue;
+    }
+    const wtM = line.match(/^Weight:\s*(.+)$/i);
+    if (wtM) {
+      weight = wtM[1].trim();
+      continue;
+    }
+    const ratM = line.match(/^OR:\s*([\d-]+)?,?\s*RPR:\s*(\d+),?\s*Topspeed:\s*(\d+)/i);
+    if (ratM) {
+      const or = ratM[1] ? Number(ratM[1]) : NaN;
+      officialRating = Number.isFinite(or) && or > 0 ? or : null;
+      rpr = Number(ratM[2]);
+      topspeed = Number(ratM[3]);
+      afterOr = true;
+      continue;
+    }
+    if (/^Tipped By:$/i.test(line)) continue;
+    if (afterOr && !odds) {
+      const dec = fracToDecimal(line);
+      if (dec) odds = dec;
+    }
+    if (afterOr && tippedBy.length < tipCount && line.length > 1 && line.length < 60) {
+      if (
+        !/^\d+\/\d+/.test(line) &&
+        !/^£/.test(line) &&
+        !/^EW /.test(line) &&
+        !/^Show /.test(line) &&
+        !/^Use /.test(line) &&
+        !/^Check /.test(line) &&
+        !/^Odds /.test(line) &&
+        !/^Win /.test(line) &&
+        line !== "Tipped By:"
+      ) {
+        tippedBy.push(line);
+      }
+    }
+    if (
+      !afterOr &&
+      line !== "Jockey" &&
+      line !== "Trainer" &&
+      !/^Age:/i.test(line) &&
+      !/^Weight:/i.test(line) &&
+      !/^\d+\s+Tips?$/i.test(line)
+    ) {
+      spotlightParts.push(line);
+    }
+  }
+
+  const spotlight = spotlightParts.join(" ").trim();
+  const ptr = pointersFromSpotlight(spotlight);
+
+  return {
+    name,
+    number: Number(numDraw[1]),
+    draw: Number(numDraw[2]),
+    form,
+    lastRanDays,
+    jockey,
+    jockeyPct,
+    trainer,
+    trainerPct,
+    age,
+    weight,
+    odds,
+    officialRating,
+    rpr,
+    topspeed,
+    tipCount: tipCount || tippedBy.length,
+    tippedBy,
+    courseWinner: ptr.courseWinner,
+    distanceWinner: ptr.distanceWinner,
+    wonLastTimeOut: ptr.wonLastTimeOut,
+    spotlight,
+    nonRunner: false,
+  };
+}
+
+function parseRacePageMarkdown(
+  content: string,
+  courseSlug: string,
+  time: string
+): HrnRace | null {
+  const racecardIdx = content.search(/^##\s*Racecard$/im);
+  const slice = racecardIdx >= 0 ? content.slice(racecardIdx) : content;
+
+  const verdictMatch =
+    slice.match(/## Racecard\s*\n+([^\n#][^\n]+)/i) ??
+    slice.match(/Progressive[\s\S]{20,300}\./i);
+  const verdict = verdictMatch ? verdictMatch[0].replace(/^## Racecard\s*/i, "").trim() : "";
+
+  const titleMatch =
+    content.match(/##\s+[^\n]+\d{1,2}:\d{2}\s*\n+####\s+([^\n]+)/) ??
+    content.match(/####\s+(?!Time\b)([^\n]+)/);
+  const title = titleMatch?.[1]?.trim() ?? "";
+
+  let distance = "";
+  let going = "";
+  const meta = content.match(
+    /Flat,Turf\s*,\s*([^,]+)\s*,\s*([^(]+?)(?:\s*\(|$)/i
+  );
+  if (meta) {
+    distance = meta[1].trim();
+    going = meta[2].trim();
+  }
+  if (!distance) {
+    const distM = content.match(/\b(\d+m(?:\s*\d+f)?(?:\s*\d+y)?)\b/i);
+    if (distM) distance = distM[1];
+  }
+
+  const classMatch = content.match(/\bCL(\d)\b/i);
+  const raceClass = classMatch ? `Class ${classMatch[1]}` : "";
+
+  const blocks = slice.split(/\n(?=\d+\(\d+\)\n)/).slice(1);
+  const runners: HrnRunner[] = [];
+  for (const block of blocks) {
+    const runner = parseRunnerMarkdown(block);
+    if (runner && !runner.nonRunner) runners.push(runner);
+  }
+  if (!runners.length) return null;
+
+  return {
+    courseSlug,
+    course: titleCaseSlug(courseSlug),
+    time,
+    title,
+    distance,
+    distanceYards: distanceYards(distance || "0f"),
+    raceClass,
+    going,
+    verdict,
+    verdictPicks: verdictPicksFrom(verdict),
+    runners,
+  };
 }
 
 // ------------------------------------------------------------ cards parsing
@@ -242,6 +579,17 @@ function verdictPicksFrom(verdict: string): string[] {
 }
 
 function parseRacePage(
+  content: string,
+  courseSlug: string,
+  time: string
+): HrnRace | null {
+  if (isHtmlContent(content)) {
+    return parseRacePageHtml(content, courseSlug, time);
+  }
+  return parseRacePageMarkdown(content, courseSlug, time);
+}
+
+function parseRacePageHtml(
   html: string,
   courseSlug: string,
   time: string
@@ -341,11 +689,21 @@ export async function fetchHrnRacecards(
   }
 
   const d = hrnDate(isoDate);
+  let fetchMode: HrnFetchMode = "direct";
   let index =
     (await hrnFetchRetry(`/racecards/${d}`)) ??
     (await hrnFetchRetry("/racecards"));
+
+  if (!index && process.env.TAVILY_API_KEY) {
+    console.log(`  hrn cards: direct blocked — trying Tavily for index (${isoDate})`);
+    index =
+      (await tavilyExtractOne(`${HRN_BASE}/racecards/${d}`)) ??
+      (await tavilyExtractOne(`${HRN_BASE}/racecards`));
+    if (index) fetchMode = "tavily";
+  }
+
   if (!index) {
-    console.warn(`  hrn cards: index fetch failed for ${isoDate}`);
+    console.warn(`  hrn cards: index fetch failed for ${isoDate} (mode=${fetchMode})`);
     return [];
   }
 
@@ -353,33 +711,71 @@ export async function fetchHrnRacecards(
     ? new Set(courseFilter.map((c) => c.toLowerCase()))
     : null;
 
-  const links = [
-    ...new Set(
-      [...index.matchAll(
-        new RegExp(`href="/([a-z-]+)/${d}/(\\d{1,2}:\\d{2})"`, "g")
-      )]
-        .filter((m) => !allowed || allowed.has(m[1].toLowerCase()))
-        .map((m) => `${m[1]}|${m[2]}`)
-    ),
-  ];
+  const links = parseIndexLinks(index, d).filter(
+    (link) => !allowed || allowed.has(link.split("|")[0].toLowerCase())
+  );
+
   if (!links.length) {
     console.warn(`  hrn cards: no race links for ${isoDate}`);
     return [];
   }
 
-  const parsed = await mapPool(links, FETCH_CONCURRENCY, async (link) => {
-    const [slug, time] = link.split("|");
-    const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
-    return html ? parseRacePage(html, slug, time) : null;
-  });
+  let races: HrnRace[] = [];
 
-  const races = parsed.filter((r): r is HrnRace => r != null);
+  if (fetchMode === "tavily") {
+    const urls = links.map((link) => {
+      const [slug, time] = link.split("|");
+      return `${HRN_BASE}/${slug}/${d}/${time}`;
+    });
+    const contents = await tavilyExtractUrls(urls);
+    console.log(
+      `  hrn tavily: extracted ${contents.size}/${links.length} race pages`
+    );
+    races = links
+      .map((link) => {
+        const [slug, time] = link.split("|");
+        const content = contents.get(`${HRN_BASE}/${slug}/${d}/${time}`);
+        return content ? parseRacePage(content, slug, time) : null;
+      })
+      .filter((r): r is HrnRace => r != null);
+  } else {
+    const parsed = await mapPool(links, FETCH_CONCURRENCY, async (link) => {
+      const [slug, time] = link.split("|");
+      const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
+      return html ? parseRacePage(html, slug, time) : null;
+    });
+
+    const missing: string[] = [];
+    const ok: (HrnRace | null)[] = [...parsed];
+    for (let i = 0; i < links.length; i++) {
+      if (!ok[i]) missing.push(links[i]);
+    }
+
+    if (missing.length && process.env.TAVILY_API_KEY) {
+      fetchMode = "mixed";
+      const urls = missing.map(
+        (link) => `${HRN_BASE}/${link.split("|")[0]}/${d}/${link.split("|")[1]}`
+      );
+      const contents = await tavilyExtractUrls(urls);
+      for (let i = 0; i < missing.length; i++) {
+        const link = missing[i];
+        const [slug, time] = link.split("|");
+        const content = contents.get(`${HRN_BASE}/${slug}/${d}/${time}`);
+        if (!content) continue;
+        const race = parseRacePage(content, slug, time);
+        const idx = links.indexOf(link);
+        if (race && idx >= 0) ok[idx] = race;
+      }
+    }
+
+    races = ok.filter((r): r is HrnRace => r != null);
+  }
 
   console.log(
-    `  hrn cards: scraped ${races.length}/${links.length} races for ${isoDate}`
+    `  hrn cards: scraped ${races.length}/${links.length} races for ${isoDate} (${fetchMode})`
   );
   if (races.length >= Math.min(links.length, 8)) {
-    await saveCache(cacheFile, { races });
+    await saveCache(cacheFile, { races, fetchMode });
   }
   return races;
 }
