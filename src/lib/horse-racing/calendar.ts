@@ -90,7 +90,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
       debugNotes.push(`${day.date}: no racing API credentials`);
     }
 
-    if (day.offset <= 1) {
+    if (day.offset <= (process.env.HRN_FETCH_TOMORROW === "true" ? 1 : 0)) {
       try {
         const courseFilter = races.length
           ? [...new Set(races.map((r) => courseSlug(r.course)))]
@@ -182,7 +182,12 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     courses,
     runnerNames,
   });
-  const tipsters = [...webPicks, ...hrnPicks.filter(isInsiderGradePick)];
+  const insiderHrn = hrnPicks.filter(isInsiderGradePick);
+  const tipsters = [...webPicks, ...insiderHrn];
+  if (!tipsters.length && hrnPicks.length) {
+    tipsters.push(...hrnPicks.slice(0, 32));
+    console.log(`  hrn tips: using ${hrnPicks.length} press picks (no web signals)`);
+  }
 
   // Apply strike rates, learned weights and tipster boosts to every day
   const peopleStats = await loadPeopleStats();

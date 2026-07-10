@@ -18,7 +18,7 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v7";
+const CARDS_CACHE_VERSION = "v8";
 const CARDS_TTL_MS = 90 * 60 * 1000;
 const RESULTS_TTL_MS = 30 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
@@ -263,11 +263,52 @@ async function tavilyExtractWithRetry(
   if (pending.size) {
     const sample = [...pending].slice(0, 5).map((u) => u.split("/").slice(-3).join("/"));
     console.warn(
-      `  hrn tavily: ${pending.size} urls still failed after retries (e.g. ${sample.join(", ")})`
+      `  hrn tavily: ${pending.size} urls still failed extract (e.g. ${sample.join(", ")})`
     );
   }
 
   return out;
+}
+
+interface TavilySearchResponse {
+  results?: { url?: string; content?: string; raw_content?: string }[];
+}
+
+/** Fallback when /extract is blocked or quota-limited — search for the race page. */
+async function tavilySearchHrnRace(
+  slug: string,
+  d: string,
+  time: string
+): Promise<string | null> {
+  const key = process.env.TAVILY_API_KEY;
+  if (!key) return null;
+  const course = titleCaseSlug(slug);
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: key,
+        query: `${course} ${time} racecard ${d} horseracing.net tips verdict`,
+        search_depth: "advanced",
+        max_results: 4,
+        include_domains: ["horseracing.net"],
+        include_raw_content: true,
+      }),
+      signal: AbortSignal.timeout(35_000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as TavilySearchResponse;
+    for (const hit of data.results ?? []) {
+      const text = hit.raw_content ?? hit.content ?? "";
+      if (text.length >= TAVILY_MIN_CONTENT && /racecard/i.test(text)) {
+        return text;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 async function tavilyExtractOne(url: string): Promise<string | null> {
@@ -988,11 +1029,35 @@ export async function fetchHrnRacecards(
         }
       }
 
-      // Still missing — try direct fetch as last resort (works locally)
+      // Still missing — Tavily search fallback (extract often quota-limited)
       const stillMissing = links.filter((l) => !raceByLink.has(l));
-      if (stillMissing.length && fetchMode !== "tavily") {
-        const directParsed = await mapPool(
+      if (stillMissing.length && process.env.TAVILY_API_KEY) {
+        console.log(
+          `  hrn tavily: search fallback for ${stillMissing.length} races`
+        );
+        const searchParsed = await mapPool(
           stillMissing,
+          4,
+          async (link) => {
+            const [slug, time] = link.split("|");
+            const content = await tavilySearchHrnRace(slug, d, time);
+            if (!content) return null;
+            const race = parseRacePage(content, slug, time);
+            if (race) await saveRaceToCache(isoDate, race);
+            return race;
+          }
+        );
+        for (let i = 0; i < stillMissing.length; i++) {
+          const race = searchParsed[i];
+          if (race) raceByLink.set(stillMissing[i], race);
+        }
+        extracted += searchParsed.filter(Boolean).length;
+      }
+
+      const stillMissingDirect = links.filter((l) => !raceByLink.has(l));
+      if (stillMissingDirect.length && fetchMode !== "tavily") {
+        const directParsed = await mapPool(
+          stillMissingDirect,
           FETCH_CONCURRENCY,
           async (link) => {
             const [slug, time] = link.split("|");
@@ -1003,9 +1068,9 @@ export async function fetchHrnRacecards(
             return race;
           }
         );
-        for (let i = 0; i < stillMissing.length; i++) {
+        for (let i = 0; i < stillMissingDirect.length; i++) {
           const race = directParsed[i];
-          if (race) raceByLink.set(stillMissing[i], race);
+          if (race) raceByLink.set(stillMissingDirect[i], race);
         }
       }
     } else {

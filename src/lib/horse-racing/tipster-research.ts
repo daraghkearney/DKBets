@@ -392,7 +392,9 @@ function picksFromResponse(
       platform,
       matchedRunner: matchedRunner ?? undefined,
     };
-    if (!isInsiderGradePick(pick) && isMainstreamTipster(tipsterName)) continue;
+    if (!isInsiderGradePick(pick) && isMainstreamTipster(tipsterName) && !elite) {
+      continue;
+    }
     picks.push(pick);
     if (picks.length >= 8) break;
   }
@@ -438,8 +440,11 @@ export async function fetchTipsterIntelligence(
     (c) => !cachedCourses.includes(c)
   );
   const staleCoverage = Boolean(cached && missingCourses.length);
+  const cacheEmpty = !cached?.picks?.length;
+  const mustResearch =
+    shouldRefreshTipsterResearch() || staleCoverage || cacheEmpty;
 
-  if (cached && !shouldRefreshTipsterResearch() && !staleCoverage) {
+  if (cached && !mustResearch) {
     console.log(
       `  racing tipsters: cache hit ${meeting} (${cached.picks.length})`
     );
@@ -449,12 +454,13 @@ export async function fetchTipsterIntelligence(
     console.log(
       `  racing tipsters: cache missing courses [${missingCourses.join(", ")}] — refreshing`
     );
-  } else if (!shouldRefreshTipsterResearch()) {
-    // No cache and no research window — don't burn Tavily quota hourly
-    return cached?.picks ?? [];
+  } else if (cacheEmpty) {
+    console.log(`  racing tipsters: no cache for ${meeting} — running research`);
   }
 
-  const queries = buildQueries(ctx);
+  const queries = mustResearch && !shouldRefreshTipsterResearch()
+    ? buildQueries(ctx).slice(0, 4)
+    : buildQueries(ctx);
   const all: TipsterPick[] = [];
 
   for (const q of queries) {

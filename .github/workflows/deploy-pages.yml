@@ -35,6 +35,7 @@ jobs:
     env:
       REFRESH_BET365_ODDS: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.refresh_odds) }}
       REFRESH_WEB_RESEARCH: ${{ github.event_name == 'schedule' && 'false' || (github.event_name == 'workflow_dispatch' && !inputs.web_research && 'false') || 'true' }}
+      HRN_FETCH_TOMORROW: ${{ github.event_name == 'workflow_dispatch' && inputs.web_research && 'true' || 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,10 +75,10 @@ jobs:
             .cache/racing-predictions
             .cache/racing-stats
             .cache/racing-hrnet
-          key: racing-model-v7-${{ github.run_id }}
+          key: racing-model-v8-${{ github.run_id }}
           restore-keys: |
+            racing-model-v8-
             racing-model-v7-
-            racing-model-v6-
 
       - name: Install
         run: npm ci
