@@ -10,13 +10,24 @@ export function parseFormPositions(form: string): number[] {
   return out;
 }
 
-export function distanceYards(dist: string): number {
-  const m = dist.match(/(\d+)m\s*(\d+)?(?:y|f)?/i);
-  if (m) return Number(m[1]) * 1760 + Number(m[2] ?? 0);
-  const f = dist.match(/(\d+)f(?:\s*(\d+)y)?/i);
-  if (f) return Number(f[1]) * 220 + Number(f[2] ?? 0);
-  const y = dist.match(/(\d+)y/i);
-  if (y) return Number(y[1]);
+export function distanceYards(dist: string | undefined): number {
+  const trimmed = (dist ?? "").trim();
+  if (!trimmed) return 0;
+  // Bare decimal number = furlongs (the Racing API returns e.g. "8.0")
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    return Math.round(Number(trimmed) * 220);
+  }
+  // "1m 2f 30y" style — miles/furlongs/yards each optional
+  const miles = trimmed.match(/(\d+)\s*m\b/i);
+  const furlongs = trimmed.match(/(\d+(?:\.\d+)?)\s*f\b/i);
+  const yards = trimmed.match(/(\d+)\s*y\b/i);
+  if (miles || furlongs || yards) {
+    return (
+      Number(miles?.[1] ?? 0) * 1760 +
+      Math.round(Number(furlongs?.[1] ?? 0) * 220) +
+      Number(yards?.[1] ?? 0)
+    );
+  }
   return 0;
 }
 
@@ -300,25 +311,42 @@ export function scoreRecentForm(runs: HorseFormRun[]): {
  * per race (needs the whole field), so it lives outside enrichRunner.
  */
 export function applyRatingScores(runners: HorseRunner[]): void {
-  const rated = runners.filter((r) => r.officialRating != null);
+  // Prefer official ratings; fall back to Racing Post Ratings, which
+  // cover far more runners (maidens/novices often have no OR yet).
+  const useOr =
+    runners.filter((r) => r.officialRating != null).length >= 3;
+  const getRating = (r: HorseRunner): number | null =>
+    useOr ? r.officialRating : (r.rpr ?? null);
+  const label = useOr ? "OR" : "RPR";
+
+  const rated = runners.filter((r) => getRating(r) != null);
   if (rated.length < 3) {
     for (const r of runners) r.ratingScore = 0.5;
     return;
   }
-  const ratings = rated.map((r) => r.officialRating as number);
+  const ratings = rated.map((r) => getRating(r) as number);
   const min = Math.min(...ratings);
   const max = Math.max(...ratings);
   const span = Math.max(1, max - min);
   for (const r of runners) {
-    if (r.officialRating == null) {
+    const rating = getRating(r);
+    if (rating == null) {
       r.ratingScore = 0.45;
       continue;
     }
-    r.ratingScore = 0.25 + ((r.officialRating - min) / span) * 0.65;
-    if (r.officialRating === max) {
-      r.notes.push(`Top-rated in field (OR ${r.officialRating})`);
+    r.ratingScore = 0.25 + ((rating - min) / span) * 0.65;
+    if (rating === max) {
+      r.notes.push(`Top-rated in field (${label} ${rating})`);
     }
   }
+}
+
+/**
+ * Score from a published recent strike-rate percentage (e.g. the 14-day
+ * trainer/jockey form shown on racecards). ~12% is par; 25%+ is hot.
+ */
+export function strikePctScore(pct: number): number {
+  return Math.max(0.25, Math.min(0.9, 0.5 + (pct - 12) * 0.02));
 }
 
 /**

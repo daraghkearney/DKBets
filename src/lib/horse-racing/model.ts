@@ -7,6 +7,7 @@ import {
   applyRatingScores,
   computeOverall,
   DEFAULT_FACTOR_WEIGHTS,
+  strikePctScore,
 } from "./form-analysis";
 import { strikeRateScore, type PeopleStats } from "./people-stats";
 import type {
@@ -61,9 +62,17 @@ export function matchTipstersToRunners(
     const pickHorse = normalizeHorseName(pick.horse);
     const rationale = normalizeHorseName(pick.rationale);
 
+    // Picks already bound to a race (e.g. scraped racecard tips) only
+    // match within that race — prevents same-named horses on other days
+    // from stealing the pick.
+    const candidates = pick.raceId
+      ? runnerIndex.filter((e) => e.raceId === pick.raceId)
+      : runnerIndex;
+    if (pick.raceId && !candidates.length) continue;
+
     let matched: (typeof runnerIndex)[number] | null = null;
     if (pickHorse.length >= 4) {
-      for (const entry of runnerIndex) {
+      for (const entry of candidates) {
         if (
           pickHorse === entry.normalized ||
           pickHorse.includes(entry.normalized) ||
@@ -75,7 +84,7 @@ export function matchTipstersToRunners(
       }
     }
     if (!matched) {
-      for (const entry of runnerIndex) {
+      for (const entry of candidates) {
         if (rationale.includes(entry.normalized)) {
           matched = entry;
           break;
@@ -138,22 +147,38 @@ export function applyModel(
     applyRatingScores(race.runners);
 
     for (const runner of race.runners) {
-      // Trainer & jockey strike rates from our results archive
-      if (peopleStats) {
+      // Trainer strike rate: prefer the published recent form % from the
+      // racecard, fall back to our own results archive.
+      if (runner.trainerStrikePct != null) {
+        runner.trainerScore = strikePctScore(runner.trainerStrikePct);
+        if (runner.trainerStrikePct >= 20) {
+          runner.notes.push(
+            `Trainer ${runner.trainerStrikePct}% recent strike rate`
+          );
+        }
+      } else if (peopleStats) {
         const trainer = strikeRateScore(peopleStats.trainers, runner.trainer);
         runner.trainerScore = trainer.score;
         if (trainer.note) runner.notes.push(`Trainer ${trainer.note}`);
-
-        const jockey = strikeRateScore(peopleStats.jockeys, runner.jockey);
-        const combo = jockeyComboBoost(runner);
-        runner.jockeyScore = Math.min(0.95, jockey.score + combo.boost);
-        if (jockey.note) runner.notes.push(`Jockey ${jockey.note}`);
-        if (combo.note) runner.notes.push(combo.note);
-      } else {
-        const combo = jockeyComboBoost(runner);
-        runner.jockeyScore = Math.min(0.95, 0.5 + combo.boost);
-        if (combo.note) runner.notes.push(combo.note);
       }
+
+      // Jockey strike rate + partnership record on this horse
+      const combo = jockeyComboBoost(runner);
+      let jockeyBase = 0.5;
+      if (runner.jockeyStrikePct != null) {
+        jockeyBase = strikePctScore(runner.jockeyStrikePct);
+        if (runner.jockeyStrikePct >= 20) {
+          runner.notes.push(
+            `Jockey ${runner.jockeyStrikePct}% recent strike rate`
+          );
+        }
+      } else if (peopleStats) {
+        const jockey = strikeRateScore(peopleStats.jockeys, runner.jockey);
+        jockeyBase = jockey.score;
+        if (jockey.note) runner.notes.push(`Jockey ${jockey.note}`);
+      }
+      runner.jockeyScore = Math.min(0.95, jockeyBase + combo.boost);
+      if (combo.note) runner.notes.push(combo.note);
 
       // Tipster signal
       const tip = tipsterSignals.get(runner.id);

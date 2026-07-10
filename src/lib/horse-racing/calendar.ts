@@ -4,6 +4,13 @@ import { fetchTipsterIntelligence } from "./tipster-research";
 import { applyModel } from "./model";
 import { loadPeopleStats } from "./people-stats";
 import { learnFromYesterday, savePredictionLog } from "./results-learning";
+import { fetchHrnRacecards } from "./hrnet";
+import {
+  buildHrnTipsterPicks,
+  mergeHrnIntoRaces,
+  racesFromHrn,
+} from "./hrn-merge";
+import type { TipsterPick } from "./types";
 import type {
   HorseRace,
   RacingCalendarDay,
@@ -61,50 +68,98 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
   const week = racingWeekDays();
   const days: RacingCalendarDay[] = [];
   const debugNotes: string[] = [];
-  let source = "demo+web";
-  let sourceLabel = "Demo cards + Tavily tipsters";
+  let source = "hrnet";
+  let sourceLabel = "HorseRacing.net";
   let anyLive = false;
+  let anyHrn = false;
 
-  if (isRacingApiConfigured()) {
-    for (const day of week) {
-      console.log(`  racing calendar: ${day.date} (${day.label}) …`);
+  for (const day of week) {
+    console.log(`  racing calendar: ${day.date} (${day.label}) …`);
+    let races: HorseRace[] = [];
+
+    if (isRacingApiConfigured()) {
       const result = await fetchRacecardsForDate(day.date, day.offset);
       debugNotes.push(`${day.date}: ${result.debug}`);
-
-      let races: HorseRace[] = result.races.map((r) => ({
-        ...r,
-        date: day.date,
-      }));
-      if (!races.length && day.offset === 0) {
-        races = demoRacesForDate(day.date);
-      }
+      races = result.races.map((r) => ({ ...r, date: day.date }));
       if (result.races.length) anyLive = true;
-
-      days.push({
-        date: day.date,
-        label: day.label,
-        meetings: groupByMeeting(races),
-      });
-
       await new Promise((r) => setTimeout(r, 400));
+    } else {
+      debugNotes.push(`${day.date}: no racing API credentials`);
     }
-  } else {
-    for (const day of week) {
-      const races =
-        day.offset === 0 ? demoRacesForDate(day.date) : [];
-      days.push({
-        date: day.date,
-        label: day.label,
-        meetings: groupByMeeting(races),
-      });
+
+    const needsHrn =
+      day.offset <= 1 &&
+      (!races.length ||
+        races.every((r) => r.id.startsWith("demo-") || !r.runners.length));
+
+    if (needsHrn) {
+      try {
+        const hrn = await fetchHrnRacecards(day.date);
+        if (hrn.length) {
+          anyHrn = true;
+          if (races.length && races.some((r) => r.runners.length)) {
+            mergeHrnIntoRaces(races, hrn);
+            console.log(
+              `  hrn merge: ${day.date} — enriched API cards (${hrn.length} scraped races)`
+            );
+          } else {
+            races = racesFromHrn(hrn, day.date);
+            console.log(
+              `  hrn cards: ${day.date} — built ${races.length} races from scrape`
+            );
+          }
+        }
+      } catch (e) {
+        console.warn(`  hrn cards: failed for ${day.date}`, e);
+      }
+    } else if (day.offset <= 1 && races.length) {
+      try {
+        const hrn = await fetchHrnRacecards(day.date);
+        if (hrn.length) {
+          anyHrn = true;
+          const matched = mergeHrnIntoRaces(races, hrn);
+          console.log(
+            `  hrn merge: ${day.date} — enriched ${matched}/${races.length} races`
+          );
+        }
+      } catch (e) {
+        console.warn(`  hrn merge: failed for ${day.date}`, e);
+      }
     }
-    debugNotes.push("no credentials");
+
+    if (!races.length && day.offset === 0) {
+      races = demoRacesForDate(day.date);
+    }
+
+    days.push({
+      date: day.date,
+      label: day.label,
+      meetings: groupByMeeting(races),
+    });
   }
 
-  if (anyLive) {
+  if (anyLive && anyHrn) {
+    source = "racing-api+hrnet";
+    sourceLabel = "The Racing API + HorseRacing.net";
+  } else if (anyLive) {
     source = "racing-api";
     sourceLabel = "The Racing API + Tavily";
+  } else if (anyHrn) {
+    source = "hrnet";
+    sourceLabel = "HorseRacing.net";
+  } else {
+    source = "demo+web";
+    sourceLabel = "Demo cards";
   }
+
+  const hrnPicks: TipsterPick[] = [];
+  for (const day of days.slice(0, 2)) {
+    const dayRaces = day.meetings.flatMap((m) => m.races);
+    if (dayRaces.some((r) => r.runners.length)) {
+      hrnPicks.push(...buildHrnTipsterPicks(dayRaces));
+    }
+  }
+  console.log(`  hrn tips: ${hrnPicks.length} press/verdict picks`);
 
   const todayIso = week[0]?.date;
   const tipsterDay = days.find((d) => d.date === todayIso) ?? days[0];
@@ -116,10 +171,11 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     r.runners.map((x) => x.name)
   );
 
-  const tipsters = await fetchTipsterIntelligence("todays-races", raceIds, {
+  const webPicks = await fetchTipsterIntelligence("todays-races", raceIds, {
     courses,
     runnerNames,
   });
+  const tipsters = [...hrnPicks, ...webPicks];
 
   // Apply strike rates, learned weights and tipster boosts to every day
   const peopleStats = await loadPeopleStats();
@@ -133,7 +189,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
   }
 
   // Log today's predictions so tomorrow's run can learn from results
-  if (todayIso && todayRaces.some((r) => !r.id.startsWith("demo-"))) {
+  if (todayIso && todayRaces.some((r) => r.runners.length)) {
     try {
       await savePredictionLog(todayIso, todayRaces);
       console.log(

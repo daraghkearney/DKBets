@@ -147,6 +147,14 @@ function RaceCard({
         <p className="text-xs text-muted">
           {race.distance} · {race.going} · {race.raceClass}
         </p>
+        {race.verdict && (
+          <p className="mt-2 rounded-lg border border-edge/60 bg-background/40 px-3 py-2 text-xs leading-relaxed text-muted">
+            <span className="font-bold uppercase tracking-wide text-gold/80">
+              Verdict:{" "}
+            </span>
+            {race.verdict}
+          </p>
+        )}
       </div>
       {hotPicks.map((p) => (
         <HotTipBanner key={p.id} pick={p} />
@@ -183,8 +191,24 @@ function RaceCard({
               </div>
               <p className="text-[11px] text-muted">
                 {r.jockey} · {r.trainer}
+              </p>
+              <p className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-muted">
                 {r.odds != null && (
-                  <span className="ml-1 tabular">· {r.odds.toFixed(1)}</span>
+                  <span className="tabular font-semibold text-foreground/90">
+                    {r.odds.toFixed(1)}
+                  </span>
+                )}
+                {r.officialRating != null && (
+                  <span className="tabular">OR {r.officialRating}</span>
+                )}
+                {r.rpr != null && <span className="tabular">RPR {r.rpr}</span>}
+                {(r.tipCount ?? 0) > 0 && (
+                  <span
+                    className="font-semibold text-amber-300"
+                    title={(r.tippedBy ?? []).join(", ")}
+                  >
+                    ★ {r.tipCount} tip{r.tipCount === 1 ? "" : "s"}
+                  </span>
                 )}
               </p>
               <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[10px]">
@@ -213,8 +237,15 @@ function RaceCard({
                   <p className="font-bold tabular">{pct(r.jockeyScore)}</p>
                 </div>
               </div>
+              {r.spotlight && i <= 1 && (
+                <p className="mt-2 border-t border-edge/60 pt-2 text-[10px] italic leading-relaxed text-muted">
+                  {r.spotlight}
+                </p>
+              )}
               {i === 0 && r.notes.length > 0 && (
-                <p className="mt-2 border-t border-edge/60 pt-2 text-[10px] leading-relaxed text-muted">
+                <p
+                  className={`${r.spotlight ? "mt-1" : "mt-2 border-t border-edge/60 pt-2"} text-[10px] leading-relaxed text-muted`}
+                >
                   {r.notes.slice(0, 3).join(" · ")}
                 </p>
               )}

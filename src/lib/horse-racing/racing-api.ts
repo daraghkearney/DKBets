@@ -3,7 +3,9 @@
  * https://api.theracingapi.com/documentation/
  */
 
+import { toIsoDate, ukToday } from "./dates";
 import { distanceYards, enrichRunner, parseFormPositions } from "./form-analysis";
+import { fetchHrnResultsForDate } from "./hrnet";
 import type { HorseFormRun, HorseRace, HorseRunner } from "./types";
 
 const BASE = "https://api.theracingapi.com/v1";
@@ -328,7 +330,7 @@ export async function fetchResultsForDate(
   if (!creds) return { races: [], debug: "no credentials" };
 
   const q = encodeURIComponent(isoDate);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toIsoDate(ukToday());
   const endpoints = [
     `/results?start_date=${q}&end_date=${q}`,
     ...(isoDate === today ? ["/results/today"] : []),
@@ -366,6 +368,37 @@ export async function fetchResultsForDate(
       notes.push(`${races.length} races over ${Math.ceil(all.length / PAGE)} pages`);
       return { races, debug: notes.join("; ") };
     }
+  }
+
+  // Fallback: scrape horseracing.net results — works on any API plan
+  try {
+    const hrn = await fetchHrnResultsForDate(isoDate);
+    if (hrn.length) {
+      notes.push(`hrn scrape → ${hrn.length} races`);
+      return {
+        races: hrn.map((r) => ({
+          raceId: `hrn-${r.courseSlug}-${isoDate}-${r.time}`,
+          date: isoDate,
+          course: r.course,
+          time: r.time,
+          name: r.name || "Race",
+          going: r.going,
+          distance: r.distance,
+          distanceYards: distanceYards(r.distance || "0f"),
+          runners: r.runners.map((x) => ({
+            horseId: "",
+            name: x.name,
+            position: x.position,
+            sp: x.sp,
+            jockey: x.jockey,
+            trainer: x.trainer,
+          })),
+        })),
+        debug: notes.join("; "),
+      };
+    }
+  } catch (e) {
+    notes.push(`hrn scrape failed: ${e}`);
   }
 
   return { races: [], debug: notes.join("; ") };

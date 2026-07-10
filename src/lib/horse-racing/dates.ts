@@ -17,7 +17,29 @@ export function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function racingWeekDays(base = new Date()): RacingDayOption[] {
+/**
+ * "Today" anchored to UK racing time (Europe/London). CI runs in UTC, so
+ * late-evening runs would otherwise label tomorrow's cards with today's
+ * date (the API's "today" follows UK time).
+ */
+export function ukToday(): Date {
+  const iso = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/London",
+  }).format(new Date());
+  return new Date(`${iso}T12:00:00Z`);
+}
+
+/** Normalize a race time to 24h HH:MM (API cards use 12h like "2:05"). */
+export function to24hTime(time: string): string {
+  const m = time.trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return time.trim();
+  let h = Number(m[1]);
+  // UK/IRE racing runs ~11:00-21:30, so 1-10 o'clock means afternoon/evening
+  if (h >= 1 && h <= 10) h += 12;
+  return `${String(h).padStart(2, "0")}:${m[2]}`;
+}
+
+export function racingWeekDays(base = ukToday()): RacingDayOption[] {
   const fmt = new Intl.DateTimeFormat("en-GB", {
     weekday: "short",
     day: "numeric",

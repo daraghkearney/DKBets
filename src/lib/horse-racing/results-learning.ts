@@ -33,7 +33,7 @@ import {
   isRacingApiConfigured,
   type ResultRace,
 } from "./racing-api";
-import { addDays, toIsoDate } from "./dates";
+import { addDays, courseSlug, to24hTime, toIsoDate, ukToday } from "./dates";
 import type {
   HorseRace,
   RacingFactorKey,
@@ -367,7 +367,7 @@ async function updatePeopleStatsArchive(
       `  racing stats: empty archive — seeding from last ${STATS_SEED_DAYS} days of results`
     );
     for (let i = STATS_SEED_DAYS; i >= 2; i--) {
-      targets.push(toIsoDate(addDays(new Date(), -i)));
+      targets.push(toIsoDate(addDays(ukToday(), -i)));
     }
   }
   targets.push(yesterday);
@@ -406,7 +406,7 @@ export async function learnFromYesterday(): Promise<{
   let model = await loadModel();
   if (!isRacingApiConfigured()) return { model };
 
-  const yesterday = toIsoDate(addDays(new Date(), -1));
+  const yesterday = toIsoDate(addDays(ukToday(), -1));
 
   // Always keep the strike-rate archive current (idempotent per date)
   let results: ResultRace[] = [];
@@ -438,14 +438,16 @@ export async function learnFromYesterday(): Promise<{
   const learnings: RaceLearning[] = [];
 
   if (log?.races.length) {
+    const raceKey = (course: string, time: string) =>
+      `${courseSlug(course)}|${to24hTime(time)}`;
     const byId = new Map(log.races.map((r) => [r.raceId, r]));
     const byKey = new Map(
-      log.races.map((r) => [`${r.course.toLowerCase()}|${r.time}`, r])
+      log.races.map((r) => [raceKey(r.course, r.time), r])
     );
     for (const result of results) {
       const logged =
         byId.get(result.raceId) ??
-        byKey.get(`${result.course.toLowerCase()}|${result.time}`);
+        byKey.get(raceKey(result.course, result.time));
       if (!logged) continue;
       const learning = learnFromLoggedRace(result, logged);
       if (learning) learnings.push(learning);

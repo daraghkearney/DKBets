@@ -31,6 +31,25 @@ export interface HorseRunner {
   headgear: string;
   draw: string;
   formRuns: HorseFormRun[];
+  /** Racing Post Rating (scraped) */
+  rpr?: number | null;
+  /** Topspeed figure (scraped) */
+  topspeed?: number | null;
+  /** Number of named tipsters backing this runner today */
+  tipCount?: number;
+  /** Names of tipsters backing this runner */
+  tippedBy?: string[];
+  /** Expert spotlight comment for today's race */
+  spotlight?: string;
+  /** Trainer recent strike rate % (scraped) */
+  trainerStrikePct?: number | null;
+  /** Jockey recent strike rate % (scraped) */
+  jockeyStrikePct?: number | null;
+  /** Has won at this course before */
+  courseWinner?: boolean;
+  /** Has won at this distance before */
+  distanceWinner?: boolean;
+  wonLastTimeOut?: boolean;
   distanceFitScore: number;
   courseFitScore: number;
   recentFormScore: number;
@@ -59,6 +78,8 @@ export interface HorseRace {
   raceClass: string;
   /** Pattern/grade, e.g. "Grade 1", "Group 2", "Listed" */
   pattern?: string;
+  /** Expert verdict for the race (scraped) */
+  verdict?: string;
   runners: HorseRunner[];
 }
 
