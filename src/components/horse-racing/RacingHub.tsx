@@ -108,6 +108,29 @@ function ModelWeightsRow({
   );
 }
 
+function EachWayGemBanner({
+  gem,
+}: {
+  gem: NonNullable<HorseRace["eachWayGem"]>;
+}) {
+  return (
+    <div className="border-b border-emerald-500/30 bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-transparent px-4 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-300">
+        💎 Each-way gem
+      </p>
+      <p className="mt-0.5 text-sm font-bold">
+        {gem.name}
+        {gem.odds != null && (
+          <span className="ml-2 font-normal text-muted tabular">
+            {gem.odds.toFixed(1)}
+          </span>
+        )}
+      </p>
+      <p className="mt-1 text-xs leading-relaxed text-muted">{gem.rationale}</p>
+    </div>
+  );
+}
+
 function HotTipBanner({ pick }: { pick: TipsterPick }) {
   return (
     <div className="border-b border-red-500/30 bg-gradient-to-r from-red-500/15 via-amber-500/10 to-transparent px-4 py-3">
@@ -159,22 +182,28 @@ function RaceCard({
       {hotPicks.map((p) => (
         <HotTipBanner key={p.id} pick={p} />
       ))}
+      {race.eachWayGem && <EachWayGemBanner gem={race.eachWayGem} />}
       <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
         {[...race.runners]
           .sort((a, b) => b.overallScore - a.overallScore)
-          .map((r, i) => (
+          .map((r, i) => {
+            const isEwGem = race.eachWayGem?.runnerId === r.id;
+            return (
             <div
               key={r.id}
               className={`rounded-xl border p-3 ${
                 i === 0
                   ? "border-gold/50 bg-gold/10"
-                  : "border-edge/60 bg-background/30"
+                  : isEwGem
+                    ? "border-emerald-500/45 bg-emerald-500/10"
+                    : "border-edge/60 bg-background/30"
               }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="font-bold">
                   {i === 0 && <span className="mr-1 text-gold">①</span>}
-                  {i === 1 && <span className="mr-1 text-muted">②</span>}
+                  {i === 1 && !isEwGem && <span className="mr-1 text-muted">②</span>}
+                  {isEwGem && <span className="mr-1 text-emerald-300">💎</span>}
                   {r.name}
                   {r.tipsterScore > 0.6 && (
                     <span
@@ -255,7 +284,8 @@ function RaceCard({
                 </p>
               )}
             </div>
-          ))}
+            );
+          })}
       </div>
     </section>
   );

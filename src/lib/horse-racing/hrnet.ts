@@ -18,7 +18,7 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v6";
+const CARDS_CACHE_VERSION = "v7";
 const CARDS_TTL_MS = 90 * 60 * 1000;
 const RESULTS_TTL_MS = 30 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
@@ -393,14 +393,27 @@ function parseRunnerMarkdown(block: string): HrnRunner | null {
   const form = lines[idx]?.match(/^[\d\-/pfpux]+$/i) ? lines[idx++] : "";
 
   let tipCount = 0;
-  const tipLine = lines[idx]?.match(/^(\d+)\s+Tips?$/i);
-  if (tipLine) {
-    tipCount = Number(tipLine[1]);
-    idx++;
+  while (idx < lines.length) {
+    const line = lines[idx];
+    const tipsM = line.match(/^(\d+)\s+Tips?$/i);
+    const napOnly = /^1\s+Nap$/i.test(line);
+    if (tipsM) {
+      tipCount = Number(tipsM[1]);
+      idx++;
+      continue;
+    }
+    if (napOnly || /^Naps?:$/i.test(line)) {
+      idx++;
+      continue;
+    }
+    break;
   }
 
   const nameLine = lines[idx++];
   if (!nameLine) return null;
+  if (/^(?:\d+\s+)?Naps?$/i.test(nameLine) || /^Tipped By:$/i.test(nameLine)) {
+    return null;
+  }
   const nameMatch = nameLine.match(/^(.+?)\s+(\d+)$/);
   const name = (nameMatch?.[1] ?? nameLine).trim();
   const lastRanDays = nameMatch?.[2] ? Number(nameMatch[2]) : null;
@@ -444,6 +457,7 @@ function parseRunnerMarkdown(block: string): HrnRunner | null {
   let topspeed: number | null = null;
   let odds: number | null = null;
   let afterOr = false;
+  let inTippedBy = false;
 
   for (; idx < lines.length; idx++) {
     const line = lines[idx];
@@ -482,23 +496,28 @@ function parseRunnerMarkdown(block: string): HrnRunner | null {
       afterOr = true;
       continue;
     }
-    if (/^Tipped By:$/i.test(line)) continue;
+    if (/^Tipped By:$/i.test(line)) {
+      inTippedBy = true;
+      continue;
+    }
+    if (/^Naps?:$/i.test(line)) {
+      inTippedBy = true;
+      continue;
+    }
     if (afterOr && !odds) {
       const dec = fracToDecimal(line);
       if (dec) odds = dec;
     }
-    if (afterOr && tippedBy.length < tipCount && line.length > 1 && line.length < 60) {
+    if (inTippedBy && tippedBy.length < Math.max(tipCount, 12)) {
       if (
-        !/^\d+\/\d+/.test(line) &&
-        !/^£/.test(line) &&
-        !/^EW /.test(line) &&
-        !/^Show /.test(line) &&
-        !/^Use /.test(line) &&
-        !/^Check /.test(line) &&
-        !/^Odds /.test(line) &&
-        !/^Win /.test(line) &&
-        line !== "Tipped By:"
+        /^\d+\/\d+/.test(line) ||
+        /^£/.test(line) ||
+        /^EW /.test(line) ||
+        line.length < 2 ||
+        line.length > 45
       ) {
+        inTippedBy = false;
+      } else if (!/^[A-Z0-9]{2,6}$/.test(line)) {
         tippedBy.push(line);
       }
     }

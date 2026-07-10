@@ -80,7 +80,16 @@ export interface HorseRace {
   pattern?: string;
   /** Expert verdict for the race (scraped) */
   verdict?: string;
+  /** Model each-way value selection for this race */
+  eachWayGem?: EachWayGem;
   runners: HorseRunner[];
+}
+
+export interface EachWayGem {
+  runnerId: string;
+  name: string;
+  odds: number | null;
+  rationale: string;
 }
 
 export interface RacingMeeting {

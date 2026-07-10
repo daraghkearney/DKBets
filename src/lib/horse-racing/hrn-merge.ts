@@ -35,12 +35,14 @@ function findHrnRace(race: HorseRace, hrnRaces: HrnRace[]): HrnRace | null {
   if (!atCourse.length) return null;
 
   const time = to24hTime(race.time);
-  const byTime = atCourse.find((h) => to24hTime(h.time) === time);
-  if (byTime && nameOverlap(race, byTime) >= 0.15) return byTime;
+  const atTime = atCourse.filter((h) => to24hTime(h.time) === time);
+  if (atTime.length === 1) return atTime[0];
 
-  // Time mismatch (off-time changed) — fall back to best runner overlap
+  const byTime = atTime.find((h) => nameOverlap(race, h) >= 0.1);
+  if (byTime) return byTime;
+
   let best: HrnRace | null = null;
-  let bestScore = 0.5;
+  let bestScore = 0.2;
   for (const h of atCourse) {
     const score = nameOverlap(race, h);
     if (score > bestScore) {
@@ -172,7 +174,12 @@ export function mergeHrnIntoRaces(
     }
 
     for (const runner of race.runners) {
-      const before = runner.odds;
+      const beforeOdds = runner.odds;
+      const beforeRpr = runner.rpr;
+      const beforeTips = runner.tipCount ?? 0;
+      const beforeSpotlight = runner.spotlight;
+      const beforeTrainerPct = runner.trainerStrikePct;
+      const beforeJockeyPct = runner.jockeyStrikePct;
       const hr =
         (hrn
           ? hrn.runners.find(
@@ -183,7 +190,14 @@ export function mergeHrnIntoRaces(
           : null) ?? findHrnRunnerFor(race, runner, hrnRaces, index);
       if (!hr) continue;
       mergeRunner(runner, hr);
-      if (runner.odds !== before || (runner.tipCount ?? 0) > 0) {
+      if (
+        runner.odds !== beforeOdds ||
+        (runner.tipCount ?? 0) > beforeTips ||
+        (runner.rpr != null && beforeRpr == null) ||
+        Boolean(runner.spotlight && !beforeSpotlight) ||
+        (runner.trainerStrikePct != null && beforeTrainerPct == null) ||
+        (runner.jockeyStrikePct != null && beforeJockeyPct == null)
+      ) {
         runnersMerged++;
       }
     }
@@ -318,7 +332,10 @@ export function buildHrnTipsterPicks(races: HorseRace[]): TipsterPick[] {
         0.95,
         0.5 + Math.min(0.3, tips * 0.06) + (isVerdictPick ? 0.12 : 0)
       );
-      const hot = (isVerdictPick && tips >= 3) || tips >= 5;
+      const hot =
+        (isVerdictPick && tips >= 1) ||
+        tips >= 3 ||
+        (isVerdictPick && isTopTipped);
 
       picks.push({
         id: `hrn-${race.id}-${runner.id}`,

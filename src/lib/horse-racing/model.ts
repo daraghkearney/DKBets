@@ -13,6 +13,7 @@ import { strikeRateScore, type PeopleStats } from "./people-stats";
 import type {
   HorseRace,
   HorseRunner,
+  RacingCalendarDay,
   RacingFactorKey,
   TipsterPick,
 } from "./types";
@@ -209,5 +210,46 @@ export function applyModel(
     ranked.forEach((r, i) => {
       r.predictedRank = i + 1;
     });
+  }
+}
+
+/** Promote strong post-model signals to red-hot tips for the racecard UI. */
+export function augmentSignalHotTips(
+  days: RacingCalendarDay[],
+  tipsters: TipsterPick[]
+): void {
+  const existing = new Set(
+    tipsters
+      .filter((t) => t.hot)
+      .map((t) => `${t.raceId}|${normalizeHorseName(t.matchedRunner ?? t.horse)}`)
+  );
+
+  for (const day of days) {
+    for (const meeting of day.meetings) {
+      for (const race of meeting.races) {
+        for (const runner of race.runners) {
+          if (runner.tipsterScore < 0.8) continue;
+          const key = `${race.id}|${normalizeHorseName(runner.name)}`;
+          if (existing.has(key)) continue;
+
+          tipsters.push({
+            id: `signal-${race.id}-${runner.id}`,
+            tipster: "Strong multi-source signal",
+            horse: runner.name,
+            raceId: race.id,
+            confidence: runner.tipsterScore,
+            trackRecord: `Tipster intel ${Math.round(runner.tipsterScore * 100)}%`,
+            rationale:
+              runner.notes.find((n) => /tipster|verdict|🔥/i.test(n)) ??
+              runner.spotlight ??
+              `Model rates ${runner.name} highly with insider backing`,
+            hot: true,
+            platform: "web",
+            matchedRunner: runner.name,
+          });
+          existing.add(key);
+        }
+      }
+    }
   }
 }
