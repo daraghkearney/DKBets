@@ -17,6 +17,7 @@ import type {
   RacingFactorKey,
   TipsterPick,
 } from "./types";
+import { tipsterSignalWeight } from "./tipster-priority";
 
 export function normalizeHorseName(name: string): string {
   return name
@@ -96,14 +97,19 @@ export function matchTipstersToRunners(
 
     pick.raceId = matched.raceId;
     pick.matchedRunner = matched.name;
+    const weight = tipsterSignalWeight(pick);
     const prev = signals.get(matched.runnerId) ?? {
       confidence: 0,
       hot: false,
     };
     signals.set(matched.runnerId, {
-      // Multiple independent tips stack with diminishing returns
-      confidence: prev.confidence + pick.confidence * (1 - prev.confidence * 0.6),
-      hot: prev.hot || pick.hot === true,
+      confidence:
+        prev.confidence +
+        pick.confidence * weight * (1 - prev.confidence * 0.6),
+      hot:
+        prev.hot ||
+        (pick.hot === true &&
+          (pick.platform !== "press" || weight >= 1)),
     });
   }
 

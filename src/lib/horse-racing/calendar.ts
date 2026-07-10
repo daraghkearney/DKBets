@@ -3,6 +3,7 @@ import { fetchRacecardsForDate, isRacingApiConfigured } from "./racing-api";
 import { fetchTipsterIntelligence } from "./tipster-research";
 import { applyModel, augmentSignalHotTips } from "./model";
 import { pickEachWayGem } from "./each-way";
+import { isInsiderGradePick } from "./tipster-priority";
 import { loadPeopleStats } from "./people-stats";
 import { learnFromYesterday, savePredictionLog } from "./results-learning";
 import { fetchHrnRacecards, hrnLinksFromRaces } from "./hrnet";
@@ -181,7 +182,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     courses,
     runnerNames,
   });
-  const tipsters = [...hrnPicks, ...webPicks];
+  const tipsters = [...webPicks, ...hrnPicks.filter(isInsiderGradePick)];
 
   // Apply strike rates, learned weights and tipster boosts to every day
   const peopleStats = await loadPeopleStats();

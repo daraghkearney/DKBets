@@ -13,6 +13,7 @@ import {
   scoreMarket,
 } from "./form-analysis";
 import { normalizeHorseName } from "./model";
+import { isMainstreamTipster, nonMainstreamTips } from "./tipster-priority";
 import type { HrnRace, HrnRunner } from "./hrnet";
 import type { HorseFormRun, HorseRace, HorseRunner, TipsterPick } from "./types";
 
@@ -313,15 +314,32 @@ export function buildHrnTipsterPicks(races: HorseRace[]): TipsterPick[] {
 
     for (const runner of race.runners) {
       const tips = runner.tipCount ?? 0;
+      const indieTips = nonMainstreamTips(runner.tippedBy ?? []);
       const isVerdictPick = verdictNames.includes(
         normalizeHorseName(runner.name)
       );
-      const isTopTipped = tips > 0 && tips === maxTips;
+      const isTopTipped =
+        tips > 0 && tips === maxTips && indieTips.length >= 1;
 
-      // Surface verdict picks, the race leader on tips, or any named tip.
-      if (!isVerdictPick && !isTopTipped && tips < 1) continue;
+      // Mainstream-only press (Guardian, RP, etc.) is context — not a primary signal.
+      if (
+        !isVerdictPick &&
+        !isTopTipped &&
+        indieTips.length < 1 &&
+        tips > 0 &&
+        (runner.tippedBy ?? []).every((t) => isMainstreamTipster(t))
+      ) {
+        continue;
+      }
 
-      const names = (runner.tippedBy ?? []).slice(0, 4);
+      if (!isVerdictPick && !isTopTipped && indieTips.length < 1 && tips < 1) {
+        continue;
+      }
+
+      const names = (indieTips.length ? indieTips : runner.tippedBy ?? []).slice(
+        0,
+        4
+      );
       const tipsterLabel = isVerdictPick
         ? names.length
           ? `Expert verdict + ${names.join(", ")}`
@@ -333,9 +351,9 @@ export function buildHrnTipsterPicks(races: HorseRace[]): TipsterPick[] {
         0.5 + Math.min(0.3, tips * 0.06) + (isVerdictPick ? 0.12 : 0)
       );
       const hot =
-        (isVerdictPick && tips >= 1) ||
-        tips >= 3 ||
-        (isVerdictPick && isTopTipped);
+        (isVerdictPick && indieTips.length >= 1) ||
+        indieTips.length >= 2 ||
+        (tips >= 4 && indieTips.length >= 1);
 
       picks.push({
         id: `hrn-${race.id}-${runner.id}`,

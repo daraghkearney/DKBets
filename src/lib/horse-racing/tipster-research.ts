@@ -3,6 +3,7 @@ import {
   loadCachedTipsters,
   saveCachedTipsters,
 } from "./tipster-cache";
+import { isInsiderGradePick, isMainstreamTipster } from "./tipster-priority";
 
 interface TavilyResult {
   title?: string;
@@ -57,6 +58,11 @@ const ELITE_TIPSTERS = [
   "The Value Bettor",
   "Northern Monkey",
   "Mark Howard",
+  "Billingpointers",
+  "Top Prognosticator",
+  "Racing Gold",
+  "Templegate",
+  "Naps Table",
 ];
 
 export function isTipsterResearchConfigured(): boolean {
@@ -108,12 +114,27 @@ function buildQueries(ctx: TipsterResearchContext): ResearchQuery[] {
       platform: "web",
     },
     {
+      query: `horse racing telegram tip leak channel nap today ${today} UK Ireland`,
+      domains: "social",
+      platform: "leak",
+    },
+    {
+      query: `twitter X horse racing nap whisper stable gamble steamer today ${today} ${where}`,
+      domains: "social",
+      platform: "twitter",
+    },
+    {
       query: `independent horse racing tipster high strike rate proven record tips today ${where}`,
       domains: "no-mainstream",
       platform: "web",
     },
     {
-      query: `horse racing market movers steamers gamble today ${today} ${where}`,
+      query: `"Hugh Taylor" OR "Patrick Veitch" OR "Andy Holding" horse racing tip nap today ${today}`,
+      domains: "no-mainstream",
+      platform: "web",
+    },
+    {
+      query: `horse racing stable gamble market mover steamer big money today ${today} ${where}`,
       domains: "no-mainstream",
       platform: "web",
     },
@@ -326,12 +347,22 @@ function picksFromResponse(
       ? findRunnerInText(text, runnerNames)
       : null;
     const horse = matchedRunner ?? extractHorseName(text);
-    // Insist on a horse we can point at — no more "Selection in article"
     if (!horse) continue;
 
     const platform = detectPlatform(c.url ?? "", q.platform);
+    const mainstreamUrl = MAINSTREAM_DOMAINS.some((d) =>
+      (c.url ?? "").toLowerCase().includes(d)
+    );
+    if (mainstreamUrl && !elite && !record.elite && platform !== "leak") {
+      continue;
+    }
+
     const hot = Boolean(
-      matchedRunner && (elite || record.elite || platform === "leak")
+      matchedRunner &&
+        (elite ||
+          record.elite ||
+          platform === "leak" ||
+          /insider|whisper|stable|gamble|steamer/i.test(combined))
     );
 
     const tipsterName =
@@ -339,7 +370,7 @@ function picksFromResponse(
       cleanSnippet(c.title.split(/[|–—-]/)[0] ?? "").slice(0, 50) ??
       "Racing source";
 
-    picks.push({
+    const pick: TipsterPick = {
       id: `tip-${meeting}-${startIndex + picks.length}`,
       tipster: tipsterName || "Racing source",
       horse,
@@ -360,7 +391,9 @@ function picksFromResponse(
       hot,
       platform,
       matchedRunner: matchedRunner ?? undefined,
-    });
+    };
+    if (!isInsiderGradePick(pick) && isMainstreamTipster(tipsterName)) continue;
+    picks.push(pick);
     if (picks.length >= 8) break;
   }
 

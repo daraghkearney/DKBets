@@ -63,8 +63,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/racing-tipsters
-          key: racing-tipsters-v2-${{ github.run_id }}
-          restore-keys: racing-tipsters-v2-
+          key: racing-tipsters-v3-${{ github.run_id }}
+          restore-keys: racing-tipsters-v3-
 
       - name: Restore racing model + prediction log
         uses: actions/cache@v4
