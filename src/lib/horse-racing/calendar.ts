@@ -4,7 +4,7 @@ import { fetchTipsterIntelligence } from "./tipster-research";
 import { applyModel } from "./model";
 import { loadPeopleStats } from "./people-stats";
 import { learnFromYesterday, savePredictionLog } from "./results-learning";
-import { fetchHrnRacecards } from "./hrnet";
+import { fetchHrnRacecards, hrnLinksFromRaces } from "./hrnet";
 import {
   buildHrnTipsterPicks,
   mergeHrnIntoRaces,
@@ -93,9 +93,11 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
         const courseFilter = races.length
           ? [...new Set(races.map((r) => courseSlug(r.course)))]
           : undefined;
+        const seedLinks = races.length ? hrnLinksFromRaces(races) : undefined;
         const { races: hrn, stats: hrnStats } = await fetchHrnRacecards(
           day.date,
-          courseFilter
+          courseFilter,
+          seedLinks
         );
         if (hrn.length) {
           anyHrn = true;

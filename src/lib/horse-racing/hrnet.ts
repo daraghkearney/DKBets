@@ -10,7 +10,7 @@
  */
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import { toIsoDate, ukToday } from "./dates";
+import { courseSlug, to24hTime, toIsoDate, ukToday } from "./dates";
 import { distanceYards, enrichRunner, parseFormPositions } from "./form-analysis";
 
 const HRN_BASE = "https://www.horseracing.net";
@@ -18,7 +18,7 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v5";
+const CARDS_CACHE_VERSION = "v6";
 const CARDS_TTL_MS = 90 * 60 * 1000;
 const RESULTS_TTL_MS = 30 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
@@ -351,7 +351,32 @@ function parseIndexLinks(content: string, d: string): string[] {
       links.push(`${sections[i].slug}|${t[1]}`);
     }
   }
+  if (links.length) return [...new Set(links)];
+
+  // Fallback: "14:00 Race Name Ascot" lines near end of Tavily markdown index
+  for (const row of content.matchAll(
+    /^(\d{1,2}:\d{2})\s+.+?\s+([A-Za-z][A-Za-z\s'-]+)\s*$/gm
+  )) {
+    const slug = row[2]
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+    if (slug.length >= 3) links.push(`${slug}|${row[1]}`);
+  }
+
   return [...new Set(links)];
+}
+
+/** Build HRN race links from Racing API cards (course slug + 24h time). */
+export function hrnLinksFromRaces(
+  races: { course: string; time: string }[]
+): string[] {
+  return [
+    ...new Set(
+      races.map((r) => `${courseSlug(r.course)}|${to24hTime(r.time)}`)
+    ),
+  ];
 }
 
 function parseRunnerMarkdown(block: string): HrnRunner | null {
@@ -816,7 +841,8 @@ async function parseLinksToRaces(
  */
 export async function fetchHrnRacecards(
   isoDate: string,
-  courseFilter?: string[]
+  courseFilter?: string[],
+  seedLinks?: string[]
 ): Promise<{ races: HrnRace[]; stats: HrnScrapeStats }> {
   const emptyStats = (links = 0, mode: HrnFetchMode = "direct"): HrnScrapeStats => ({
     links,
@@ -848,30 +874,42 @@ export async function fetchHrnRacecards(
 
   const d = hrnDate(isoDate);
   let fetchMode: HrnFetchMode = "direct";
-  let index =
-    (await hrnFetchRetry(`/racecards/${d}`)) ??
-    (await hrnFetchRetry("/racecards"));
-
-  if (!index && process.env.TAVILY_API_KEY) {
-    console.log(`  hrn cards: direct blocked — trying Tavily for index (${isoDate})`);
-    index =
-      (await tavilyExtractOne(`${HRN_BASE}/racecards/${d}`)) ??
-      (await tavilyExtractOne(`${HRN_BASE}/racecards`));
-    if (index) fetchMode = "tavily";
-  }
-
-  if (!index) {
-    console.warn(`  hrn cards: index fetch failed for ${isoDate} (mode=${fetchMode})`);
-    return { races: [], stats: emptyStats(0, fetchMode) };
-  }
 
   const allowed = courseFilter?.length
     ? new Set(courseFilter.map((c) => c.toLowerCase()))
     : null;
 
-  const links = parseIndexLinks(index, d).filter(
+  let links = (seedLinks ?? []).filter(
     (link) => !allowed || allowed.has(link.split("|")[0].toLowerCase())
   );
+  links = [...new Set(links)];
+
+  // Only fetch the HRN index when we don't already know which races to pull
+  if (!links.length) {
+    let index =
+      (await hrnFetchRetry(`/racecards/${d}`)) ??
+      (await hrnFetchRetry("/racecards"));
+
+    if (!index && process.env.TAVILY_API_KEY) {
+      console.log(`  hrn cards: direct blocked — trying Tavily for index (${isoDate})`);
+      index =
+        (await tavilyExtractOne(`${HRN_BASE}/racecards/${d}`)) ??
+        (await tavilyExtractOne(`${HRN_BASE}/racecards`));
+      if (index) fetchMode = "tavily";
+    }
+
+    if (!index) {
+      console.warn(`  hrn cards: index fetch failed for ${isoDate} (mode=${fetchMode})`);
+      return { races: [], stats: emptyStats(0, fetchMode) };
+    }
+
+    links = parseIndexLinks(index, d).filter(
+      (link) => !allowed || allowed.has(link.split("|")[0].toLowerCase())
+    );
+  } else {
+    console.log(`  hrn cards: ${links.length} links from API racecards (${isoDate})`);
+    if (process.env.TAVILY_API_KEY) fetchMode = "tavily";
+  }
 
   if (!links.length) {
     console.warn(`  hrn cards: no race links for ${isoDate}`);

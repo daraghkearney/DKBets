@@ -74,10 +74,10 @@ jobs:
             .cache/racing-predictions
             .cache/racing-stats
             .cache/racing-hrnet
-          key: racing-model-v5-${{ github.run_id }}
+          key: racing-model-v6-${{ github.run_id }}
           restore-keys: |
+            racing-model-v6-
             racing-model-v5-
-            racing-model-v4-
 
       - name: Install
         run: npm ci
