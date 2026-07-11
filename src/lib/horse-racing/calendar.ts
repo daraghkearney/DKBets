@@ -1,6 +1,7 @@
 import { courseSlug, racingWeekDays } from "./dates";
 import { fetchRacecardsForDate, isRacingApiConfigured } from "./racing-api";
 import { fetchTipsterIntelligence } from "./tipster-research";
+import { fetchLeagueTipsterPicks } from "./tipster-feeds";
 import { applyModel, augmentSignalHotTips } from "./model";
 import { pickEachWayGem } from "./each-way";
 import { isInsiderGradePick } from "./tipster-priority";
@@ -182,8 +183,12 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     courses,
     runnerNames,
   });
+  const leaguePicks = await fetchLeagueTipsterPicks({ courses, runnerNames });
   const insiderHrn = hrnPicks.filter(isInsiderGradePick);
-  const tipsters = [...webPicks, ...insiderHrn];
+  const tipsters = [...leaguePicks, ...webPicks, ...insiderHrn];
+  console.log(
+    `  tipsters: league=${leaguePicks.length} web=${webPicks.length} hrn=${insiderHrn.length}`
+  );
   if (!tipsters.length && hrnPicks.length) {
     tipsters.push(...hrnPicks.slice(0, 32));
     console.log(`  hrn tips: using ${hrnPicks.length} press picks (no web signals)`);

@@ -134,9 +134,14 @@ function buildQueries(ctx: TipsterResearchContext): ResearchQuery[] {
       platform: "web",
     },
     {
-      query: `horse racing stable gamble market mover steamer big money today ${today} ${where}`,
+      query: `site:thetipsterleague.com OR site:olbg.com horse racing tips today ${today} ${where} nap best bet`,
       domains: "no-mainstream",
-      platform: "web",
+      platform: "tipster-league",
+    },
+    {
+      query: `site:bethq.com OR site:bettinggods.com horse racing nap tips today ${today} ${where}`,
+      domains: "no-mainstream",
+      platform: "bethq",
     },
   ];
 }

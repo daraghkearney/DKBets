@@ -1,4 +1,5 @@
 import type { TipsterPick } from "./types";
+import { lookupRegisteredTipster } from "./tipster-registry";
 
 /** National press / corporate tip lines — priced in, low edge. */
 export const MAINSTREAM_OUTLETS = [
@@ -45,6 +46,16 @@ export function nonMainstreamTips(names: string[]): string[] {
 
 /** Relative weight for stacking tipster signals into the model. */
 export function tipsterSignalWeight(pick: TipsterPick): number {
+  const reg = lookupRegisteredTipster(pick.tipster);
+  if (reg) {
+    if (reg.tier === "elite") return 1.45;
+    if (reg.tier === "strong") return 1.25;
+    return 1.1;
+  }
+  if (pick.platform === "tipster-league") return 1.35;
+  if (pick.platform === "olbg") return 1.3;
+  if (pick.platform === "bethq") return 1.2;
+  if (pick.platform === "bettinggods") return 1.25;
   if (pick.platform === "leak") return 1.35;
   if (pick.platform === "reddit") return 1.25;
   if (pick.platform === "twitter") return 1.15;
@@ -59,6 +70,14 @@ export function tipsterSignalWeight(pick: TipsterPick): number {
 
 /** Skip low-edge mainstream-only press churn. */
 export function isInsiderGradePick(pick: TipsterPick): boolean {
+  if (
+    pick.platform === "tipster-league" ||
+    pick.platform === "olbg" ||
+    pick.platform === "bethq" ||
+    pick.platform === "bettinggods"
+  ) {
+    return true;
+  }
   if (pick.platform === "leak" || pick.platform === "reddit") return true;
   if (pick.hot) return true;
   if (/insider|whisper|stable|elite|%\s*strike|proven record|gamble|steamer/i.test(pick.trackRecord)) {
