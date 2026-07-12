@@ -75,8 +75,9 @@ jobs:
             .cache/racing-predictions
             .cache/racing-stats
             .cache/racing-hrnet
-          key: racing-model-v8-${{ github.run_id }}
+          key: racing-model-v9
           restore-keys: |
+            racing-model-v9
             racing-model-v8-
             racing-model-v7-
 

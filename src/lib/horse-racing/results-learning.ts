@@ -134,6 +134,25 @@ async function loadReview(date: string): Promise<RacingWinnerReview | undefined>
   }
 }
 
+/** Last saved review — kept visible when today's learning pass fails. */
+async function loadLatestReview(): Promise<RacingWinnerReview | undefined> {
+  try {
+    const raw = await readFile(path.join(MODEL_DIR, "review.json"), "utf8");
+    const review = JSON.parse(raw) as RacingWinnerReview;
+    return review?.date ? review : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveReview(
+  preferredDate: string,
+  fresh?: RacingWinnerReview
+): Promise<RacingWinnerReview | undefined> {
+  if (fresh) return fresh;
+  return (await loadReview(preferredDate)) ?? (await loadLatestReview());
+}
+
 export async function savePredictionLog(
   date: string,
   races: HorseRace[]
@@ -376,9 +395,12 @@ async function updatePeopleStatsArchive(
   let yesterdayResults: ResultRace[] | null = null;
 
   for (const date of targets) {
-    if (stats.dates.includes(date)) continue;
     const { races } = await fetchResultsForDate(date);
     if (date === yesterday) yesterdayResults = races;
+    if (stats.dates.includes(date)) {
+      await new Promise((r) => setTimeout(r, 200));
+      continue;
+    }
     if (races.length && ingestResults(stats, date, races)) {
       changed = true;
       console.log(`  racing stats: ingested ${races.length} races from ${date}`);
@@ -420,7 +442,8 @@ export async function learnFromYesterday(): Promise<{
   // otherwise one day's results would be counted ~24 times.
   if (model.lastLearnedDate === yesterday) {
     console.log(`  racing learn: already learned from ${yesterday} — skipping`);
-    return { model, review: await loadReview(yesterday) };
+    const review = await resolveReview(yesterday);
+    return { model, review };
   }
 
   if (!results.length) {
@@ -429,7 +452,13 @@ export async function learnFromYesterday(): Promise<{
     results = fetched.races;
     if (!results.length) {
       console.warn(`  racing learn: no results — ${fetched.debug}`);
-      return { model };
+      const review = await resolveReview(yesterday);
+      if (review) {
+        console.log(
+          `  racing learn: showing cached review from ${review.date} (no ${yesterday} results yet)`
+        );
+      }
+      return { model, review };
     }
   }
   console.log(`  racing learn: ${results.length} completed races`);
@@ -466,7 +495,13 @@ export async function learnFromYesterday(): Promise<{
     }
   }
 
-  if (!learnings.length) return { model };
+  if (!learnings.length) {
+    console.warn(
+      `  racing learn: could not analyse ${yesterday} — keeping previous review`
+    );
+    const review = await resolveReview(yesterday);
+    return { model, review };
+  }
 
   model = updateWeights(model, learnings);
   model.lastLearnedDate = yesterday;

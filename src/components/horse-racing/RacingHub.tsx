@@ -26,7 +26,20 @@ function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
 }
 
-function WinnerReviewPanel({ review }: { review: RacingWinnerReview }) {
+function WinnerReviewPanel({
+  review,
+  exportedAt,
+}: {
+  review: RacingWinnerReview;
+  exportedAt?: string;
+}) {
+  const stale =
+    exportedAt &&
+    (new Date(exportedAt).getTime() -
+      new Date(`${review.date}T20:00:00Z`).getTime()) /
+      86_400_000 >
+      1.2;
+
   return (
     <section className="rounded-2xl border border-sky-500/30 bg-sky-500/5 p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -37,6 +50,12 @@ function WinnerReviewPanel({ review }: { review: RacingWinnerReview }) {
           Model self-review
         </span>
       </div>
+      {stale && (
+        <p className="mt-2 text-xs text-amber-300/90">
+          Latest saved review — a newer day&apos;s learning will appear once
+          yesterday&apos;s results and predictions are matched.
+        </p>
+      )}
       <p className="mt-2 text-sm leading-relaxed text-muted">
         {review.summary}
       </p>
@@ -357,7 +376,12 @@ export default function RacingHub() {
         )}
 
         <div className="flex flex-col gap-8">
-          {calendar?.review && <WinnerReviewPanel review={calendar.review} />}
+          {calendar?.review && (
+            <WinnerReviewPanel
+              review={calendar.review}
+              exportedAt={calendar.exportedAt}
+            />
+          )}
 
           {races.map((race) => (
             <RaceCard
