@@ -75,6 +75,7 @@ jobs:
             .cache/racing-predictions
             .cache/racing-stats
             .cache/racing-hrnet
+            .cache/atr-results
           key: racing-model-v9
           restore-keys: |
             racing-model-v9

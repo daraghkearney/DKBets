@@ -5,6 +5,7 @@
 
 import { toIsoDate, to24hTime, ukToday } from "./dates";
 import { distanceYards, enrichRunner, parseFormPositions } from "./form-analysis";
+import { fetchAtrResultsForDate } from "./atr-results";
 import { fetchHrnResultsForDate } from "./hrnet";
 import type { HorseFormRun, HorseRace, HorseRunner } from "./types";
 
@@ -368,6 +369,18 @@ export async function fetchResultsForDate(
       notes.push(`${races.length} races over ${Math.ceil(all.length / PAGE)} pages`);
       return { races, debug: notes.join("; ") };
     }
+  }
+
+  // Fallback: At The Races — free, works when API quota is exhausted
+  try {
+    const atr = await fetchAtrResultsForDate(isoDate);
+    if (atr.races.length) {
+      notes.push(atr.debug);
+      return { races: atr.races, debug: notes.join("; ") };
+    }
+    notes.push(atr.debug);
+  } catch (e) {
+    notes.push(`atr scrape failed: ${e}`);
   }
 
   // Fallback: scrape horseracing.net results — works on any API plan
