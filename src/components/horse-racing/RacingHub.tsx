@@ -4,6 +4,8 @@ import { useRacingSelection } from "@/components/horse-racing/RacingSelectionPro
 import type {
   HorseRace,
   RacingFactorKey,
+  RacingNapPick,
+  RacingPerformanceStats,
   RacingWinnerReview,
   TipsterPick,
 } from "@/lib/horse-racing/types";
@@ -20,6 +22,8 @@ const FACTOR_LABELS: Record<RacingFactorKey, string> = {
   course: "Course",
   freshness: "Fitness",
   tipster: "Tipsters",
+  draw: "Draw",
+  topspeed: "Topspeed",
 };
 
 function pct(n: number): string {
@@ -124,6 +128,118 @@ function ModelWeightsRow({
         </span>
       ))}
     </div>
+  );
+}
+
+function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
+  if (!stats.totalPicks) return null;
+  return (
+    <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-bold">
+          Model track record ({stats.windowDays} days)
+        </h2>
+        <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+          Performance ledger
+        </span>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+            Win hit rate
+          </p>
+          <p className="text-xl font-bold tabular text-emerald-300">
+            {pct(stats.winRate)}
+          </p>
+          <p className="text-[11px] text-muted">
+            {stats.wins}/{stats.totalPicks} #1 picks
+          </p>
+        </div>
+        <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+            Top-3 rate
+          </p>
+          <p className="text-xl font-bold tabular">{pct(stats.top3Rate)}</p>
+          <p className="text-[11px] text-muted">
+            {stats.top3}/{stats.totalPicks} in frame
+          </p>
+        </div>
+        <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+            Flat £1 ROI
+          </p>
+          <p
+            className={`text-xl font-bold tabular ${stats.roiFlatStake >= 0 ? "text-emerald-300" : "text-red-300"}`}
+          >
+            {stats.roiFlatStake >= 0 ? "+" : ""}
+            {pct(stats.roiFlatStake)}
+          </p>
+          <p className="text-[11px] text-muted">At SP on every #1</p>
+        </div>
+        {stats.napPicks > 0 && (
+          <div className="rounded-xl border border-gold/40 bg-gold/5 px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-gold">
+              Nap strike rate
+            </p>
+            <p className="text-xl font-bold tabular text-gold">
+              {pct(stats.napWinRate)}
+            </p>
+            <p className="text-[11px] text-muted">
+              {stats.napWins}/{stats.napPicks} value naps
+            </p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function NapPicksPanel({ naps }: { naps: RacingNapPick[] }) {
+  if (!naps.length) return null;
+  return (
+    <section className="rounded-2xl border border-gold/40 bg-gold/5 p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-bold">
+          <span className="text-gold">★</span> Today&apos;s value naps
+        </h2>
+        <span className="text-xs text-muted">
+          Selective picks — model edge vs market, strict gates
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {naps.map((n) => (
+          <div
+            key={`${n.raceId}-${n.runnerId}`}
+            className={`rounded-xl border px-4 py-3 ${
+              n.confidence === "high"
+                ? "border-gold/50 bg-gold/10"
+                : "border-edge/60 bg-background/30"
+            }`}
+          >
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+              {n.time} {n.course}
+            </p>
+            <p className="text-sm font-bold">
+              {n.horse}
+              {n.odds != null && (
+                <span className="ml-2 font-normal text-muted tabular">
+                  {n.odds.toFixed(1)}
+                </span>
+              )}
+            </p>
+            <p className="mt-1 text-[11px] text-gold tabular">
+              Edge {n.edge.toFixed(2)}× · Model {pct(n.modelProb)} vs market{" "}
+              {pct(n.impliedProb)}
+            </p>
+            {n.rationale.length > 0 && (
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                {n.rationale.join(" · ")}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -237,6 +353,13 @@ function RaceCard({
                   {pct(r.overallScore)}
                 </span>
               </div>
+              {r.modelEdge != null && r.modelEdge >= 1.12 && (
+                <p className="mt-1 text-[10px] font-bold text-emerald-300 tabular">
+                  Value edge {r.modelEdge.toFixed(2)}× vs SP
+                  {r.winProbability != null &&
+                    ` · ${pct(r.winProbability)} win prob`}
+                </p>
+              )}
               <p className="text-[11px] text-muted">
                 {r.jockey} · {r.trainer}
               </p>
@@ -250,6 +373,10 @@ function RaceCard({
                   <span className="tabular">OR {r.officialRating}</span>
                 )}
                 {r.rpr != null && <span className="tabular">RPR {r.rpr}</span>}
+                {r.topspeed != null && (
+                  <span className="tabular">TS {r.topspeed}</span>
+                )}
+                {r.draw && <span className="tabular">Dr {r.draw}</span>}
                 {(r.tipCount ?? 0) > 0 && (
                   <span
                     className="font-semibold text-amber-300"
@@ -264,18 +391,26 @@ function RaceCard({
                   Tipped by {(r.tippedBy ?? []).slice(0, 3).join(", ")}
                 </p>
               )}
-              <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[10px]">
+              <div className="mt-2 grid grid-cols-4 gap-1 text-center text-[10px]">
                 <div>
                   <p className="text-muted">Market</p>
                   <p className="font-bold tabular">{pct(r.marketScore)}</p>
                 </div>
                 <div>
-                  <p className="text-muted">Ground</p>
-                  <p className="font-bold tabular">{pct(r.goingFitScore)}</p>
+                  <p className="text-muted">Rating</p>
+                  <p className="font-bold tabular">{pct(r.ratingScore)}</p>
                 </div>
                 <div>
-                  <p className="text-muted">Class</p>
-                  <p className="font-bold tabular">{pct(r.classFitScore)}</p>
+                  <p className="text-muted">Topspeed</p>
+                  <p className="font-bold tabular">{pct(r.topspeedScore)}</p>
+                </div>
+                <div>
+                  <p className="text-muted">Draw</p>
+                  <p className="font-bold tabular">{pct(r.drawScore)}</p>
+                </div>
+                <div>
+                  <p className="text-muted">Ground</p>
+                  <p className="font-bold tabular">{pct(r.goingFitScore)}</p>
                 </div>
                 <div>
                   <p className="text-muted">Form</p>
@@ -286,8 +421,8 @@ function RaceCard({
                   <p className="font-bold tabular">{pct(r.trainerScore)}</p>
                 </div>
                 <div>
-                  <p className="text-muted">Jockey</p>
-                  <p className="font-bold tabular">{pct(r.jockeyScore)}</p>
+                  <p className="text-muted">Tipster</p>
+                  <p className="font-bold tabular">{pct(r.tipsterScore)}</p>
                 </div>
               </div>
               {r.spotlight && (
@@ -376,6 +511,14 @@ export default function RacingHub() {
         )}
 
         <div className="flex flex-col gap-8">
+          {calendar?.performance && (
+            <PerformancePanel stats={calendar.performance} />
+          )}
+
+          {calendar?.naps && calendar.naps.length > 0 && (
+            <NapPicksPanel naps={calendar.naps} />
+          )}
+
           {calendar?.review && (
             <WinnerReviewPanel
               review={calendar.review}

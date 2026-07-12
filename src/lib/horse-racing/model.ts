@@ -1,14 +1,17 @@
 /**
  * Prediction model — applies learned factor weights, trainer/jockey
- * strike rates, field-relative ratings and tipster signals to enriched
- * racecards, producing final scores and predicted ranks.
+ * strike rates, field-relative ratings, draw/topspeed and tipster signals.
  */
+import { scoreDraw } from "./draw-bias";
 import {
   applyRatingScores,
+  applyTopspeedScores,
   computeOverall,
   DEFAULT_FACTOR_WEIGHTS,
   strikePctScore,
 } from "./form-analysis";
+import { calibrateRaceProbabilities, topRunner } from "./probability";
+import { segmentRace, weightsForSegment } from "./race-type";
 import { strikeRateScore, type PeopleStats } from "./people-stats";
 import type {
   HorseRace,
@@ -64,9 +67,6 @@ export function matchTipstersToRunners(
     const pickHorse = normalizeHorseName(pick.horse);
     const rationale = normalizeHorseName(pick.rationale);
 
-    // Picks already bound to a race (e.g. scraped racecard tips) only
-    // match within that race — prevents same-named horses on other days
-    // from stealing the pick.
     const candidates = pick.raceId
       ? runnerIndex.filter((e) => e.raceId === pick.raceId)
       : runnerIndex;
@@ -116,7 +116,6 @@ export function matchTipstersToRunners(
   return signals;
 }
 
-/** Horse-jockey partnership record from the horse's own form history. */
 function jockeyComboBoost(runner: HorseRunner): {
   boost: number;
   note?: string;
@@ -140,7 +139,7 @@ function jockeyComboBoost(runner: HorseRunner): {
 
 /**
  * Apply the current model to enriched races: strike rates, ratings,
- * tipster boosts, learned weights, final score and predicted rank.
+ * draw/topspeed, tipster boosts, segment weights, final score and rank.
  */
 export function applyModel(
   races: HorseRace[],
@@ -151,11 +150,11 @@ export function applyModel(
   const tipsterSignals = matchTipstersToRunners(races, tipsters);
 
   for (const race of races) {
+    const raceWeights = weightsForSegment(weights, segmentRace(race));
     applyRatingScores(race.runners);
+    applyTopspeedScores(race.runners);
 
     for (const runner of race.runners) {
-      // Trainer strike rate: prefer the published recent form % from the
-      // racecard, fall back to our own results archive.
       if (runner.trainerStrikePct != null) {
         runner.trainerScore = strikePctScore(runner.trainerStrikePct);
         if (runner.trainerStrikePct >= 20) {
@@ -169,7 +168,6 @@ export function applyModel(
         if (trainer.note) runner.notes.push(`Trainer ${trainer.note}`);
       }
 
-      // Jockey strike rate + partnership record on this horse
       const combo = jockeyComboBoost(runner);
       let jockeyBase = 0.5;
       if (runner.jockeyStrikePct != null) {
@@ -187,7 +185,16 @@ export function applyModel(
       runner.jockeyScore = Math.min(0.95, jockeyBase + combo.boost);
       if (combo.note) runner.notes.push(combo.note);
 
-      // Tipster signal
+      const draw = scoreDraw(
+        race.course,
+        race.distanceYards,
+        runner.draw,
+        race.runners.length,
+        race.going
+      );
+      runner.drawScore = draw.score;
+      if (draw.notes.length) runner.notes.push(...draw.notes);
+
       const tip = tipsterSignals.get(runner.id);
       if (tip) {
         runner.tipsterScore = Math.min(0.95, 0.55 + tip.confidence * 0.35);
@@ -207,7 +214,7 @@ export function applyModel(
         runner.tipsterScore = 0.5;
       }
 
-      runner.overallScore = computeOverall(runner, weights);
+      runner.overallScore = computeOverall(runner, raceWeights);
     }
 
     const ranked = [...race.runners].sort(
@@ -216,6 +223,18 @@ export function applyModel(
     ranked.forEach((r, i) => {
       r.predictedRank = i + 1;
     });
+
+    calibrateRaceProbabilities(race);
+    const leader = topRunner(race);
+    if (leader?.winProbability != null) {
+      race.topPick = {
+        runnerId: leader.id,
+        name: leader.name,
+        odds: leader.odds,
+        modelProb: leader.winProbability,
+        edge: leader.modelEdge ?? 1,
+      };
+    }
   }
 }
 

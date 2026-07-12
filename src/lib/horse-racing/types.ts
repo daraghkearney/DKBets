@@ -61,6 +61,14 @@ export interface HorseRunner {
   ratingScore: number;
   trainerScore: number;
   jockeyScore: number;
+  drawScore: number;
+  topspeedScore: number;
+  /** Calibrated win probability within the race (0–1) */
+  winProbability?: number;
+  /** Implied probability from decimal odds */
+  impliedProbability?: number;
+  /** modelProb / impliedProb — value edge vs market */
+  modelEdge?: number;
   overallScore: number;
   predictedRank?: number;
   notes: string[];
@@ -82,7 +90,50 @@ export interface HorseRace {
   verdict?: string;
   /** Model each-way value selection for this race */
   eachWayGem?: EachWayGem;
+  /** Today's top model pick with value edge */
+  topPick?: ValuePickSummary;
   runners: HorseRunner[];
+}
+
+export interface ValuePickSummary {
+  runnerId: string;
+  name: string;
+  odds: number | null;
+  modelProb: number;
+  edge: number;
+}
+
+export interface RacingNapPick {
+  raceId: string;
+  date: string;
+  time: string;
+  course: string;
+  raceName: string;
+  horse: string;
+  runnerId: string;
+  odds: number | null;
+  modelProb: number;
+  impliedProb: number;
+  edge: number;
+  scoreGap: number;
+  rationale: string[];
+  confidence: "high" | "medium";
+}
+
+export interface RacingPerformanceStats {
+  windowDays: number;
+  totalPicks: number;
+  wins: number;
+  top3: number;
+  winRate: number;
+  top3Rate: number;
+  /** Flat £1 stake ROI on all #1 picks at SP */
+  roiFlatStake: number;
+  napPicks: number;
+  napWins: number;
+  napWinRate: number;
+  byCourse: Record<string, { picks: number; wins: number }>;
+  updatedAt: string;
 }
 
 export interface EachWayGem {
@@ -117,6 +168,10 @@ export interface RacingCalendarPayload {
   model?: RacingModelInfo;
   /** Review of yesterday's winners vs our predictions */
   review?: RacingWinnerReview;
+  /** Selective high-edge nap picks for today */
+  naps?: RacingNapPick[];
+  /** Rolling model performance ledger */
+  performance?: RacingPerformanceStats;
   /** HorseRacing.net scrape/merge diagnostics */
   hrnDebug?: string;
 }
@@ -132,7 +187,9 @@ export type RacingFactorKey =
   | "trainer"
   | "jockey"
   | "freshness"
-  | "tipster";
+  | "tipster"
+  | "draw"
+  | "topspeed";
 
 export interface RacingModelInfo {
   weights: Record<RacingFactorKey, number>;

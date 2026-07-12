@@ -7,6 +7,9 @@ import { pickEachWayGem } from "./each-way";
 import { isInsiderGradePick } from "./tipster-priority";
 import { loadPeopleStats } from "./people-stats";
 import { learnFromYesterday, savePredictionLog } from "./results-learning";
+import { backfillHistoricalLearning } from "./historical-backfill";
+import { loadPerformanceStats, recordDayOutcomes, saveNapLog } from "./performance-ledger";
+import { buildValuePicks } from "./value-picks";
 import { fetchHrnRacecards, hrnLinksFromRaces } from "./hrnet";
 import {
   buildHrnTipsterPicks,
@@ -59,6 +62,16 @@ function demoRacesForDate(date: string): HorseRace[] {
 }
 
 export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayload> {
+  // Optional historical backfill (5 days per export to protect API quota)
+  try {
+    const backfill = await backfillHistoricalLearning();
+    if (backfill.learned) {
+      console.log(`  racing backfill: ${backfill.debug}`);
+    }
+  } catch (e) {
+    console.warn("  racing backfill: failed", e);
+  }
+
   // Learn from yesterday's results BEFORE scoring today, so today's
   // predictions use the freshest weights.
   const { model, review } = await learnFromYesterday();
@@ -208,6 +221,18 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
   }
   augmentSignalHotTips(days, tipsters);
 
+  const naps = buildValuePicks(todayRaces, todayIso ?? week[0].date);
+  console.log(`  racing naps: ${naps.length} selective value picks`);
+  if (todayIso && naps.length) {
+    try {
+      await saveNapLog(todayIso, naps);
+    } catch (e) {
+      console.warn("  racing naps: failed to save nap log", e);
+    }
+  }
+
+  const performance = await loadPerformanceStats(90);
+
   // Log today's predictions so tomorrow's run can learn from results
   if (todayIso && todayRaces.some((r) => r.runners.length)) {
     try {
@@ -229,6 +254,8 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     tipsters,
     model,
     review,
+    naps,
+    performance,
     hrnDebug: hrnNotes.join(" | ") || undefined,
   };
 }

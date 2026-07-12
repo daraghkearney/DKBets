@@ -76,8 +76,10 @@ jobs:
             .cache/racing-stats
             .cache/racing-hrnet
             .cache/atr-results
-          key: racing-model-v9
+            .cache/racing-performance
+          key: racing-model-v10
           restore-keys: |
+            racing-model-v10
             racing-model-v9
             racing-model-v8-
             racing-model-v7-
@@ -99,6 +101,8 @@ jobs:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           RACING_API_USERNAME: ${{ secrets.RACING_API_USERNAME }}
           RACING_API_PASSWORD: ${{ secrets.RACING_API_PASSWORD }}
+          RACING_BACKFILL_DAYS: "30"
+          RACING_BACKFILL_MAX_PER_RUN: "5"
 
       - name: Build static site
         run: npm run build

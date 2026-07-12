@@ -478,6 +478,8 @@ async function mapRunner(
     | "ratingScore"
     | "trainerScore"
     | "jockeyScore"
+    | "drawScore"
+    | "topspeedScore"
     | "overallScore"
     | "notes"
   > = {

@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "export:data": "tsx scripts/export-data.ts",
+    "backfill:racing": "tsx scripts/backfill-racing-history.ts",
     "probe:odds-api": "tsx scripts/probe-odds-api.ts",
     "dump:bet365-markets": "tsx scripts/dump-bet365-markets.ts",
     "build": "next build",

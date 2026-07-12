@@ -34,6 +34,7 @@ import {
   type ResultRace,
 } from "./racing-api";
 import { addDays, courseSlug, to24hTime, toIsoDate, ukToday } from "./dates";
+import { recordDayOutcomes } from "./performance-ledger";
 import type {
   HorseRace,
   RacingFactorKey,
@@ -61,6 +62,8 @@ export const FACTOR_LABELS: Record<RacingFactorKey, string> = {
   course: "Course form",
   freshness: "Fitness/freshness",
   tipster: "Tipster backing",
+  draw: "Draw bias",
+  topspeed: "Topspeed figure",
 };
 
 interface PredictionLogRunner {
@@ -70,6 +73,8 @@ interface PredictionLogRunner {
   factors: Record<RacingFactorKey, number>;
   overall: number;
   rank: number;
+  winProbability?: number;
+  modelEdge?: number;
 }
 
 interface PredictionLogRace {
@@ -93,8 +98,14 @@ export async function loadModel(): Promise<RacingModelInfo> {
   try {
     const raw = await readFile(path.join(MODEL_DIR, "weights.json"), "utf8");
     const data = JSON.parse(raw) as RacingModelInfo;
-    if (data.weights && FACTOR_KEYS.every((k) => typeof data.weights[k] === "number")) {
-      return data;
+    if (data.weights) {
+      const merged = { ...DEFAULT_FACTOR_WEIGHTS, ...data.weights };
+      if (FACTOR_KEYS.every((k) => typeof merged[k] === "number")) {
+        return {
+          ...data,
+          weights: normalizeWeights(merged),
+        };
+      }
     }
   } catch {
     // fall through to defaults
@@ -106,7 +117,7 @@ export async function loadModel(): Promise<RacingModelInfo> {
   };
 }
 
-async function saveModel(model: RacingModelInfo): Promise<void> {
+export async function saveModelInternal(model: RacingModelInfo): Promise<void> {
   await mkdir(MODEL_DIR, { recursive: true });
   await writeFile(
     path.join(MODEL_DIR, "weights.json"),
@@ -175,6 +186,8 @@ export async function savePredictionLog(
           factors: factorScores(r),
           overall: r.overallScore,
           rank: r.predictedRank ?? 0,
+          winProbability: r.winProbability,
+          modelEdge: r.modelEdge,
         })),
       })),
   };
@@ -370,6 +383,65 @@ function updateWeights(
 const COLD_RACE_LIMIT = 15;
 const STATS_SEED_DAYS = 3;
 
+async function collectLearnings(
+  date: string,
+  results: ResultRace[],
+  coldLimit = COLD_RACE_LIMIT
+): Promise<RaceLearning[]> {
+  const log = await loadPredictionLog(date);
+  const learnings: RaceLearning[] = [];
+
+  if (log?.races.length) {
+    const raceKey = (course: string, time: string) =>
+      `${courseSlug(course)}|${to24hTime(time)}`;
+    const byId = new Map(log.races.map((r) => [r.raceId, r]));
+    const byKey = new Map(
+      log.races.map((r) => [raceKey(r.course, r.time), r])
+    );
+    for (const result of results) {
+      const logged =
+        byId.get(result.raceId) ??
+        byKey.get(raceKey(result.course, result.time));
+      if (!logged) continue;
+      const learning = learnFromLoggedRace(result, logged);
+      if (learning) learnings.push(learning);
+    }
+  }
+
+  if (!learnings.length) {
+    for (const result of results.slice(0, coldLimit)) {
+      const learning = await learnFromColdRace(result);
+      if (learning) learnings.push(learning);
+    }
+  }
+
+  return learnings;
+}
+
+/**
+ * Learn model weights from a batch of historical results (backfill or daily).
+ */
+export async function learnFromResultBatch(
+  date: string,
+  results: ResultRace[],
+  opts: { coldLimit?: number; updateLastLearned?: boolean } = {}
+): Promise<number> {
+  const learnings = await collectLearnings(
+    date,
+    results,
+    opts.coldLimit ?? COLD_RACE_LIMIT
+  );
+  if (!learnings.length) return 0;
+
+  let model = await loadModel();
+  model = updateWeights(model, learnings);
+  if (opts.updateLastLearned) {
+    model.lastLearnedDate = date;
+  }
+  await saveModelInternal(model);
+  return learnings.length;
+}
+
 /**
  * Keep the trainer/jockey strike-rate archive current: seed it from the
  * recent past on first run, then ingest each new day of results once.
@@ -464,35 +536,13 @@ export async function learnFromYesterday(): Promise<{
   console.log(`  racing learn: ${results.length} completed races`);
 
   const log = await loadPredictionLog(yesterday);
-  const learnings: RaceLearning[] = [];
-
+  const learnings = await collectLearnings(yesterday, results);
   if (log?.races.length) {
-    const raceKey = (course: string, time: string) =>
-      `${courseSlug(course)}|${to24hTime(time)}`;
-    const byId = new Map(log.races.map((r) => [r.raceId, r]));
-    const byKey = new Map(
-      log.races.map((r) => [raceKey(r.course, r.time), r])
-    );
-    for (const result of results) {
-      const logged =
-        byId.get(result.raceId) ??
-        byKey.get(raceKey(result.course, result.time));
-      if (!logged) continue;
-      const learning = learnFromLoggedRace(result, logged);
-      if (learning) learnings.push(learning);
-    }
     console.log(
-      `  racing learn: matched ${learnings.length}/${results.length} races to logged predictions`
+      `  racing learn: matched ${learnings.filter((l) => l.review.ourRank != null).length}/${results.length} races to logged predictions`
     );
-  }
-
-  // Cold-start: no logged predictions — analyse winners directly
-  if (!learnings.length) {
-    console.log("  racing learn: no prediction log — analysing winners from history");
-    for (const result of results.slice(0, COLD_RACE_LIMIT)) {
-      const learning = await learnFromColdRace(result);
-      if (learning) learnings.push(learning);
-    }
+  } else if (learnings.length) {
+    console.log("  racing learn: no prediction log — analysed winners from history");
   }
 
   if (!learnings.length) {
@@ -505,7 +555,7 @@ export async function learnFromYesterday(): Promise<{
 
   model = updateWeights(model, learnings);
   model.lastLearnedDate = yesterday;
-  await saveModel(model);
+  await saveModelInternal(model);
   console.log(
     `  racing learn: weights updated from ${learnings.length} races (total samples ${model.samples})`
   );
@@ -543,6 +593,14 @@ export async function learnFromYesterday(): Promise<{
     summary,
   };
   await saveReview(review);
+
+  try {
+    if (log?.races.length) {
+      await recordDayOutcomes(yesterday, results, log.races);
+    }
+  } catch (e) {
+    console.warn("  racing ledger: failed to record outcomes", e);
+  }
 
   return { model, review };
 }

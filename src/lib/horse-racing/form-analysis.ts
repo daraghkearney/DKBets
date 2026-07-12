@@ -341,6 +341,29 @@ export function applyRatingScores(runners: HorseRunner[]): void {
   }
 }
 
+/** Topspeed figures relative to the field (scraped from HRN). */
+export function applyTopspeedScores(runners: HorseRunner[]): void {
+  const rated = runners.filter((r) => r.topspeed != null && r.topspeed > 0);
+  if (rated.length < 3) {
+    for (const r of runners) r.topspeedScore = 0.5;
+    return;
+  }
+  const speeds = rated.map((r) => r.topspeed as number);
+  const min = Math.min(...speeds);
+  const max = Math.max(...speeds);
+  const span = Math.max(1, max - min);
+  for (const r of runners) {
+    if (r.topspeed == null || r.topspeed <= 0) {
+      r.topspeedScore = 0.45;
+      continue;
+    }
+    r.topspeedScore = 0.25 + ((r.topspeed - min) / span) * 0.65;
+    if (r.topspeed === max) {
+      r.notes.push(`Top topspeed in field (${r.topspeed})`);
+    }
+  }
+}
+
 /**
  * Score from a published recent strike-rate percentage (e.g. the 14-day
  * trainer/jockey form shown on racecards). ~12% is par; 25%+ is hot.
@@ -356,17 +379,19 @@ export function strikePctScore(pct: number): number {
  * results (see results-learning.ts).
  */
 export const DEFAULT_FACTOR_WEIGHTS: Record<RacingFactorKey, number> = {
-  market: 0.2,
-  rating: 0.12,
-  form: 0.11,
-  going: 0.11,
-  distance: 0.09,
-  class: 0.09,
+  market: 0.15,
+  rating: 0.1,
+  form: 0.1,
+  going: 0.1,
+  distance: 0.08,
+  class: 0.08,
   trainer: 0.07,
   jockey: 0.06,
   course: 0.06,
   freshness: 0.04,
   tipster: 0.05,
+  draw: 0.05,
+  topspeed: 0.06,
 };
 
 export function factorScores(
@@ -384,6 +409,8 @@ export function factorScores(
     course: runner.courseFitScore,
     freshness: runner.freshnessScore,
     tipster: runner.tipsterScore,
+    draw: runner.drawScore,
+    topspeed: runner.topspeedScore,
   };
 }
 
@@ -423,6 +450,8 @@ export function enrichRunner(
     | "ratingScore"
     | "trainerScore"
     | "jockeyScore"
+    | "drawScore"
+    | "topspeedScore"
     | "overallScore"
     | "notes"
   >,
@@ -467,6 +496,8 @@ export function enrichRunner(
     trainerScore: 0.5,
     jockeyScore: 0.5,
     tipsterScore: 0.5,
+    drawScore: 0.5,
+    topspeedScore: 0.5,
     overallScore: 0.5,
     notes,
   };
