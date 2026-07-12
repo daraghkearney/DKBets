@@ -328,47 +328,50 @@ export async function fetchResultsForDate(
   isoDate: string
 ): Promise<{ races: ResultRace[]; debug: string }> {
   const creds = getRacingApiCredentials();
-  if (!creds) return { races: [], debug: "no credentials" };
-
   const q = encodeURIComponent(isoDate);
   const today = toIsoDate(ukToday());
-  const endpoints = [
-    `/results?start_date=${q}&end_date=${q}`,
-    ...(isoDate === today ? ["/results/today"] : []),
-  ];
-
-  const PAGE = 50;
-  const MAX_RACES = 250;
   const notes: string[] = [];
 
-  for (const base of endpoints) {
-    const sep = base.includes("?") ? "&" : "?";
-    const all: ApiResultRace[] = [];
+  if (creds) {
+    const endpoints = [
+      `/results?start_date=${q}&end_date=${q}`,
+      ...(isoDate === today ? ["/results/today"] : []),
+    ];
 
-    for (let skip = 0; skip < MAX_RACES; skip += PAGE) {
-      const { data, status, note } = await racingFetch<ResultsResponse>(
-        `${base}${sep}limit=${PAGE}&skip=${skip}`,
-        creds
-      );
-      if (skip === 0) {
-        notes.push(`${base} → ${note}${status ? ` (${status})` : ""}`);
+    const PAGE = 50;
+    const MAX_RACES = 250;
+
+    for (const base of endpoints) {
+      const sep = base.includes("?") ? "&" : "?";
+      const all: ApiResultRace[] = [];
+
+      for (let skip = 0; skip < MAX_RACES; skip += PAGE) {
+        const { data, status, note } = await racingFetch<ResultsResponse>(
+          `${base}${sep}limit=${PAGE}&skip=${skip}`,
+          creds
+        );
+        if (skip === 0) {
+          notes.push(`${base} → ${note}${status ? ` (${status})` : ""}`);
+        }
+        if (!data?.results?.length) break;
+        all.push(...data.results);
+        if (data.results.length < PAGE) break;
+        await new Promise((r) => setTimeout(r, 600));
       }
-      if (!data?.results?.length) break;
-      all.push(...data.results);
-      if (data.results.length < PAGE) break;
-      await new Promise((r) => setTimeout(r, 600));
-    }
 
-    if (!all.length) continue;
+      if (!all.length) continue;
 
-    const races = all
-      .map(mapResultRace)
-      .filter((r) => !r.date || r.date.startsWith(isoDate))
-      .filter((r) => r.runners.some((x) => x.position === 1));
-    if (races.length) {
-      notes.push(`${races.length} races over ${Math.ceil(all.length / PAGE)} pages`);
-      return { races, debug: notes.join("; ") };
+      const races = all
+        .map(mapResultRace)
+        .filter((r) => !r.date || r.date.startsWith(isoDate))
+        .filter((r) => r.runners.some((x) => x.position === 1));
+      if (races.length) {
+        notes.push(`${races.length} races over ${Math.ceil(all.length / PAGE)} pages`);
+        return { races, debug: notes.join("; ") };
+      }
     }
+  } else {
+    notes.push("no API credentials — using scrape fallbacks");
   }
 
   // Fallback: At The Races — free, works when API quota is exhausted

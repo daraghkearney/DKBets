@@ -21,5 +21,7 @@ const days = Number(
 );
 
 console.log(`\nRacing model backfill — ${days} days of historical results\n`);
-await runFullBackfill(days);
-console.log("\nDone.\n");
+(async () => {
+  await runFullBackfill(days);
+  console.log("\nDone.\n");
+})();

@@ -12,7 +12,7 @@ import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import { addDays, toIsoDate, ukToday } from "./dates";
 import { loadModel, saveModelInternal, learnFromResultBatch } from "./results-learning";
-import { fetchResultsForDate, isRacingApiConfigured } from "./racing-api";
+import { fetchResultsForDate } from "./racing-api";
 
 const BACKFILL_DIR = path.join(process.cwd(), ".cache", "racing-model");
 const STATE_FILE = path.join(BACKFILL_DIR, "backfill-state.json");
@@ -54,9 +54,6 @@ export async function backfillHistoricalLearning(
   const maxPerRun = opts.maxPerRun ?? Number(process.env.RACING_BACKFILL_MAX_PER_RUN ?? 5);
   if (!days || days < 1) {
     return { learned: 0, dates: [], debug: "backfill disabled (RACING_BACKFILL_DAYS=0)" };
-  }
-  if (!isRacingApiConfigured()) {
-    return { learned: 0, dates: [], debug: "no racing API credentials" };
   }
 
   const state = await loadState();
@@ -112,21 +109,29 @@ export async function backfillHistoricalLearning(
 
 /** One-shot deep backfill for local/CI script use. */
 export async function runFullBackfill(days: number): Promise<void> {
-  let remaining = days;
   let total = 0;
-  while (remaining > 0) {
+  let idleRuns = 0;
+  while (idleRuns < 2) {
     const res = await backfillHistoricalLearning({
       days,
       maxPerRun: 10,
-      delayMs: 600,
+      delayMs: 500,
     });
-    if (!res.learned && res.dates.length === 0) break;
+    if (res.debug.includes("complete") && !res.learned) {
+      idleRuns++;
+      break;
+    }
+    if (!res.learned && res.dates.length === 0) {
+      idleRuns++;
+      if (res.debug.includes("complete")) break;
+      continue;
+    }
+    idleRuns = 0;
     total += res.learned;
-    remaining -= res.dates.length;
-    if (res.debug.includes("complete")) break;
+    if (res.debug.includes("complete") && res.dates.length === 0) break;
   }
   const model = await loadModel();
   console.log(
-    `  racing backfill done: ${total} races, model samples=${model.samples}`
+    `  racing backfill done: ${total} races learned, model samples=${model.samples}`
   );
 }
