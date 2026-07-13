@@ -162,6 +162,8 @@ Point the domain at GitHub Pages:
 
 DNS can take up to 24–48 hours (often much faster).
 
+**Cloudflare users:** set A/CNAME records to **DNS only** (grey cloud, not proxied). Orange-cloud proxy blocks GitHub Pages HTTPS certificate provisioning and can break asset delivery. After the cert is issued, you can re-enable Cloudflare proxy with SSL mode **Full**.
+
 ### B. GitHub Pages
 
 1. Repo **Settings → Pages → Custom domain** → enter `statmanac.com`

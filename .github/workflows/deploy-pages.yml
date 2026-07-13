@@ -106,11 +106,19 @@ jobs:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_SUBSCRIPTION_ENABLED: ${{ secrets.CLERK_PUBLISHABLE_KEY != '' && 'true' || 'false' }}
 
+      - name: Set base path
+        id: base_path
+        run: |
+          if [ "${{ vars.USE_CUSTOM_DOMAIN }}" = "true" ]; then
+            echo "path=" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=/${{ github.event.repository.name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build static site
         run: npm run build
         env:
-          # Repo variable USE_CUSTOM_DOMAIN=true → statmanac.com at root (no /DKBets prefix)
-          NEXT_PUBLIC_BASE_PATH: ${{ vars.USE_CUSTOM_DOMAIN == 'true' && '' || format('/{0}', github.event.repository.name) }}
+          NEXT_PUBLIC_BASE_PATH: ${{ steps.base_path.outputs.path }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_SUBSCRIPTION_ENABLED: ${{ secrets.CLERK_PUBLISHABLE_KEY != '' && 'true' || 'false' }}
 
