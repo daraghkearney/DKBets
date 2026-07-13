@@ -26,4 +26,10 @@ export function sampleManifestUrl(): string {
   return `${basePath}/data/sample-manifest.json`;
 }
 
+/** Public assets under /public (images, etc.) — prefix basePath for GitHub Pages. */
+export function assetUrl(relative: string): string {
+  const path = relative.startsWith("/") ? relative : `/${relative}`;
+  return `${basePath}${path}`;
+}
+
 export { DEFAULT_SAMPLE_MODE };

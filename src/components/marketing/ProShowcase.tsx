@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { assetUrl } from "@/lib/basePath";
 import { BRAND } from "@/lib/brand";
 import { PRICING } from "@/lib/subscription/config";
 
@@ -131,7 +132,7 @@ export default function ProShowcase() {
                 aria-hidden={i !== active}
               >
                 <Image
-                  src={s.src}
+                  src={assetUrl(s.src)}
                   alt={s.alt}
                   fill
                   priority={i === 0}
