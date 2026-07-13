@@ -1,6 +1,8 @@
 import Link from "next/link";
 import SportCard from "@/components/sports/SportCard";
 import { SPORTS } from "@/lib/sports/config";
+import { PRICING } from "@/lib/subscription/config";
+import { BRAND } from "@/lib/brand";
 
 export default function HomePage() {
   return (
@@ -23,17 +25,16 @@ export default function HomePage() {
       <div className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
         <div className="mx-auto max-w-3xl text-center">
           <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-accent">
-            Research-first betting intelligence
+            {BRAND.tagline}
           </p>
           <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl lg:text-6xl">
-            Choose your{" "}
+            Welcome to{" "}
             <span className="bg-gradient-to-r from-accent via-gold to-orange-400 bg-clip-text text-transparent">
-              sport
+              {BRAND.name}
             </span>
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
-            Deep player stats, probability models and web-sourced context —
-            tailored pipelines for football, NBA and horse racing.
+            {BRAND.description}
           </p>
         </div>
 
@@ -73,7 +74,7 @@ export default function HomePage() {
             href="/subscribe/"
             className="text-gold underline underline-offset-2"
           >
-            DKBets Pro from £14.99/mo →
+            {BRAND.proName} from £{PRICING.footballMonthlyGbp}/mo →
           </Link>
         </p>
       </div>

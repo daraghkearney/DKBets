@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import AppShell from "@/components/AppShell";
 import SubscriptionRoot from "@/components/subscription/SubscriptionRoot";
 import { SportProvider } from "@/components/SportProvider";
+import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -16,9 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DKBets · Multi-Sport Research Hub",
-  description:
-    "Football, NBA and horse racing — deep stats, probability models, builder intelligence and tipster research.",
+  title: `${BRAND.name} · ${BRAND.tagline}`,
+  description: BRAND.description,
 };
 
 export default function RootLayout({

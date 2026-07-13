@@ -2,9 +2,10 @@
 
 import { useAuth } from "@clerk/clerk-react";
 import {
+  ALL_PLAN_SLUGS,
   FEATURES,
   isSubscriptionEnabled,
-  PRO_PLAN_SLUG,
+  planIncludesFeature,
   type FeatureSlug,
 } from "./config";
 
@@ -20,9 +21,16 @@ function checkAccess(
   feature?: FeatureSlug
 ): boolean {
   if (!has) return false;
-  if (has({ plan: PRO_PLAN_SLUG })) return true;
+
   if (has({ feature: FEATURES.fullAccess })) return true;
   if (feature && has({ feature })) return true;
+
+  for (const slug of ALL_PLAN_SLUGS) {
+    if (has({ plan: slug }) && planIncludesFeature(slug, feature)) {
+      return true;
+    }
+  }
+
   return false;
 }
 

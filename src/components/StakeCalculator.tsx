@@ -13,6 +13,7 @@ import {
   type OddsFormat,
 } from "@/lib/format";
 import type { ArbOpportunity } from "@/lib/types";
+import { BRAND } from "@/lib/brand";
 
 interface Props {
   arb: ArbOpportunity | null;
@@ -61,7 +62,7 @@ export default function StakeCalculator({
 
   const copySlip = async () => {
     const lines = [
-      `DKBets arb — ${arb.matchLabel} · ${arb.marketName}`,
+      `${BRAND.name} arb — ${arb.matchLabel} · ${arb.marketName}`,
       ...plan.legs.map(
         (l) =>
           `${BOOKMAKER_MAP[l.bookmaker].name}: ${formatMoney(

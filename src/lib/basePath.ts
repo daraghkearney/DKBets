@@ -1,5 +1,5 @@
 /**
- * Base path for GitHub Pages (e.g. "/dkbets"). Empty string for root domain.
+ * Base path for GitHub Pages (e.g. "/DKBets") or empty for statmanac.com root.
  * Set via NEXT_PUBLIC_BASE_PATH in CI.
  */
 import type { StatsSampleMode } from "@/lib/stats/sample-mode";

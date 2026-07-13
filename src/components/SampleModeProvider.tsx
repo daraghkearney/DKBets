@@ -16,7 +16,7 @@ import {
   isStatsSampleMode,
 } from "@/lib/stats/sample-mode";
 
-const STORAGE_KEY = "dkbets-stats-sample-mode";
+const STORAGE_KEY = "statmanac-stats-sample-mode";
 
 interface SampleModeContextValue {
   mode: StatsSampleMode;

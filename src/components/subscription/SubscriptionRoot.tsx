@@ -1,6 +1,7 @@
 "use client";
 
 import { ClerkProvider } from "@clerk/clerk-react";
+import { useRouter } from "next/navigation";
 import { isSubscriptionEnabled } from "@/lib/subscription/config";
 
 export default function SubscriptionRoot({
@@ -8,6 +9,7 @@ export default function SubscriptionRoot({
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
 
   if (!isSubscriptionEnabled() || !key) {
@@ -17,6 +19,8 @@ export default function SubscriptionRoot({
   return (
     <ClerkProvider
       publishableKey={key}
+      routerPush={(to) => router.push(to)}
+      routerReplace={(to) => router.replace(to)}
       signInUrl="/sign-in/"
       signUpUrl="/sign-up/"
       afterSignInUrl="/"

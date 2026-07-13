@@ -9,6 +9,7 @@ import AuthControls from "@/components/subscription/AuthControls";
 import { RacingSelectionProvider } from "@/components/horse-racing/RacingSelectionProvider";
 import { useSport } from "@/components/SportProvider";
 import { isLandingPath, sportRoute } from "@/lib/sports/paths";
+import { BRAND } from "@/lib/brand";
 
 const FOOTBALL_LINKS = [
   { section: "", label: "Odds & Arbs", icon: "◎" },
@@ -82,11 +83,11 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
                   color: competitionConfig?.accent ?? "#22c55e",
                 }}
               >
-                {sportConfig?.emoji ?? "DK"}
+                {sportConfig?.emoji ?? BRAND.initials}
               </div>
               <div>
                 <p className="text-lg font-bold leading-tight tracking-tight">
-                  {competitionConfig?.shortLabel ?? "DKBets"}
+                  {competitionConfig?.shortLabel ?? BRAND.name}
                   <span className="font-normal text-muted">
                     {" "}
                     · {sportConfig?.label}
@@ -139,7 +140,7 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
       </header>
       {body}
       <footer className="mt-auto border-t border-edge py-6 text-center text-[11px] text-muted">
-        DKBets · {sportConfig?.label} · {competitionConfig?.dataSource} · 18+ ·
+        {BRAND.name} · {sportConfig?.label} · {competitionConfig?.dataSource} · 18+ ·
         GambleAware.org
       </footer>
     </SampleModeProvider>

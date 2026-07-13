@@ -17,7 +17,7 @@ import {
 import type { TipsterPick } from "./types";
 
 const FETCH_UA =
-  "Mozilla/5.0 (compatible; DKBets/1.0; +https://daraghkearney.github.io/DKBets)";
+  "Mozilla/5.0 (compatible; Statmanac/1.0; +https://statmanac.com)";
 const FETCH_TIMEOUT_MS = 20_000;
 
 export interface LeagueFeedContext {
