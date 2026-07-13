@@ -8,6 +8,13 @@
 /** All-access standard plan */
 export const PRO_PLAN_SLUG = "pro";
 
+/**
+ * Hidden complimentary plan — create in Clerk with Publicly available OFF.
+ * Assign manually in Dashboard → Billing → Subscriptions → Change plan.
+ * Must include the `full_access` feature. Slug must match Clerk exactly.
+ */
+export const COMPLIMENTARY_PLAN_SLUG = "family";
+
 export const PRICING = {
   footballMonthlyUsd: 14.99,
   racingMonthlyUsd: 17.99,

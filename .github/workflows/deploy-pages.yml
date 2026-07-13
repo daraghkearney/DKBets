@@ -109,7 +109,8 @@ jobs:
       - name: Build static site
         run: npm run build
         env:
-          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
+          # Repo variable USE_CUSTOM_DOMAIN=true → statmanac.com at root (no /DKBets prefix)
+          NEXT_PUBLIC_BASE_PATH: ${{ vars.USE_CUSTOM_DOMAIN == 'true' && '' || format('/{0}', github.event.repository.name) }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_SUBSCRIPTION_ENABLED: ${{ secrets.CLERK_PUBLISHABLE_KEY != '' && 'true' || 'false' }}
 

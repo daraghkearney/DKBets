@@ -145,3 +145,107 @@ Configured in `src/lib/subscription/config.ts` (USD charged, GBP shown in market
 | `pro` | $24.99/mo · $16.66/mo annual · $199/yr | £24.99 · £199 |
 
 Match these in the Clerk Dashboard.
+
+## 7. Custom domain (statmanac.com)
+
+### A. DNS (at your registrar)
+
+Point the domain at GitHub Pages:
+
+| Type | Host | Value |
+|------|------|-------|
+| `A` | `@` | `185.199.108.153` |
+| `A` | `@` | `185.199.109.153` |
+| `A` | `@` | `185.199.110.153` |
+| `A` | `@` | `185.199.111.153` |
+| `CNAME` | `www` | `daraghkearney.github.io` |
+
+DNS can take up to 24–48 hours (often much faster).
+
+### B. GitHub Pages
+
+1. Repo **Settings → Pages → Custom domain** → enter `statmanac.com`
+2. Enable **Enforce HTTPS** once the certificate is issued
+3. Optionally add `www.statmanac.com` as a second custom domain (or redirect www → apex at your registrar)
+
+### C. Build path (required)
+
+The site currently builds with `NEXT_PUBLIC_BASE_PATH=/DKBets` for `github.io/DKBets/`.
+
+For `statmanac.com` at the root:
+
+1. Repo **Settings → Secrets and variables → Actions → Variables**
+2. Add variable: `USE_CUSTOM_DOMAIN` = `true`
+3. Push to `main` (or re-run the deploy workflow) — builds will use an empty base path
+
+Until you flip that variable, `statmanac.com` can 404 assets if DNS is pointed but the build still uses `/DKBets`.
+
+### D. Clerk domains (production)
+
+In **Clerk Production** → **Configure → Domains**, add:
+
+- `https://statmanac.com`
+- `https://www.statmanac.com`
+
+Keep `http://localhost:3000` for local dev.
+
+## 8. Live Stripe payments
+
+Clerk **Development** and **Production** are separate instances. Plans, users, and Stripe connections do not carry over — you must set up Production.
+
+### Checklist
+
+| Step | Where | Action |
+|------|-------|--------|
+| 1 | Stripe | Complete business verification, add payout bank account |
+| 2 | Stripe | Switch to **Live** mode |
+| 3 | Clerk | Open **Production** instance (toggle in Dashboard) |
+| 4 | Clerk Production | **Billing → Settings** → connect your **live** Stripe account |
+| 5 | Clerk Production | Recreate all 4 plans + features (same slugs as dev) |
+| 6 | GitHub | Update secret `CLERK_PUBLISHABLE_KEY` to `pk_live_...` from Production |
+| 7 | GitHub | Set `USE_CUSTOM_DOMAIN=true` when DNS is live |
+| 8 | Deploy | Push or re-run workflow; test checkout on `statmanac.com/subscribe/` |
+
+### Test live checkout
+
+1. Sign up with a real email on production
+2. Subscribe with a real card (or use Stripe test mode only in dev — live mode charges real money)
+3. Confirm gated pages unlock and Stripe Dashboard → Customers shows the subscription
+
+**Note:** Clerk billing is USD-only. Your marketing copy can still show £/€ equivalents.
+
+## 9. Family / complimentary all-access
+
+**Yes — use a hidden free plan and assign it manually.** Clerk does not yet have a one-click “gift subscription without charging” button for paid plans, but this pattern works today:
+
+### Create the plan (Production + Dev)
+
+1. **Billing → Plans for Users → Add plan**
+2. Settings:
+   - **Slug:** `family` (must match `COMPLIMENTARY_PLAN_SLUG` in `config.ts`)
+   - **Name:** e.g. `Family` (internal only)
+   - **Price:** `$0.00` / month (if Clerk accepts $0; otherwise use the lowest allowed price)
+   - **Publicly available:** **OFF** (hidden from `/subscribe/`)
+   - **Features:** add `full_access`
+3. Do **not** add this plan to `PLANS` in code — it stays off the public pricing page
+
+### Assign someone after they sign up
+
+1. They create a normal account (Sign up on the site)
+2. You: **Clerk Dashboard → Billing → Subscriptions** (or open the user → Subscriptions)
+3. Find their user → **Change plan** → select `family`
+4. They get `full_access` immediately — no Stripe charge
+
+Repeat for each family member. Your own account: sign up, then assign yourself `family`.
+
+### What does not work well
+
+| Approach | Problem |
+|----------|---------|
+| Adding `full_access` to the default free plan | Everyone gets Pro for free |
+| Manually assigning paid `pro` without payment | Clerk may attempt to bill unless you use a $0 custom price |
+| Sharing your login | One account, no per-person audit trail |
+
+### Alternative (future)
+
+Clerk is building native “assign paid plan without billing” for gifting and internal access. Until then, the hidden `family` plan is the right approach.
