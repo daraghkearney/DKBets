@@ -31,9 +31,9 @@ export default function HomePage() {
               {BRAND.tagline}
             </p>
             <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl xl:text-[3.25rem] xl:leading-[1.1]">
-              Your edge in{" "}
+              Welcome to{" "}
               <span className="bg-gradient-to-r from-accent via-gold to-orange-400 bg-clip-text text-transparent">
-                form, models & value
+                {BRAND.name}
               </span>
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-lg lg:mx-0">
