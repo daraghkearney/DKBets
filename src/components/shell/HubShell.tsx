@@ -12,7 +12,6 @@ import { isLandingPath, sportRoute } from "@/lib/sports/paths";
 import { BRAND } from "@/lib/brand";
 
 const FOOTBALL_LINKS = [
-  { section: "", label: "Odds & Arbs", icon: "◎" },
   { section: "builder", label: "Bet365 Builder", icon: "◈" },
   { section: "star-players", label: "Star Player", icon: "★" },
   { section: "team-model", label: "Team Bet Model", icon: "⬡" },

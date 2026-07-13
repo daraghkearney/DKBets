@@ -82,7 +82,7 @@ export const PLANS: SubscriptionPlan[] = [
     ],
     highlights: [
       "Underpriced gems — incredibly high hit rate",
-      "Player head-to-head duels",
+      "Positional matchups & player head-to-head duels",
       "Team bet model — 100% hit-rate legs",
       "Bet365 builder + star players + stats",
     ],
@@ -140,7 +140,7 @@ export const CLERK_FEATURE_GATES: Record<FeatureSlug, string> = {
   [FEATURES.footballBuilder]:
     "Bet365 builder, context mode & underpriced gems",
   [FEATURES.footballProps]:
-    "Star players, team bet model (100% legs) & player H2H",
+    "Matchups, star players, team bet model (100% legs) & player H2H",
   [FEATURES.footballStats]: "Player leaderboards & prop hit rates",
   [FEATURES.racingIntel]:
     "Value naps, performance ledger, tipsters & full racecards",
@@ -161,6 +161,7 @@ export const GATED_HUB_SECTIONS: Record<string, FeatureSlug | "plan"> = {
   builder: FEATURES.footballBuilder,
   "star-players": FEATURES.footballProps,
   "team-model": FEATURES.footballProps,
+  matches: FEATURES.footballProps,
   stats: FEATURES.footballStats,
   analysis: FEATURES.racingAnalysis,
   tipsters: FEATURES.racingIntel,

@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { formatKickoff, formatPct } from "@/lib/format";
+import PremiumGate from "@/components/subscription/PremiumGate";
 import { useSampleMode } from "@/components/SampleModeProvider";
+import { formatKickoff, formatPct } from "@/lib/format";
+import { FEATURES } from "@/lib/subscription/config";
 import type { FixtureSummary, PickStat } from "@/lib/stats/types";
 
 interface Fx extends FixtureSummary {
@@ -39,6 +41,7 @@ export default function MatchesPage() {
   }, [sampleUrl, sampleMode]);
 
   return (
+    <PremiumGate feature={FEATURES.footballProps}>
     <main className="mx-auto flex max-w-7xl flex-col gap-10 px-4 py-8 sm:px-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Matchups</h1>
@@ -138,5 +141,6 @@ export default function MatchesPage() {
         </div>
       </section>
     </main>
+    </PremiumGate>
   );
 }

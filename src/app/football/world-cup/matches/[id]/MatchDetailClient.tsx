@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import MatchupPanel, { MatchHeader } from "@/components/stats/MatchupPanel";
 import MatchStarPlayer from "@/components/star/MatchStarPlayer";
+import PremiumGate from "@/components/subscription/PremiumGate";
 import { useSampleMode } from "@/components/SampleModeProvider";
+import { FEATURES } from "@/lib/subscription/config";
 import type { MatchDetailPayload } from "@/lib/stats/types";
 
 export default function MatchDetailClient() {
@@ -25,6 +27,7 @@ export default function MatchDetailClient() {
   }, [id, sampleUrl, sampleMode]);
 
   return (
+    <PremiumGate feature={FEATURES.footballProps}>
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       {error && (
         <p className="text-sm text-red-400">Could not load this match.</p>
@@ -42,5 +45,6 @@ export default function MatchDetailClient() {
         </>
       )}
     </main>
+    </PremiumGate>
   );
 }

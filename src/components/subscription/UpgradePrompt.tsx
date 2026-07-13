@@ -9,7 +9,7 @@ const FEATURE_COPY: Partial<Record<FeatureSlug, string>> = {
   football_builder:
     "Bet365 builder slips plus underpriced gems — standout value picks with an incredibly high hit rate.",
   football_props:
-    "Player head-to-head duels, star-player props and the team bet model built from 100% hit-rate legs.",
+    "Positional matchups, player head-to-head duels, star-player props and the team bet model built from 100% hit-rate legs.",
   football_stats:
     "Full player leaderboards, H2H hit rates and prop breakdowns across every matchup.",
   racing_intel: "Elite tipster league feeds, OLBG consensus and red-hot naps.",

@@ -1,10 +1,3 @@
-export type OddsFormat = "decimal" | "fractional";
-export type Currency = "GBP" | "EUR";
-
-export const CURRENCY_SYMBOL: Record<Currency, string> = {
-  GBP: "£",
-  EUR: "€",
-};
 
 /** Common fractional prices used on UK/Irish bookmaker ladders */
 const FRACTION_LADDER: Array<[number, number]> = [
@@ -31,17 +24,6 @@ export function toFractional(decimal: number): string {
     }
   }
   return `${best[0]}/${best[1]}`;
-}
-
-export function formatOdds(decimal: number, format: OddsFormat): string {
-  if (format === "fractional") return toFractional(decimal);
-  return decimal.toFixed(2);
-}
-
-export function formatMoney(amount: number, currency: Currency): string {
-  const sym = CURRENCY_SYMBOL[currency];
-  const sign = amount < 0 ? "-" : "";
-  return `${sign}${sym}${Math.abs(amount).toFixed(2)}`;
 }
 
 export function formatPct(fraction: number, dp = 2): string {

@@ -4,8 +4,6 @@
  */
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import { buildLiveSnapshot } from "../src/lib/data/live";
-import { buildSimulatedSnapshot } from "../src/lib/data/simulator";
 import {
   loadBankerPicks,
   loadFixtures,
@@ -162,18 +160,6 @@ async function exportSampleMode(mode: StatsSampleMode) {
 async function main() {
   console.log("Exporting live data to public/data/ …");
   await mkdir(ROOT, { recursive: true });
-
-  let odds;
-  try {
-    odds = await buildLiveSnapshot();
-  } catch (e) {
-    console.warn("  odds: live fetch failed, using simulator", e);
-    odds = buildSimulatedSnapshot();
-  }
-  await writeJson("odds.json", {
-    ...odds,
-    exportedAt: new Date().toISOString(),
-  });
 
   await writeJson("sample-manifest.json", {
     defaultMode: DEFAULT_SAMPLE_MODE,

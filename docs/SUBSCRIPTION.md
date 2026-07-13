@@ -50,13 +50,13 @@ Each plan must have these Clerk features assigned so gating works:
 
 What each feature unlocks in the app — see `CLERK_FEATURE_GATES` in `src/lib/subscription/config.ts`.
 
-**Free without any plan:** World Cup matchups/fixtures, racecard top pick, NBA stats leaderboard.
+**Free without any plan:** racecard top pick, NBA stats leaderboard.
 
 | Slug | Gates |
 |------|-------|
 | `full_access` | Unlocks everything (all-access plans) |
 | `football_builder` | Bet365 builder + underpriced gems |
-| `football_props` | Star players, team model, player H2H |
+| `football_props` | Matchups, star players, team model, player H2H |
 | `football_stats` | Stats hub |
 | `racing_intel` | Tipsters, naps, performance, learning |
 | `racing_analysis` | Deep analysis pages |
@@ -120,9 +120,8 @@ To simulate free mode locally, set `NEXT_PUBLIC_SUBSCRIPTION_ENABLED=false` and 
 
 | Area | Free | Football | Racing | NBA | All-Access |
 |------|------|----------|--------|-----|------------|
-| World Cup matchups / fixtures | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Underpriced gems + Bet365 builder | — | ✓ | — | — | ✓ |
-| Player H2H + team bet model | — | ✓ | — | — | ✓ |
+| Matchups + player H2H + team bet model | — | ✓ | — | — | ✓ |
 | Star players / stats | — | ✓ | — | — | ✓ |
 | Racecards (top pick per race) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Full runner model + value naps | — | — | ✓ | — | ✓ |
