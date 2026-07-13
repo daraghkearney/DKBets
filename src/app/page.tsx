@@ -1,4 +1,5 @@
 import Link from "next/link";
+import ProShowcase from "@/components/marketing/ProShowcase";
 import SportCard from "@/components/sports/SportCard";
 import { SPORTS } from "@/lib/sports/config";
 import { PRICING } from "@/lib/subscription/config";
@@ -22,26 +23,64 @@ export default function HomePage() {
         />
       </div>
 
-      <div className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-accent">
-            {BRAND.tagline}
-          </p>
-          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl lg:text-6xl">
-            Welcome to{" "}
-            <span className="bg-gradient-to-r from-accent via-gold to-orange-400 bg-clip-text text-transparent">
-              {BRAND.name}
-            </span>
-          </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
-            {BRAND.description}
-          </p>
+      <div className="relative mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-20">
+        {/* Hero — copy + live product showcase */}
+        <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16 xl:gap-20">
+          <div className="text-center lg:text-left">
+            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-accent">
+              {BRAND.tagline}
+            </p>
+            <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl xl:text-[3.25rem] xl:leading-[1.1]">
+              Your edge in{" "}
+              <span className="bg-gradient-to-r from-accent via-gold to-orange-400 bg-clip-text text-transparent">
+                form, models & value
+              </span>
+            </h1>
+            <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-lg lg:mx-0">
+              {BRAND.description}
+            </p>
+
+            <ul className="mx-auto mt-8 flex max-w-md flex-col gap-3 text-left text-sm text-muted lg:mx-0">
+              {[
+                "Underpriced gems with standout hit-rates",
+                "Positional matchups & career head-to-head",
+                "Bet365 builders priced to live odds targets",
+                "Racing value naps & tipster intelligence",
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2.5">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-[10px] font-bold text-accent">
+                    ✓
+                  </span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+
+            <p className="mt-8 text-xs text-muted lg:text-left">
+              <span className="font-semibold text-gold">{BRAND.proName}</span> ·
+              from £{PRICING.footballMonthlyGbp}/mo ·{" "}
+              {PRICING.trialDays}-day free trial
+            </p>
+          </div>
+
+          <ProShowcase />
         </div>
 
-        <div className="mt-14 grid gap-6 md:grid-cols-3">
-          {SPORTS.map((sport) => (
-            <SportCard key={sport.id} sport={sport} />
-          ))}
+        {/* Sports grid */}
+        <div className="mt-20 border-t border-edge/50 pt-16">
+          <div className="mb-10 text-center">
+            <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-muted">
+              Multi-sport research
+            </p>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+              Pick your sport
+            </h2>
+          </div>
+          <div className="grid gap-6 md:grid-cols-3">
+            {SPORTS.map((sport) => (
+              <SportCard key={sport.id} sport={sport} />
+            ))}
+          </div>
         </div>
 
         <div className="mx-auto mt-16 grid max-w-4xl gap-4 sm:grid-cols-3">
@@ -74,7 +113,7 @@ export default function HomePage() {
             href="/subscribe/"
             className="text-gold underline underline-offset-2"
           >
-            {BRAND.proName} from £{PRICING.footballMonthlyGbp}/mo →
+            View all plans →
           </Link>
         </p>
       </div>

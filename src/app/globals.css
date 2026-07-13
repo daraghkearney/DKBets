@@ -164,6 +164,71 @@ body {
   );
 }
 
+@keyframes showcase-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.5deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(0.5deg);
+  }
+}
+
+@keyframes showcase-caption-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes showcase-slide-in {
+  from {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.showcase-float {
+  animation: showcase-float 7s ease-in-out infinite;
+}
+
+.showcase-caption {
+  animation: showcase-caption-in 0.5s ease-out;
+}
+
+.showcase-slide-active {
+  animation: showcase-slide-in 0.7s ease-out;
+}
+
+.showcase-frame {
+  transform: perspective(1200px) rotateY(-2deg) rotateX(1deg);
+}
+
+@media (max-width: 1023px) {
+  .showcase-frame {
+    transform: none;
+  }
+  .showcase-float {
+    animation: showcase-float 8s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .showcase-float,
+  .showcase-caption,
+  .showcase-slide-active {
+    animation: none;
+  }
+}
+
 ::-webkit-scrollbar {
   height: 8px;
   width: 8px;
