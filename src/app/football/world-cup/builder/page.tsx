@@ -21,6 +21,8 @@ import type { BuilderPayload, BuilderSlip, LegCategory } from "@/lib/builder/typ
 import BuilderSlipCard from "@/components/builder/BuilderSlipCard";
 import MatchContextPanel from "@/components/builder/MatchContextPanel";
 import UnderpricedGemCard from "@/components/builder/UnderpricedGemCard";
+import PremiumGate from "@/components/subscription/PremiumGate";
+import { FEATURES } from "@/lib/subscription/config";
 
 export type BuilderMode = "standard" | "context";
 
@@ -125,6 +127,7 @@ export default function BuilderPage() {
   };
 
   return (
+    <PremiumGate feature={FEATURES.footballBuilder}>
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -480,5 +483,6 @@ export default function BuilderPage() {
         </>
       )}
     </main>
+    </PremiumGate>
   );
 }

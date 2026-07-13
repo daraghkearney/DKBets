@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { sportDataUrl } from "@/lib/sports/paths";
 import type { NbaPayload, NbaPlayerProps } from "@/lib/nba/client";
+import PremiumGate from "@/components/subscription/PremiumGate";
+import { FEATURES } from "@/lib/subscription/config";
 
 export default function NbaBuilderPage() {
   const [data, setData] = useState<NbaPayload | null>(null);
@@ -27,6 +29,7 @@ export default function NbaBuilderPage() {
   }, [data]);
 
   return (
+    <PremiumGate feature={FEATURES.nbaProps}>
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-bold">NBA Prop Builder</h1>
       <p className="mt-2 text-sm text-muted">
@@ -45,6 +48,7 @@ export default function NbaBuilderPage() {
         </p>
       )}
     </div>
+    </PremiumGate>
   );
 }
 

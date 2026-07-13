@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { StatToggle } from "@/components/stats/StatBlock";
 import { useSampleMode } from "@/components/SampleModeProvider";
 import type { PlayerTournamentStats } from "@/lib/stats/types";
+import PremiumGate from "@/components/subscription/PremiumGate";
+import { FEATURES } from "@/lib/subscription/config";
 
 interface Payload {
   byRating: Array<{ id: number; name: string; teamName: string; rating?: number; goals?: number }>;
@@ -74,6 +76,7 @@ export default function StatsPage() {
   );
 
   return (
+    <PremiumGate feature={FEATURES.footballStats}>
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -188,6 +191,7 @@ export default function StatsPage() {
         </>
       )}
     </main>
+    </PremiumGate>
   );
 }
 

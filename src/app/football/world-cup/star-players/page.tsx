@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useSampleMode } from "@/components/SampleModeProvider";
 import type { StarPlayerFixture, StarPlayersPayload } from "@/lib/builder/star-player";
 import StarPlayerFixtureCard from "@/components/star/StarPlayerFixtureCard";
+import PremiumGate from "@/components/subscription/PremiumGate";
+import { FEATURES } from "@/lib/subscription/config";
 
 export default function StarPlayersPage() {
   const { mode: sampleMode, sampleUrl } = useSampleMode();
@@ -35,6 +37,7 @@ export default function StarPlayersPage() {
   }, [sampleUrl, sampleMode]);
 
   return (
+    <PremiumGate feature={FEATURES.footballProps}>
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
       <div>
         <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-gold/40 bg-gold/10 px-3 py-1 text-xs font-bold text-gold">
@@ -79,6 +82,7 @@ export default function StarPlayersPage() {
         ))}
       </div>
     </main>
+    </PremiumGate>
   );
 }
 

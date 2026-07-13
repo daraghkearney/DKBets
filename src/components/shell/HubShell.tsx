@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { SampleModeProvider } from "@/components/SampleModeProvider";
 import SampleModeSelector from "@/components/SampleModeSelector";
 import RacingDayMeetingBar from "@/components/horse-racing/RacingDayMeetingBar";
+import AuthControls from "@/components/subscription/AuthControls";
 import { RacingSelectionProvider } from "@/components/horse-racing/RacingSelectionProvider";
 import { useSport } from "@/components/SportProvider";
 import { isLandingPath, sportRoute } from "@/lib/sports/paths";
@@ -97,12 +98,15 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
                 </p>
               </div>
             </Link>
-            <Link
-              href={sportRoute(sport!)}
-              className="rounded-xl border border-edge px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:border-accent/40 hover:text-foreground"
-            >
-              ← Change {sport === "horse-racing" ? "meeting" : "competition"}
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={sportRoute(sport!)}
+                className="rounded-xl border border-edge px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:border-accent/40 hover:text-foreground"
+              >
+                ← Change {sport === "horse-racing" ? "meeting" : "competition"}
+              </Link>
+              <AuthControls />
+            </div>
           </div>
         </div>
         <nav className="border-b border-edge bg-surface/80 backdrop-blur-md">

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRacingSelection } from "@/components/horse-racing/RacingSelectionProvider";
 import type {
   HorseRace,
@@ -9,6 +10,9 @@ import type {
   RacingWinnerReview,
   TipsterPick,
 } from "@/lib/horse-racing/types";
+import PremiumGate from "@/components/subscription/PremiumGate";
+import { usePremiumAccess } from "@/lib/subscription/access";
+import { FEATURES, isSubscriptionEnabled } from "@/lib/subscription/config";
 
 const FACTOR_LABELS: Record<RacingFactorKey, string> = {
   market: "Market",
@@ -291,10 +295,14 @@ function HotTipBanner({ pick }: { pick: TipsterPick }) {
 function RaceCard({
   race,
   hotPicks,
+  showPremium,
 }: {
   race: HorseRace;
   hotPicks: TipsterPick[];
+  showPremium: boolean;
 }) {
+  const runners = [...race.runners].sort((a, b) => b.overallScore - a.overallScore);
+  const visibleRunners = showPremium ? runners : runners.slice(0, 1);
   return (
     <section className="overflow-hidden rounded-2xl border border-edge bg-surface">
       <div className="border-b border-edge px-4 py-3">
@@ -319,9 +327,7 @@ function RaceCard({
       ))}
       {race.eachWayGem && <EachWayGemBanner gem={race.eachWayGem} />}
       <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-        {[...race.runners]
-          .sort((a, b) => b.overallScore - a.overallScore)
-          .map((r, i) => {
+        {visibleRunners.map((r, i) => {
             const isEwGem = race.eachWayGem?.runnerId === r.id;
             return (
             <div
@@ -353,7 +359,7 @@ function RaceCard({
                   {pct(r.overallScore)}
                 </span>
               </div>
-              {r.modelEdge != null && r.modelEdge >= 1.12 && (
+              {showPremium && r.modelEdge != null && r.modelEdge >= 1.12 && (
                 <p className="mt-1 text-[10px] font-bold text-emerald-300 tabular">
                   Value edge {r.modelEdge.toFixed(2)}× vs SP
                   {r.winProbability != null &&
@@ -392,6 +398,8 @@ function RaceCard({
                 </p>
               )}
               <div className="mt-2 grid grid-cols-4 gap-1 text-center text-[10px]">
+                {showPremium ? (
+                  <>
                 <div>
                   <p className="text-muted">Market</p>
                   <p className="font-bold tabular">{pct(r.marketScore)}</p>
@@ -424,6 +432,12 @@ function RaceCard({
                   <p className="text-muted">Tipster</p>
                   <p className="font-bold tabular">{pct(r.tipsterScore)}</p>
                 </div>
+                  </>
+                ) : (
+                  <p className="col-span-4 text-[10px] text-muted">
+                    Pro — full 13-factor breakdown for every runner
+                  </p>
+                )}
               </div>
               {r.spotlight && (
                 <p className="mt-2 border-t border-edge/60 pt-2 text-[10px] italic leading-relaxed text-muted">
@@ -441,11 +455,37 @@ function RaceCard({
             );
           })}
       </div>
+      {!showPremium && runners.length > 1 && (
+        <div className="border-t border-edge px-4 py-3">
+          <PremiumGate feature={FEATURES.racingIntel} compact />
+        </div>
+      )}
     </section>
   );
 }
 
 export default function RacingHub() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!isSubscriptionEnabled()) {
+    return <RacingHubBody showPremium={true} />;
+  }
+
+  if (!mounted) {
+    return <RacingHubBody showPremium={false} />;
+  }
+
+  return <RacingHubWithAccess />;
+}
+
+function RacingHubWithAccess() {
+  const { isPremium } = usePremiumAccess(FEATURES.racingIntel);
+  const showPremium = !isSubscriptionEnabled() || isPremium;
+  return <RacingHubBody showPremium={showPremium} />;
+}
+
+function RacingHubBody({ showPremium }: { showPremium: boolean }) {
   const {
     calendar,
     loading,
@@ -512,24 +552,31 @@ export default function RacingHub() {
 
         <div className="flex flex-col gap-8">
           {calendar?.performance && (
-            <PerformancePanel stats={calendar.performance} />
+            <PremiumGate feature={FEATURES.racingIntel}>
+              <PerformancePanel stats={calendar.performance} />
+            </PremiumGate>
           )}
 
           {calendar?.naps && calendar.naps.length > 0 && (
-            <NapPicksPanel naps={calendar.naps} />
+            <PremiumGate feature={FEATURES.racingIntel}>
+              <NapPicksPanel naps={calendar.naps} />
+            </PremiumGate>
           )}
 
           {calendar?.review && (
+            <PremiumGate feature={FEATURES.racingAnalysis}>
             <WinnerReviewPanel
               review={calendar.review}
               exportedAt={calendar.exportedAt}
             />
+            </PremiumGate>
           )}
 
           {races.map((race) => (
             <RaceCard
               key={race.id}
               race={race}
+              showPremium={showPremium}
               hotPicks={tipsters.filter(
                 (t) => t.hot && t.raceId === race.id
               )}
@@ -537,6 +584,7 @@ export default function RacingHub() {
           ))}
 
           {races.length > 0 && tipsters.length > 0 && (
+            <PremiumGate feature={FEATURES.racingIntel}>
             <section>
               <h2 className="mb-3 text-lg font-bold">
                 <span className="text-gold">★</span> Insider tipster
@@ -575,6 +623,7 @@ export default function RacingHub() {
                 ))}
               </div>
             </section>
+            </PremiumGate>
           )}
         </div>
       </div>

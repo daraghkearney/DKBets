@@ -68,6 +68,13 @@ export default function HomePage() {
           >
             Jump straight to World Cup →
           </Link>
+          {" · "}
+          <Link
+            href="/subscribe/"
+            className="text-gold underline underline-offset-2"
+          >
+            DKBets Pro from £14.99/mo →
+          </Link>
         </p>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AuthControls from "@/components/subscription/AuthControls";
 
 export default function LandingShell({
   children,
@@ -20,6 +21,7 @@ export default function LandingShell({
               </p>
             </div>
           </Link>
+          <AuthControls />
         </div>
       </header>
       <main className="flex-1">{children}</main>

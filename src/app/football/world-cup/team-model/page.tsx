@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useSampleMode } from "@/components/SampleModeProvider";
 import type { TeamModelEntry, TeamModelPayload } from "@/lib/builder/team-model";
 import TeamModelPanel from "@/components/team/TeamModelPanel";
+import PremiumGate from "@/components/subscription/PremiumGate";
+import { FEATURES } from "@/lib/subscription/config";
 
 export default function TeamModelPage() {
   const { mode: sampleMode, sampleUrl } = useSampleMode();
@@ -36,6 +38,7 @@ export default function TeamModelPage() {
   const withExtended = teams.filter((t) => t.extendedSlip);
 
   return (
+    <PremiumGate feature={FEATURES.footballProps}>
     <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
       <div>
         <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs font-bold text-accent">
@@ -86,5 +89,6 @@ export default function TeamModelPage() {
         ))}
       </div>
     </main>
+    </PremiumGate>
   );
 }

@@ -103,6 +103,8 @@ jobs:
           RACING_API_PASSWORD: ${{ secrets.RACING_API_PASSWORD }}
           RACING_BACKFILL_DAYS: "30"
           RACING_BACKFILL_MAX_PER_RUN: "5"
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_SUBSCRIPTION_ENABLED: ${{ secrets.CLERK_PUBLISHABLE_KEY != '' && 'true' || 'false' }}
 
       - name: Build static site
         run: npm run build

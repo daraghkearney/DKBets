@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AppShell from "@/components/AppShell";
+import SubscriptionRoot from "@/components/subscription/SubscriptionRoot";
 import { SportProvider } from "@/components/SportProvider";
 import "./globals.css";
 
@@ -31,9 +32,11 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        <SportProvider>
-          <AppShell>{children}</AppShell>
-        </SportProvider>
+        <SubscriptionRoot>
+          <SportProvider>
+            <AppShell>{children}</AppShell>
+          </SportProvider>
+        </SubscriptionRoot>
       </body>
     </html>
   );
