@@ -118,9 +118,13 @@ jobs:
           fi
 
       - name: Guard production Clerk key
-        if: vars.USE_CUSTOM_DOMAIN == 'true' && secrets.CLERK_PUBLISHABLE_KEY != ''
+        if: vars.USE_CUSTOM_DOMAIN == 'true'
         run: |
           KEY="${{ secrets.CLERK_PUBLISHABLE_KEY }}"
+          if [ -z "$KEY" ]; then
+            echo "No CLERK_PUBLISHABLE_KEY set — subscriptions stay disabled"
+            exit 0
+          fi
           if [[ "$KEY" == pk_test_* ]]; then
             echo "::error::CLERK_PUBLISHABLE_KEY is still pk_test_ but USE_CUSTOM_DOMAIN=true. Switch to pk_live_ from Clerk Production before go-live."
             exit 1
