@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { usePremiumAccess } from "@/lib/subscription/access";
 import type { FeatureSlug } from "@/lib/subscription/config";
 import { isSubscriptionEnabled } from "@/lib/subscription/config";
+import { isFootballFreeDuringWorldCup } from "@/lib/marketing/world-cup-promo";
+import SignUpPrompt from "./SignUpPrompt";
 import UpgradePrompt from "./UpgradePrompt";
 
 function PremiumGateInner({
@@ -17,7 +19,9 @@ function PremiumGateInner({
   compact?: boolean;
   teaser?: React.ReactNode;
 }) {
-  const { isLoading, isPremium } = usePremiumAccess(feature);
+  const { isLoading, isPremium, isSignedIn } = usePremiumAccess(feature);
+  const needsSignUp =
+    isFootballFreeDuringWorldCup(feature) && !isSignedIn && !isPremium;
 
   if (isLoading) {
     return (
@@ -29,6 +33,15 @@ function PremiumGateInner({
 
   if (isPremium) {
     return children ? <>{children}</> : null;
+  }
+
+  if (needsSignUp) {
+    return (
+      <div className={compact ? "" : "py-8"}>
+        {teaser}
+        <SignUpPrompt compact={compact} />
+      </div>
+    );
   }
 
   return (

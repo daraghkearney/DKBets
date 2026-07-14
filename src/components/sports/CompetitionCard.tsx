@@ -54,8 +54,7 @@ export default function CompetitionCard({
         ))}
       </div>
 
-      <div className="mt-5 flex items-center justify-between text-xs">
-        <span className="text-muted">{competition.dataSource}</span>
+      <div className="mt-5 flex items-center justify-end text-xs">
         {competition.live ? (
           <span
             className="font-bold transition-transform group-hover:translate-x-1"

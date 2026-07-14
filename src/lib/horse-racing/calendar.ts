@@ -85,7 +85,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
   const days: RacingCalendarDay[] = [];
   const debugNotes: string[] = [];
   let source = "hrnet";
-  let sourceLabel = "HorseRacing.net";
+  let sourceLabel = "Live racecards";
   let anyLive = false;
   let anyHrn = false;
   const hrnNotes: string[] = [];
@@ -161,16 +161,16 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
 
   if (anyLive && anyHrn) {
     source = "racing-api+hrnet";
-    sourceLabel = "The Racing API + HorseRacing.net";
+    sourceLabel = "Live racecards";
   } else if (anyLive) {
     source = "racing-api";
-    sourceLabel = "The Racing API + Tavily";
+    sourceLabel = "Live racecards";
   } else if (anyHrn) {
     source = "hrnet";
-    sourceLabel = "HorseRacing.net";
+    sourceLabel = "Live racecards";
   } else {
     source = "demo+web";
-    sourceLabel = "Demo cards";
+    sourceLabel = "Sample racecards";
   }
 
   const hrnPicks: TipsterPick[] = [];

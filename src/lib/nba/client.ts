@@ -312,7 +312,7 @@ export async function buildNbaPayload(): Promise<NbaPayload> {
     season,
     seasonType: "Regular Season",
     source: "nba.com",
-    sourceLabel: `NBA.com Stats · ${season}`,
+    sourceLabel: `Live stats · ${season}`,
     exportedAt: new Date().toISOString(),
     leaders,
     scoreboard,

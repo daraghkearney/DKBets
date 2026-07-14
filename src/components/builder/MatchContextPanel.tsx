@@ -31,8 +31,8 @@ const KIND_COLOR: Record<ContextInsightKind, string> = {
 };
 
 const SOURCE_LABEL: Record<ContextInsightSource, string> = {
-  fotmob: "FotMob",
-  web: "Web",
+  fotmob: "Stats",
+  web: "Research",
 };
 
 function sourceBadge(source: ContextInsightSource | undefined) {

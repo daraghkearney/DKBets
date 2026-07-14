@@ -88,8 +88,7 @@ export default function StarPlayerFixtureCard({
               </div>
             ) : liveOdds === false ? (
               <p className="mt-3 text-xs text-muted">
-                Live Bet365 odds are not available — builder legs need real prices
-                from odds-api.io.
+                Live Bet365 odds are not available — builder legs need real prices.
               </p>
             ) : (
               <p className="mt-3 text-xs text-muted">

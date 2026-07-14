@@ -54,10 +54,7 @@ export default function SportCard({ sport }: { sport: SportConfig }) {
           ))}
         </ul>
 
-        <div className="mt-6 flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-widest text-muted">
-            via {sport.dataSource}
-          </span>
+        <div className="mt-6 flex items-center justify-end">
           <span
             className="text-sm font-bold transition-transform group-hover:translate-x-1"
             style={{ color: sport.accent }}

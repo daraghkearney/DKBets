@@ -48,18 +48,18 @@ export default function HomePage() {
             {worldCupFree && (
               <div className="mx-auto mt-4 max-w-xl rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-left sm:mt-5 lg:mx-0">
                 <p className="text-sm font-semibold text-emerald-300">
-                  Free for World Cup semis &amp; final
+                  Free World Cup access — sign up required
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Full football access — builders, star players, matchups and stats.
-                  No card needed until {freeEndLabel}. Racing &amp; NBA stay on Pro
-                  plans.
+                  Create a free account to unlock football Pro — builders, star
+                  players, matchups and stats until {freeEndLabel}. Racing &amp;
+                  NBA stay on paid plans.
                 </p>
                 <Link
-                  href="/football/world-cup/builder/"
+                  href="/sign-up/"
                   className="mt-2 inline-block text-xs font-bold text-accent underline underline-offset-2"
                 >
-                  Open Bet365 builder →
+                  Create free account →
                 </Link>
               </div>
             )}

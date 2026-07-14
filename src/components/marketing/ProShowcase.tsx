@@ -82,8 +82,8 @@ export default function ProShowcase() {
 
   const slide = SLIDES[active];
   const worldCupFree = isWorldCupFreeActive();
+  const signUpHref = useAttributionHref("/sign-up/");
   const builderHref = useAttributionHref("/football/world-cup/builder/");
-  const starPlayersHref = useAttributionHref("/football/world-cup/star-players/");
   const subscribeHref = useAttributionHref("/subscribe/");
 
   return (
@@ -240,16 +240,16 @@ export default function ProShowcase() {
         {worldCupFree ? (
           <>
             <Link
-              href={builderHref}
+              href={signUpHref}
               className="rounded-xl bg-accent px-6 py-2.5 text-sm font-bold text-background transition-opacity hover:opacity-90"
             >
-              Try World Cup free
+              Sign up free
             </Link>
             <Link
-              href={starPlayersHref}
+              href={builderHref}
               className="rounded-xl border border-edge px-6 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-gold/40 hover:text-foreground"
             >
-              Star players →
+              Explore World Cup →
             </Link>
           </>
         ) : (

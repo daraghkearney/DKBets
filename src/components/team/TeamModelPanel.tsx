@@ -166,7 +166,7 @@ export default function TeamModelPanel({
               ) : liveOdds === false ? (
                 <p className="text-xs text-muted">
                   Live Bet365 odds are not available — model legs need real
-                  prices from odds-api.io.
+                  prices from live markets.
                 </p>
               ) : entry.pricedLegs === 0 ? (
                 <p className="text-xs text-muted">

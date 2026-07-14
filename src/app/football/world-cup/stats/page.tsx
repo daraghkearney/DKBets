@@ -83,16 +83,7 @@ export default function StatsPage() {
           <h1 className="text-2xl font-bold tracking-tight">Player Stats</h1>
           <p className="text-sm text-muted">
             Player numbers for the selected stats sample — fouls, shots, cards
-            and more. Data via{" "}
-            <a
-              href="https://www.fotmob.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-accent hover:underline"
-            >
-              FotMob
-            </a>
-            .
+            and more.
           </p>
         </div>
         <StatToggle mode={viewMode} setMode={setViewMode} />

@@ -1,0 +1,32 @@
+name: World Cup free-ending reminder
+
+on:
+  schedule:
+    # Daily at 09:00 UTC during promo week — script only sends inside 48h window
+    - cron: "0 9 14-20 7 *"
+  workflow_dispatch:
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Send reminder emails
+        run: npm run remind:world-cup
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          REMINDER_FROM_EMAIL: ${{ vars.REMINDER_FROM_EMAIL }}
+          NEXT_PUBLIC_WORLD_CUP_FREE_UNTIL: "2026-07-20T23:59:59Z"
+          REMINDER_HOURS_BEFORE: "48"

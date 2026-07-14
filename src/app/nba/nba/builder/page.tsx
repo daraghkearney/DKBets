@@ -44,7 +44,7 @@ export default function NbaBuilderPage() {
         </div>
       ) : (
         <p className="mt-8 text-sm text-muted">
-          Awaiting NBA export — run deploy with NBA.com access.
+          Awaiting NBA export — stats pipeline not yet available.
         </p>
       )}
     </div>

@@ -18,7 +18,7 @@ export default function NbaStatsPage() {
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-bold">NBA Player Stats</h1>
       <p className="mt-2 text-sm text-muted">
-        Per-game leaders from NBA.com — the basketball equivalent of FotMob deep
+        Per-game leaders from live season data — usage, shooting and matchup
         stats. Prop hit-rates and builder legs coming next.
       </p>
 

@@ -93,7 +93,6 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
                   </span>
                 </p>
                 <p className="text-[11px] text-muted">
-                  {competitionConfig?.dataSource} ·{" "}
                   {competitionConfig?.tagline ?? "Research hub"}
                 </p>
               </div>
@@ -139,8 +138,7 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
       </header>
       {body}
       <footer className="mt-auto border-t border-edge py-6 text-center text-[11px] text-muted">
-        {BRAND.name} · {sportConfig?.label} · {competitionConfig?.dataSource} · 18+ ·
-        GambleAware.org
+        {BRAND.name} · {sportConfig?.label} · 18+ · GambleAware.org
       </footer>
     </SampleModeProvider>
   );

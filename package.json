@@ -8,6 +8,7 @@
     "backfill:racing": "tsx scripts/backfill-racing-history.ts",
     "probe:odds-api": "tsx scripts/probe-odds-api.ts",
     "dump:bet365-markets": "tsx scripts/dump-bet365-markets.ts",
+    "remind:world-cup": "tsx scripts/send-world-cup-reminder.ts",
     "build": "next build",
     "build:pages": "npm run export:data && npm run build",
     "start": "next start",

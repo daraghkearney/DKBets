@@ -253,7 +253,7 @@ export async function augmentMatchContextWithWeb(
   return {
     ...report,
     webResearchAvailable: true,
-    summary: `${report.summary.replace(/\.$/, "")} · ${webInsights.length} web source${webInsights.length === 1 ? "" : "s"} via Tavily.`,
+    summary: `${report.summary.replace(/\.$/, "")} · ${webInsights.length} research source${webInsights.length === 1 ? "" : "s"} added.`,
     insights: merged.slice(0, 20),
   };
 }

@@ -21,7 +21,7 @@ export default function NbaHubPage() {
         <div className="mx-auto max-w-7xl">
           <h1 className="text-2xl font-bold sm:text-3xl">NBA Games Hub</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            {data?.sourceLabel ?? "NBA.com Stats"} — scoreboard, season leaders
+            {data?.sourceLabel ?? "Live stats"} — scoreboard, season leaders
             and last-20 game prop hit-rates.
           </p>
         </div>

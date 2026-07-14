@@ -215,8 +215,11 @@ function RaceCard({
   hotPicks: TipsterPick[];
   showPremium: boolean;
 }) {
-  const runners = [...race.runners].sort((a, b) => b.overallScore - a.overallScore);
-  const visibleRunners = showPremium ? runners : runners.slice(0, 1);
+  const runners = showPremium
+    ? [...race.runners].sort((a, b) => b.overallScore - a.overallScore)
+    : [...race.runners].sort((a, b) => a.name.localeCompare(b.name));
+  const visibleHotPicks = showPremium ? hotPicks : [];
+
   return (
     <section className="overflow-hidden rounded-2xl border border-edge bg-surface">
       <div className="border-b border-edge px-4 py-3">
@@ -227,7 +230,7 @@ function RaceCard({
         <p className="text-xs text-muted">
           {race.distance} · {race.going} · {race.raceClass}
         </p>
-        {race.verdict && (
+        {showPremium && race.verdict && (
           <p className="mt-2 rounded-lg border border-edge/60 bg-background/40 px-3 py-2 text-xs leading-relaxed text-muted">
             <span className="font-bold uppercase tracking-wide text-gold/80">
               Verdict:{" "}
@@ -236,18 +239,22 @@ function RaceCard({
           </p>
         )}
       </div>
-      {hotPicks.map((p) => (
+      {visibleHotPicks.map((p) => (
         <HotTipBanner key={p.id} pick={p} />
       ))}
-      {race.eachWayGem && <EachWayGemBanner gem={race.eachWayGem} />}
+      {showPremium && race.eachWayGem && (
+        <EachWayGemBanner gem={race.eachWayGem} />
+      )}
       <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-        {visibleRunners.map((r, i) => {
-            const isEwGem = race.eachWayGem?.runnerId === r.id;
+        {runners.map((r) => {
+            const isEwGem =
+              showPremium && race.eachWayGem?.runnerId === r.id;
+            const isTopPick = showPremium && r.id === runners[0]?.id;
             return (
             <div
               key={r.id}
               className={`rounded-xl border p-3 ${
-                i === 0
+                isTopPick
                   ? "border-gold/50 bg-gold/10"
                   : isEwGem
                     ? "border-emerald-500/45 bg-emerald-500/10"
@@ -256,11 +263,10 @@ function RaceCard({
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="font-bold">
-                  {i === 0 && <span className="mr-1 text-gold">①</span>}
-                  {i === 1 && !isEwGem && <span className="mr-1 text-muted">②</span>}
+                  {isTopPick && <span className="mr-1 text-gold">①</span>}
                   {isEwGem && <span className="mr-1 text-emerald-300">💎</span>}
                   {r.name}
-                  {r.tipsterScore > 0.6 && (
+                  {showPremium && r.tipsterScore > 0.6 && (
                     <span
                       className="ml-1 text-amber-300"
                       title="Backed by tipster intelligence"
@@ -269,9 +275,11 @@ function RaceCard({
                     </span>
                   )}
                 </p>
-                <span className="shrink-0 rounded-full bg-gold/15 px-2 py-0.5 text-xs font-bold tabular text-gold">
-                  {pct(r.overallScore)}
-                </span>
+                {showPremium && (
+                  <span className="shrink-0 rounded-full bg-gold/15 px-2 py-0.5 text-xs font-bold tabular text-gold">
+                    {pct(r.overallScore)}
+                  </span>
+                )}
               </div>
               {showPremium && r.modelEdge != null && r.modelEdge >= 1.12 && (
                 <p className="mt-1 text-[10px] font-bold text-emerald-300 tabular">
@@ -297,7 +305,7 @@ function RaceCard({
                   <span className="tabular">TS {r.topspeed}</span>
                 )}
                 {r.draw && <span className="tabular">Dr {r.draw}</span>}
-                {(r.tipCount ?? 0) > 0 && (
+                {showPremium && (r.tipCount ?? 0) > 0 && (
                   <span
                     className="font-semibold text-amber-300"
                     title={(r.tippedBy ?? []).join(", ")}
@@ -306,14 +314,15 @@ function RaceCard({
                   </span>
                 )}
               </p>
-              {(r.tipCount ?? 0) > 0 && (r.tippedBy?.length ?? 0) > 0 && (
+              {showPremium &&
+                (r.tipCount ?? 0) > 0 &&
+                (r.tippedBy?.length ?? 0) > 0 && (
                 <p className="mt-1 text-[10px] leading-relaxed text-amber-200/90">
                   Tipped by {(r.tippedBy ?? []).slice(0, 3).join(", ")}
                 </p>
               )}
+              {showPremium && (
               <div className="mt-2 grid grid-cols-4 gap-1 text-center text-[10px]">
-                {showPremium ? (
-                  <>
                 <div>
                   <p className="text-muted">Market</p>
                   <p className="font-bold tabular">{pct(r.marketScore)}</p>
@@ -346,19 +355,14 @@ function RaceCard({
                   <p className="text-muted">Tipster</p>
                   <p className="font-bold tabular">{pct(r.tipsterScore)}</p>
                 </div>
-                  </>
-                ) : (
-                  <p className="col-span-4 text-[10px] text-muted">
-                    Pro — full 13-factor breakdown for every runner
-                  </p>
-                )}
               </div>
-              {r.spotlight && (
+              )}
+              {(showPremium ? r.spotlight : null) && (
                 <p className="mt-2 border-t border-edge/60 pt-2 text-[10px] italic leading-relaxed text-muted">
                   {r.spotlight}
                 </p>
               )}
-              {r.notes.length > 0 && (
+              {showPremium && r.notes.length > 0 && (
                 <p
                   className={`${r.spotlight ? "mt-1" : "mt-2 border-t border-edge/60 pt-2"} text-[10px] leading-relaxed text-muted`}
                 >
@@ -369,11 +373,6 @@ function RaceCard({
             );
           })}
       </div>
-      {!showPremium && runners.length > 1 && (
-        <div className="border-t border-edge px-4 py-3">
-          <PremiumGate feature={FEATURES.racingIntel} compact />
-        </div>
-      )}
     </section>
   );
 }
@@ -417,24 +416,14 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
             {selectedMeeting?.name ?? "Horse Racing"}
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            {calendar?.sourceLabel ??
-              "Market, ground, trip, course, form and insider tipster intelligence — weighted by results learned from every completed race day."}
+            Model-weighted form, course fit, market signals and tipster
+            intelligence — updated from every completed race day.
           </p>
-          {calendar?.source === "racing-api" && (
+          {calendar?.source &&
+            !calendar.source.startsWith("demo") && (
             <span className="mt-2 inline-block rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
-              Live cards · {calendar.sourceLabel}
+              Live racecards
             </span>
-          )}
-          {(calendar?.source === "racing-api+hrnet" ||
-            calendar?.source === "hrnet") && (
-            <span className="mt-2 inline-block rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
-              Live cards · {calendar.sourceLabel}
-            </span>
-          )}
-          {calendar?.source !== "racing-api" && calendar?.racingApiDebug && (
-            <p className="mt-2 text-[11px] text-amber-300">
-              Demo cards shown — API: {calendar.racingApiDebug.slice(0, 120)}
-            </p>
           )}
           {calendar?.model && (
             <p className="mt-2 text-[11px] text-muted">
@@ -469,7 +458,7 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
             </PremiumGate>
           )}
 
-          {calendar?.performance && (
+          {calendar?.performance && showPremium && (
             <PerformancePanel stats={calendar.performance} />
           )}
 
@@ -483,6 +472,10 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
               )}
             />
           ))}
+
+          {!showPremium && races.length > 0 && (
+            <PremiumGate feature={FEATURES.racingIntel} compact />
+          )}
 
           {races.length > 0 && tipsters.length > 0 && (
             <PremiumGate feature={FEATURES.racingIntel}>

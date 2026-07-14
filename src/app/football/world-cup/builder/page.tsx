@@ -137,10 +137,8 @@ export default function BuilderPage() {
           <h1 className="text-2xl font-bold tracking-tight">Bet365 Builder</h1>
           <p className="max-w-2xl text-sm text-muted">
             Stats pick the legs — live Bet365 odds price them. We only add
-            selections that have a current Bet365 price from odds-api.io; hit
-            rates come from tournament form and player matchups (FotMob).
-            {!apiConfigured &&
-              " Add ODDS_API_IO_KEY in GitHub Actions secrets to enable live odds."}
+            selections that have a current live Bet365 price; hit rates come
+            from tournament form and player matchups.
             {apiConfigured && !liveAvailable &&
               " No live Bet365 prices matched right now — check back closer to kickoff."}
             {liveAvailable &&
@@ -214,7 +212,7 @@ export default function BuilderPage() {
                   {builderMode === "standard"
                     ? "Maximises combined hit-rate from tournament stats and live Bet365 prices."
                     : data?.webResearchConfigured
-                      ? "Ranks legs using FotMob duels, formations and team tendencies — plus Tavily web previews when cached at export."
+                      ? "Ranks legs using matchup duels, formations and team tendencies — plus tactical previews when available."
                       : "Ranks legs using matchup duels, career H2H, formation fit and team tendencies — each selection includes supporting research."}
                 </p>
               </div>
@@ -341,10 +339,10 @@ export default function BuilderPage() {
               <p className="mb-4 text-xs text-muted">
                 Deep factors behind context-backed builders — career player
                 duels, formation matchups, team shot/foul profiles and
-                tournament form from FotMob
+                tournament form
                 {data?.webResearchConfigured
-                  ? ", plus tactical previews and H2H notes from web sources (Tavily)."
-                  : " data."}
+                  ? ", plus tactical previews and H2H notes from our research layer."
+                  : "."}
               </p>
               <MatchContextPanel
                 reports={contextReports}
@@ -465,8 +463,8 @@ export default function BuilderPage() {
                 career H2H). Only legs with a live Bet365 price are included.
               </li>
               <li>
-                All odds are live Bet365 prices via odds-api.io — we never
-                estimate or calibrate prices.
+                All odds are live Bet365 prices — we never estimate or calibrate
+                prices.
               </li>
               <li>
                 Player props: shots, SOT, fouls committed, to be fouled,
@@ -474,8 +472,8 @@ export default function BuilderPage() {
               </li>
               <li>
                 Each slip includes an <strong className="text-foreground">Open on Bet365</strong>{" "}
-                link when odds-api.io provides deep links — cross-game accas load
-                pre-filled where supported; same-game Bet Builder opens the match.
+                link where supported — cross-game accas load pre-filled where
+                possible; same-game Bet Builder opens the match.
               </li>
               <li>Bet365 only — no other bookmakers in this section.</li>
             </ul>

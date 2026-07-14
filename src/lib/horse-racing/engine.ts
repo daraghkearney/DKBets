@@ -114,7 +114,7 @@ export async function buildHorseRacingPayload(
 ): Promise<HorseRacingPayload> {
   let races: HorseRace[] | null = null;
   let source = "demo+web";
-  let sourceLabel = "Demo cards + Tavily tipsters";
+  let sourceLabel = "Sample racecards";
   let racingApiDebug: string | undefined;
 
   if (isRacingApiConfigured()) {
@@ -124,7 +124,7 @@ export async function buildHorseRacingPayload(
     if (result.races.length) {
       races = result.races;
       source = "racing-api";
-      sourceLabel = "The Racing API + Tavily";
+      sourceLabel = "Live racecards";
       console.log(`  racing api: ${races.length} live races for ${meeting}`);
     } else {
       console.warn(`  racing api: no races for ${meeting} — ${result.debug}`);

@@ -26,10 +26,8 @@ export default function NbaPickerPage() {
           </div>
         </div>
         <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted">
-          Player props powered by{" "}
-          <strong className="text-foreground">NBA.com Stats</strong> — the
-          closest equivalent to FotMob for basketball: game logs, usage, shooting
-          splits and defensive matchup edges.
+          Player props powered by live game logs, usage rates, shooting splits and
+          defensive matchup edges.
         </p>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2">

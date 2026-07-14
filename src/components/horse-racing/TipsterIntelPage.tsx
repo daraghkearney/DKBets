@@ -77,7 +77,7 @@ export default function TipsterIntelPage() {
         <p className="mt-8 text-sm text-muted">
           {calendar?.tipsters.length
             ? "No tipster signals matched to this meeting — try Today or another course."
-            : "No tipster data yet — run export with Tavily web research enabled."}
+            : "No tipster data yet — check back after the next data refresh."}
         </p>
       )}
 

@@ -29,7 +29,7 @@ export const SAMPLE_MODES: SampleModeOption[] = [
     label: "All Time National Team Stats",
     shortLabel: "National team",
     description:
-      "International matches from each player's FotMob profile (World Cup, Euros, qualifiers, friendlies).",
+      "International matches from each player's national-team history (World Cup, Euros, qualifiers, friendlies).",
   },
   {
     id: "last50",

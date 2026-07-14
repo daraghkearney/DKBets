@@ -49,10 +49,26 @@ export function usePremiumAccess(feature?: FeatureSlug): PremiumAccess {
   }
 
   if (isFootballFreeDuringWorldCup(feature)) {
+    if (!isLoaded) {
+      return {
+        enabled: true,
+        isLoading: true,
+        isSignedIn: false,
+        isPremium: false,
+      };
+    }
+    if (!isSignedIn) {
+      return {
+        enabled: true,
+        isLoading: false,
+        isSignedIn: false,
+        isPremium: false,
+      };
+    }
     return {
       enabled: true,
-      isLoading: !isLoaded,
-      isSignedIn: isLoaded ? !!isSignedIn : false,
+      isLoading: false,
+      isSignedIn: true,
       isPremium: true,
     };
   }

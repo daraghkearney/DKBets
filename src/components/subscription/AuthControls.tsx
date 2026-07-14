@@ -16,7 +16,7 @@ import Link from "next/link";
 function AuthControlsInner() {
   const { isPremium } = usePremiumAccess();
   const worldCupFree = isWorldCupFreeActive();
-  const builderHref = useAttributionHref("/football/world-cup/builder/");
+  const signUpHref = useAttributionHref("/sign-up/");
   const subscribeHref = useAttributionHref("/subscribe/");
 
   return (
@@ -32,10 +32,10 @@ function AuthControlsInner() {
         </SignInButton>
         {worldCupFree ? (
           <Link
-            href={builderHref}
+            href={signUpHref}
             className="rounded-lg bg-accent/90 px-3 py-1.5 text-xs font-bold text-background transition-opacity hover:opacity-90"
           >
-            Try World Cup free
+            Sign up free
           </Link>
         ) : (
           <Link

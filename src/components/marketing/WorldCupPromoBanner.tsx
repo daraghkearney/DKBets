@@ -64,12 +64,13 @@ export default function WorldCupPromoBanner({ compact = false }: { compact?: boo
             World Cup launch offer
           </p>
           <p className="mt-0.5 text-sm font-semibold sm:text-base">
-            Football Pro is{" "}
-            <span className="text-emerald-300">free</span> for semis &amp; final —
-            no card needed
+            Sign up for{" "}
+            <span className="text-emerald-300">free</span> World Cup access —
+            semis &amp; final, no card needed
           </p>
           <p className="mt-0.5 text-xs text-muted">
-            Builders, star players, matchups &amp; stats unlocked until {endLabel}
+            Create an account to unlock builders, star players, matchups &amp;
+            stats until {endLabel}
           </p>
         </div>
 
@@ -79,10 +80,10 @@ export default function WorldCupPromoBanner({ compact = false }: { compact?: boo
           </p>
           <div className="flex flex-wrap justify-center gap-2 sm:justify-end">
             <Link
-              href={builderHref}
+              href="/sign-up/"
               className="rounded-lg bg-accent px-4 py-1.5 text-xs font-bold text-background transition-opacity hover:opacity-90"
             >
-              Try Bet365 builder
+              Sign up free
             </Link>
             <Link
               href={starHref}

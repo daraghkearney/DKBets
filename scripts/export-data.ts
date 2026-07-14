@@ -56,8 +56,7 @@ async function exportSampleMode(mode: StatsSampleMode) {
   const sampleMeta = {
     sampleMode: mode,
     sampleLabel: sampleModeLabel(mode),
-    source: "fotmob",
-    sourceLabel: `FotMob · ${sampleModeLabel(mode)}`,
+    sourceLabel: sampleModeLabel(mode),
     exportedAt: new Date().toISOString(),
   };
 
