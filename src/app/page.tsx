@@ -1,6 +1,7 @@
 import Link from "next/link";
 import ProShowcase from "@/components/marketing/ProShowcase";
 import SportQuickNav from "@/components/marketing/SportQuickNav";
+import StatmanacWordmark from "@/components/brand/StatmanacWordmark";
 import SportCard from "@/components/sports/SportCard";
 import { SPORTS } from "@/lib/sports/config";
 import { PRICING } from "@/lib/subscription/config";
@@ -32,10 +33,7 @@ export default function HomePage() {
               {BRAND.tagline}
             </p>
             <h1 className="mt-3 text-3xl font-black tracking-tight sm:mt-4 sm:text-5xl xl:text-[3.25rem] xl:leading-[1.1]">
-              Welcome to{" "}
-              <span className="bg-gradient-to-r from-accent via-gold to-orange-400 bg-clip-text text-transparent">
-                {BRAND.name}
-              </span>
+              Welcome to <StatmanacWordmark size="hero" className="align-baseline" />
             </h1>
             <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted sm:mt-5 sm:text-lg lg:mx-0">
               {BRAND.description}
