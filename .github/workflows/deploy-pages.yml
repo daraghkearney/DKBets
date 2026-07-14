@@ -117,6 +117,16 @@ jobs:
             echo "path=/${{ github.event.repository.name }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Guard production Clerk key
+        if: vars.USE_CUSTOM_DOMAIN == 'true' && secrets.CLERK_PUBLISHABLE_KEY != ''
+        run: |
+          KEY="${{ secrets.CLERK_PUBLISHABLE_KEY }}"
+          if [[ "$KEY" == pk_test_* ]]; then
+            echo "::error::CLERK_PUBLISHABLE_KEY is still pk_test_ but USE_CUSTOM_DOMAIN=true. Switch to pk_live_ from Clerk Production before go-live."
+            exit 1
+          fi
+          echo "Clerk key OK for production (pk_live_*)"
+
       - name: Build static site
         run: npm run build
         env:

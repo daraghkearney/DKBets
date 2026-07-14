@@ -88,11 +88,13 @@ CLERK_SECRET_KEY=sk_test_...
 NEXT_PUBLIC_SUBSCRIPTION_ENABLED=true
 ```
 
-For GitHub Actions → repo **Settings → Secrets → Actions**:
+For GitHub Actions → repo **Settings → Secrets and variables → Actions**:
 
-| Secret | Purpose |
-|--------|---------|
-| `CLERK_PUBLISHABLE_KEY` | Baked into static build as `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` |
+| Secret / variable | Purpose |
+|-------------------|---------|
+| `CLERK_PUBLISHABLE_KEY` | Baked into static build as `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` — use `pk_live_...` in production |
+| `CLERK_SECRET_KEY` | World Cup reminder emails (`world-cup-reminder.yml`) — use `sk_live_...` in production |
+| `USE_CUSTOM_DOMAIN` (variable) | Set `true` when `statmanac.com` DNS is live |
 
 Until a Clerk publishable key is set, **all content stays free**. With a key present, subscriptions auto-enable (set `NEXT_PUBLIC_SUBSCRIPTION_ENABLED=false` to force free mode locally).
 
@@ -135,16 +137,17 @@ This site uses `output: "export"`. Auth uses `@clerk/clerk-react` via a client-s
 
 ## 6. Pricing reference
 
-Configured in `src/lib/subscription/config.ts` (USD charged, GBP shown in marketing):
+Configured in `src/lib/subscription/config.ts` (USD charged at checkout; GBP/EUR shown on `/subscribe/`):
 
-| Plan slug | USD/mo | GBP display |
-|-----------|--------|-------------|
-| `football` | $14.99 | £11.99 |
-| `racing` | $17.99 | £14.99 |
-| `nba` | $12.99 | £9.99 |
-| `pro` | $24.99/mo · $16.66/mo annual · $199/yr | £24.99 · £199 |
+| Plan slug | USD/mo | GBP display | EUR display |
+|-----------|--------|-------------|-------------|
+| `football` | $14.99 | £11.18 | €13.09 |
+| `racing` | $17.99 | £13.41 | €15.71 |
+| `nba` | $12.99 | £9.68 | €11.35 |
+| `pro` | $24.99/mo | £18.63/mo | €21.83/mo |
+| `pro` annual | $199/yr ($16.66/mo equiv.) | £148.35/yr | €173.84/yr |
 
-Match these in the Clerk Dashboard.
+Match USD prices in the Clerk Dashboard. Annual field in Clerk = **monthly equivalent** ($16.66), not $199.
 
 ## 7. Custom domain (statmanac.com)
 
@@ -191,30 +194,120 @@ In **Clerk Production** → **Configure → Domains**, add:
 
 Keep `http://localhost:3000` for local dev.
 
-## 8. Live Stripe payments
+## 8. Production go-live (Stripe Live + Clerk Production)
 
-Clerk **Development** and **Production** are separate instances. Plans, users, and Stripe connections do not carry over — you must set up Production.
+Clerk **Development** and **Production** are completely separate. Test users, plans, Stripe connections, and keys do **not** carry over. You must configure Production from scratch.
 
-### Checklist
+**Do not create subscription products in Stripe manually.** Clerk Billing creates Stripe prices when you add plans in the Clerk Dashboard.
 
-| Step | Where | Action |
-|------|-------|--------|
-| 1 | Stripe | Complete business verification, add payout bank account |
-| 2 | Stripe | Switch to **Live** mode |
-| 3 | Clerk | Open **Production** instance (toggle in Dashboard) |
-| 4 | Clerk Production | **Billing → Settings** → connect your **live** Stripe account |
-| 5 | Clerk Production | Recreate all 4 plans + features (same slugs as dev) |
-| 6 | GitHub | Update secret `CLERK_PUBLISHABLE_KEY` to `pk_live_...` from Production |
-| 7 | GitHub | Set `USE_CUSTOM_DOMAIN=true` when DNS is live |
-| 8 | Deploy | Push or re-run workflow; test checkout on `statmanac.com/subscribe/` |
+### Phase A — Stripe (live payments)
 
-### Test live checkout
+1. Go to [dashboard.stripe.com](https://dashboard.stripe.com) and complete **Activate your account**:
+   - Business type, address, identity verification
+   - Payout bank account (where subscription revenue lands)
+2. Toggle **Test mode → Live** (top-right). You are now in live mode.
+3. **Settings → Business settings → Public business name** → set **Statmanac** (appears on card statements).
+4. Leave Products/Prices empty — Clerk manages these via Billing.
 
-1. Sign up with a real email on production
-2. Subscribe with a real card (or use Stripe test mode only in dev — live mode charges real money)
-3. Confirm gated pages unlock and Stripe Dashboard → Customers shows the subscription
+### Phase B — Clerk Production instance
 
-**Note:** Clerk billing is USD-only. Your marketing copy can still show £/€ equivalents.
+1. Open [dashboard.clerk.com](https://dashboard.clerk.com).
+2. Switch the instance toggle from **Development** to **Production** (top of sidebar). This is a fresh environment.
+3. **Configure → API keys** — copy and store safely:
+   - Publishable: `pk_live_...`
+   - Secret: `sk_live_...` (needed for reminder emails + API; never commit)
+4. **Configure → Domains** — add allowed origins:
+   - `https://statmanac.com`
+   - `https://www.statmanac.com`
+   - `http://localhost:3000` (optional, for local dev against production — usually keep dev keys locally instead)
+5. **Customization → Application** (or **Settings → General**):
+   - Application name: **Statmanac**
+   - Support email: your real support address
+6. **Customization → Emails** — update templates so they say **Statmanac**, not DKBets or a default Clerk app name. Check: welcome, magic link, subscription receipts.
+
+### Phase C — Clerk Billing + live Stripe
+
+1. **Billing → Settings** → enable billing → **Connect Stripe** → choose your **live** Stripe account (not test).
+2. **Billing → Features** — create each feature slug **exactly** as below (create features before plans):
+
+| Feature slug | Display name (your choice) |
+|--------------|----------------------------|
+| `football_builder` | Football builder |
+| `football_props` | Football props |
+| `football_stats` | Football stats |
+| `racing_intel` | Racing intel |
+| `racing_analysis` | Racing analysis |
+| `nba_props` | NBA props |
+| `full_access` | Full access |
+
+3. **Billing → Plans for Users** (not Organizations) — create each plan:
+
+| Slug | Name | Monthly USD | Annual | Features | Public | Trial |
+|------|------|-------------|--------|----------|--------|-------|
+| `football` | Football Pro | $14.99 | — | `football_builder`, `football_props`, `football_stats` | ON | — |
+| `racing` | Racing Pro | $17.99 | — | `racing_intel`, `racing_analysis` | ON | — |
+| `nba` | NBA Pro | $12.99 | — | `nba_props` | ON | — |
+| `pro` | All-Access Pro | $24.99 | **$16.66**/mo equiv. | `full_access` | ON | 7 days |
+| `family` | Family (internal) | $0.00 | — | `full_access` | **OFF** | — |
+
+**Annual pricing:** Clerk's annual field is the monthly equivalent. For $199/year, enter **$16.66** — not $199.
+
+4. Open `https://statmanac.com/subscribe/` after deploy — all four public plans should appear with checkout buttons.
+
+### Phase D — GitHub Actions secrets & variables
+
+Repo → **Settings → Secrets and variables → Actions**:
+
+| Name | Type | Value |
+|------|------|-------|
+| `CLERK_PUBLISHABLE_KEY` | Secret | `pk_live_...` from Clerk **Production** |
+| `CLERK_SECRET_KEY` | Secret | `sk_live_...` from Clerk **Production** (reminder emails) |
+| `RESEND_API_KEY` | Secret | Optional — World Cup ending reminder emails |
+| `USE_CUSTOM_DOMAIN` | **Variable** | `true` (builds for `statmanac.com` root, not `/DKBets`) |
+
+Until `CLERK_PUBLISHABLE_KEY` is set, the site stays in free mode. The deploy workflow warns if `USE_CUSTOM_DOMAIN=true` but the key is still `pk_test_...`.
+
+After updating secrets: **Actions → Deploy to GitHub Pages → Run workflow** (or push to `main`).
+
+### Phase E — Verify production checkout
+
+Use a **real card** — live mode charges real money.
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Visit `https://statmanac.com/subscribe/` | Four plans + currency toggle |
+| 2 | Sign up at `/sign-up/` | Clerk modal / page works |
+| 3 | Subscribe to **All-Access Pro** (7-day trial) | Stripe checkout completes |
+| 4 | Check Stripe Dashboard → **Customers** | New customer + subscription |
+| 5 | Check Clerk → **Billing → Subscriptions** | Active `pro` plan |
+| 6 | Open `/football/world-cup/builder/` signed in | Full builder (or sign-up gate if WC promo requires account) |
+| 7 | Open `/horse-racing/todays-races/` without plan | Racecard only; naps gated |
+| 8 | Cancel test sub in Clerk if needed | Access revokes after period ends |
+
+### Common mistakes
+
+| Mistake | Symptom |
+|---------|---------|
+| `pk_test_...` in GitHub secret with live domain | Checkout works in test only; no real revenue |
+| Plans under **Organizations** not **Users** | Empty pricing table on `/subscribe/` |
+| Wrong plan slug (`football-pro` vs `football`) | Payment succeeds but gates don't unlock |
+| `USE_CUSTOM_DOMAIN` not `true` | Broken assets/CSS on `statmanac.com` |
+| Features not attached to plans | User pays but still sees upgrade prompts |
+| Stripe still in test mode when connecting Clerk | Clerk billing uses test charges only |
+
+### Local dev vs production
+
+Keep **test** keys in `.env.local` for development:
+
+```bash
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_SUBSCRIPTION_ENABLED=true
+```
+
+Production keys live only in GitHub Actions secrets (baked into the static build). Never commit `sk_live_...`.
+
+**Note:** Clerk billing charges in **USD only**. GBP/EUR on the site are display conversions; checkout is always USD via Stripe.
 
 ## 9. Family / complimentary all-access
 
