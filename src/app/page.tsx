@@ -4,10 +4,16 @@ import SportQuickNav from "@/components/marketing/SportQuickNav";
 import StatmanacWordmark from "@/components/brand/StatmanacWordmark";
 import SportCard from "@/components/sports/SportCard";
 import { SPORTS } from "@/lib/sports/config";
+import {
+  formatWorldCupFreeEndLabel,
+  isWorldCupFreeActive,
+} from "@/lib/marketing/world-cup-promo";
 import { PRICING } from "@/lib/subscription/config";
 import { BRAND } from "@/lib/brand";
 
 export default function HomePage() {
+  const worldCupFree = isWorldCupFreeActive();
+  const freeEndLabel = formatWorldCupFreeEndLabel();
   return (
     <div className="relative min-h-[calc(100vh-8rem)] overflow-hidden">
       {/* Ambient background */}
@@ -39,6 +45,25 @@ export default function HomePage() {
               {BRAND.description}
             </p>
 
+            {worldCupFree && (
+              <div className="mx-auto mt-4 max-w-xl rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-left sm:mt-5 lg:mx-0">
+                <p className="text-sm font-semibold text-emerald-300">
+                  Free for World Cup semis &amp; final
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  Full football access — builders, star players, matchups and stats.
+                  No card needed until {freeEndLabel}. Racing &amp; NBA stay on Pro
+                  plans.
+                </p>
+                <Link
+                  href="/football/world-cup/builder/"
+                  className="mt-2 inline-block text-xs font-bold text-accent underline underline-offset-2"
+                >
+                  Open Bet365 builder →
+                </Link>
+              </div>
+            )}
+
             <SportQuickNav />
 
             <ul className="mx-auto mt-5 hidden max-w-md flex-col gap-2.5 text-left text-sm text-muted sm:flex lg:mx-0">
@@ -58,9 +83,22 @@ export default function HomePage() {
             </ul>
 
             <p className="mt-5 hidden text-xs text-muted sm:block lg:text-left">
-              <span className="font-semibold text-gold">{BRAND.proName}</span> ·
-              from £{PRICING.footballMonthlyGbp}/mo ·{" "}
-              {PRICING.trialDays}-day free trial
+              {worldCupFree ? (
+                <>
+                  <span className="font-semibold text-emerald-300">
+                    World Cup free until {freeEndLabel}
+                  </span>
+                  {" · "}
+                  Racing &amp; NBA from £{PRICING.racingMonthlyGbp}/mo after the
+                  final
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold text-gold">{BRAND.proName}</span> ·
+                  from £{PRICING.footballMonthlyGbp}/mo ·{" "}
+                  {PRICING.trialDays}-day free trial
+                </>
+              )}
             </p>
           </div>
 

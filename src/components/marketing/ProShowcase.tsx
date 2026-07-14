@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { assetUrl } from "@/lib/basePath";
 import { BRAND } from "@/lib/brand";
+import { isWorldCupFreeActive } from "@/lib/marketing/world-cup-promo";
+import { useAttributionHref } from "@/hooks/useAttributionHref";
 import { PRICING } from "@/lib/subscription/config";
 
 const INTERVAL_MS = 3800;
@@ -79,6 +81,10 @@ export default function ProShowcase() {
   }, [paused, active]);
 
   const slide = SLIDES[active];
+  const worldCupFree = isWorldCupFreeActive();
+  const builderHref = useAttributionHref("/football/world-cup/builder/");
+  const starPlayersHref = useAttributionHref("/football/world-cup/star-players/");
+  const subscribeHref = useAttributionHref("/subscribe/");
 
   return (
     <div
@@ -231,18 +237,37 @@ export default function ProShowcase() {
       </div>
 
       <div className="mt-5 flex flex-wrap items-center justify-center gap-3 sm:mt-6 lg:justify-start">
-        <Link
-          href="/subscribe/"
-          className="rounded-xl bg-accent px-6 py-2.5 text-sm font-bold text-background transition-opacity hover:opacity-90"
-        >
-          Start {PRICING.trialDays}-day free trial
-        </Link>
-        <Link
-          href="/football/world-cup/builder/"
-          className="rounded-xl border border-edge px-6 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-gold/40 hover:text-foreground"
-        >
-          Explore World Cup →
-        </Link>
+        {worldCupFree ? (
+          <>
+            <Link
+              href={builderHref}
+              className="rounded-xl bg-accent px-6 py-2.5 text-sm font-bold text-background transition-opacity hover:opacity-90"
+            >
+              Try World Cup free
+            </Link>
+            <Link
+              href={starPlayersHref}
+              className="rounded-xl border border-edge px-6 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-gold/40 hover:text-foreground"
+            >
+              Star players →
+            </Link>
+          </>
+        ) : (
+          <>
+            <Link
+              href={subscribeHref}
+              className="rounded-xl bg-accent px-6 py-2.5 text-sm font-bold text-background transition-opacity hover:opacity-90"
+            >
+              Start {PRICING.trialDays}-day free trial
+            </Link>
+            <Link
+              href={builderHref}
+              className="rounded-xl border border-edge px-6 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-gold/40 hover:text-foreground"
+            >
+              Explore World Cup →
+            </Link>
+          </>
+        )}
       </div>
     </div>
   );

@@ -105,6 +105,8 @@ jobs:
           RACING_BACKFILL_MAX_PER_RUN: "5"
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_SUBSCRIPTION_ENABLED: ${{ secrets.CLERK_PUBLISHABLE_KEY != '' && 'true' || 'false' }}
+          NEXT_PUBLIC_WORLD_CUP_FREE_ENABLED: "true"
+          NEXT_PUBLIC_WORLD_CUP_FREE_UNTIL: "2026-07-20T23:59:59Z"
 
       - name: Set base path
         id: base_path
@@ -121,6 +123,8 @@ jobs:
           NEXT_PUBLIC_BASE_PATH: ${{ steps.base_path.outputs.path }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_SUBSCRIPTION_ENABLED: ${{ secrets.CLERK_PUBLISHABLE_KEY != '' && 'true' || 'false' }}
+          NEXT_PUBLIC_WORLD_CUP_FREE_ENABLED: "true"
+          NEXT_PUBLIC_WORLD_CUP_FREE_UNTIL: "2026-07-20T23:59:59Z"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { PRICING } from "@/lib/subscription/config";
 import { BRAND } from "@/lib/brand";
+import { useAttributionHref } from "@/hooks/useAttributionHref";
 import type { FeatureSlug } from "@/lib/subscription/config";
 
 const FEATURE_COPY: Partial<Record<FeatureSlug, string>> = {
@@ -26,6 +27,7 @@ export default function UpgradePrompt({
   feature?: FeatureSlug;
   compact?: boolean;
 }) {
+  const subscribeHref = useAttributionHref("/subscribe/");
   const blurb =
     (feature && FEATURE_COPY[feature]) ??
     "Unlock underpriced gems, player head-to-head, the 100% team bet model, value naps and tipster intelligence.";
@@ -34,7 +36,7 @@ export default function UpgradePrompt({
     return (
       <p className="rounded-lg border border-gold/30 bg-gold/5 px-3 py-2 text-xs text-muted">
         <span className="font-semibold text-gold">{BRAND.proName}</span> — {blurb}{" "}
-        <Link href="/subscribe/" className="font-bold text-accent underline">
+        <Link href={subscribeHref} className="font-bold text-accent underline">
           Subscribe →
         </Link>
       </p>
@@ -69,7 +71,7 @@ export default function UpgradePrompt({
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         <Link
-          href="/subscribe/"
+          href={subscribeHref}
           className="rounded-xl bg-accent px-6 py-2.5 text-sm font-bold text-background transition-opacity hover:opacity-90"
         >
           View plans

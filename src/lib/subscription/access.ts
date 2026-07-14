@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/clerk-react";
+import { isFootballFreeDuringWorldCup } from "@/lib/marketing/world-cup-promo";
 import {
   ALL_PLAN_SLUGS,
   FEATURES,
@@ -43,6 +44,15 @@ export function usePremiumAccess(feature?: FeatureSlug): PremiumAccess {
       enabled: false,
       isLoading: false,
       isSignedIn: true,
+      isPremium: true,
+    };
+  }
+
+  if (isFootballFreeDuringWorldCup(feature)) {
+    return {
+      enabled: true,
+      isLoading: !isLoaded,
+      isSignedIn: isLoaded ? !!isSignedIn : false,
       isPremium: true,
     };
   }
