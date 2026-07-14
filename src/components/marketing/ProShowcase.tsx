@@ -18,6 +18,7 @@ const SLIDES = [
     description:
       "Highest-probability legs from live Bet365 prices — evens through 50/1, ranked by model hit-rate.",
     accent: "#22c55e",
+    aspect: "aspect-[5/4] sm:aspect-[4/3]",
   },
   {
     src: "/showcase/star-player.png",
@@ -27,6 +28,7 @@ const SLIDES = [
     description:
       "Player props backed by tournament form, with combined-probability builders and one-click Bet365 links.",
     accent: "#fbbf24",
+    aspect: "aspect-[4/5] sm:aspect-[3/4]",
   },
   {
     src: "/showcase/matchups.png",
@@ -36,6 +38,7 @@ const SLIDES = [
     description:
       "Pitch overlays, career H2H history and pick-of-the-day props from positional duels.",
     accent: "#3b82f6",
+    aspect: "aspect-[5/4] sm:aspect-[4/3]",
   },
 ] as const;
 
@@ -120,7 +123,9 @@ export default function ProShowcase() {
 
         {/* Product frame */}
         <div className="showcase-frame overflow-hidden rounded-2xl border border-white/[0.08] bg-surface/90 shadow-[0_24px_80px_-12px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.04)_inset] backdrop-blur-sm">
-          <div className="relative aspect-[5/4] w-full bg-background sm:aspect-[4/3]">
+          <div
+            className={`relative w-full bg-background transition-[aspect-ratio] duration-500 ${slide.aspect}`}
+          >
             {SLIDES.map((s, i) => (
               <div
                 key={s.src}
