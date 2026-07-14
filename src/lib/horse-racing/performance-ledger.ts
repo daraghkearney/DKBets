@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import { addDays, toIsoDate, ukToday } from "./dates";
+import { addDays, courseSlug, to24hTime, toIsoDate, ukToday } from "./dates";
 import type { ResultRace } from "./racing-api";
 import type { RacingNapPick, RacingPerformanceStats } from "./types";
 
@@ -131,15 +131,15 @@ export async function recordDayOutcomes(
     ledger.entries.filter((e) => e.date === date).map((e) => e.raceId)
   );
 
-  const byKey = new Map(
-    loggedRaces.map((r) => [`${r.course}|${r.time}`, r])
-  );
+  const raceKey = (course: string, time: string) =>
+    `${courseSlug(course)}|${to24hTime(time)}`;
+  const byKey = new Map(loggedRaces.map((r) => [raceKey(r.course, r.time), r]));
   const byId = new Map(loggedRaces.map((r) => [r.raceId, r]));
 
   for (const result of results) {
     const logged =
       byId.get(result.raceId) ??
-      byKey.get(`${result.course}|${result.time}`);
+      byKey.get(raceKey(result.course, result.time));
     if (!logged) continue;
     if (existing.has(result.raceId)) continue;
 

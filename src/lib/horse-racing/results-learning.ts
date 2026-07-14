@@ -523,6 +523,7 @@ export async function learnFromYesterday(): Promise<{
   if (model.lastLearnedDate === yesterday) {
     console.log(`  racing learn: already learned from ${yesterday} — skipping`);
     const review = await resolveReview(yesterday);
+    await recordLedgerIfPossible(yesterday, results);
     return { model, review };
   }
 
@@ -601,14 +602,25 @@ export async function learnFromYesterday(): Promise<{
     summary,
   };
   await saveReview(review);
+  await recordLedgerIfPossible(yesterday, results);
 
+  return { model, review };
+}
+
+async function recordLedgerIfPossible(
+  date: string,
+  results: ResultRace[]
+): Promise<void> {
+  if (!results.length) return;
+  const log = await loadPredictionLog(date);
+  if (!log?.races.length) {
+    console.log(`  racing ledger: no prediction log for ${date} — skipping`);
+    return;
+  }
   try {
-    if (log?.races.length) {
-      await recordDayOutcomes(yesterday, results, log.races);
-    }
+    await recordDayOutcomes(date, results, log.races);
+    console.log(`  racing ledger: recorded outcomes for ${date}`);
   } catch (e) {
     console.warn("  racing ledger: failed to record outcomes", e);
   }
-
-  return { model, review };
 }
