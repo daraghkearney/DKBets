@@ -74,7 +74,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
 
   // Learn from yesterday's results BEFORE scoring today, so today's
   // predictions use the freshest weights.
-  const { model, review } = await learnFromYesterday();
+  const { model } = await learnFromYesterday();
   console.log(
     `  racing model: weights ${Object.entries(model.weights)
       .map(([k, v]) => `${k}=${(v as number).toFixed(2)}`)
@@ -253,7 +253,6 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     days: days.map(({ date, label, meetings }) => ({ date, label, meetings })),
     tipsters,
     model,
-    review,
     naps,
     performance,
     hrnDebug: hrnNotes.join(" | ") || undefined,

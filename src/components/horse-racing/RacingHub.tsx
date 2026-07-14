@@ -4,139 +4,25 @@ import { useEffect, useState } from "react";
 import { useRacingSelection } from "@/components/horse-racing/RacingSelectionProvider";
 import type {
   HorseRace,
-  RacingFactorKey,
   RacingNapPick,
   RacingPerformanceStats,
-  RacingWinnerReview,
   TipsterPick,
 } from "@/lib/horse-racing/types";
 import PremiumGate from "@/components/subscription/PremiumGate";
 import { usePremiumAccess } from "@/lib/subscription/access";
 import { FEATURES, isSubscriptionEnabled } from "@/lib/subscription/config";
 
-const FACTOR_LABELS: Record<RacingFactorKey, string> = {
-  market: "Market",
-  rating: "Rating",
-  form: "Form",
-  going: "Ground",
-  distance: "Trip",
-  class: "Class",
-  trainer: "Trainer",
-  jockey: "Jockey",
-  course: "Course",
-  freshness: "Fitness",
-  tipster: "Tipsters",
-  draw: "Draw",
-  topspeed: "Topspeed",
-};
-
 function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
 }
 
-function WinnerReviewPanel({
-  review,
-  exportedAt,
-}: {
-  review: RacingWinnerReview;
-  exportedAt?: string;
-}) {
-  const stale =
-    exportedAt &&
-    (new Date(exportedAt).getTime() -
-      new Date(`${review.date}T20:00:00Z`).getTime()) /
-      86_400_000 >
-      1.2;
-
-  return (
-    <section className="rounded-2xl border border-sky-500/30 bg-sky-500/5 p-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-bold">
-          Learning from {review.date} results
-        </h2>
-        <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-300">
-          Model self-review
-        </span>
-      </div>
-      {stale && (
-        <p className="mt-2 text-xs text-amber-300/90">
-          Latest saved review — a newer day&apos;s learning will appear once
-          yesterday&apos;s results and predictions are matched.
-        </p>
-      )}
-      <p className="mt-2 text-sm leading-relaxed text-muted">
-        {review.summary}
-      </p>
-      {review.races.length > 0 && (
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {review.races.slice(0, 12).map((r) => (
-            <div
-              key={r.raceId}
-              className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5"
-            >
-              <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
-                {r.time} {r.course}
-              </p>
-              <p className="text-sm font-semibold">
-                {r.winner}
-                {r.winnerSp != null && (
-                  <span className="ml-1.5 text-xs font-normal text-muted tabular">
-                    SP {r.winnerSp.toFixed(1)}
-                  </span>
-                )}
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted">
-                {r.ourRank != null
-                  ? r.ourRank === 1
-                    ? "✓ We predicted this winner"
-                    : `Our rank: #${r.ourRank}${r.fieldSize ? ` of ${r.fieldSize}` : ""}`
-                  : "Analysed from history"}
-              </p>
-              {r.winningFactors.length > 0 && (
-                <p className="mt-1 text-[11px] text-sky-300">
-                  Found by:{" "}
-                  {r.winningFactors
-                    .map((f) => FACTOR_LABELS[f] ?? f)
-                    .join(", ")}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ModelWeightsRow({
-  weights,
-  samples,
-}: {
-  weights: Record<RacingFactorKey, number>;
-  samples: number;
-}) {
-  const sorted = (Object.entries(weights) as [RacingFactorKey, number][]).sort(
-    (a, b) => b[1] - a[1]
-  );
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-      <span className="font-bold uppercase tracking-widest text-muted">
-        Learned weights{samples ? ` · ${samples} races` : ""}:
-      </span>
-      {sorted.map(([key, w]) => (
-        <span
-          key={key}
-          className="rounded-full border border-edge bg-surface px-2 py-0.5 tabular text-muted"
-        >
-          {FACTOR_LABELS[key]} {pct(w)}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
-  if (!stats.totalPicks) return null;
+  const totalPicks = stats.totalPicks ?? 0;
+  const ewGemPicks = stats.ewGemPicks ?? 0;
+  const ewGemPlaces = stats.ewGemPlaces ?? 0;
+  const ewGemPlaceRate = stats.ewGemPlaceRate ?? 0;
+  const building = totalPicks === 0 && ewGemPicks === 0;
+
   return (
     <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -144,28 +30,35 @@ function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
           Model track record ({stats.windowDays} days)
         </h2>
         <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
-          Performance ledger
+          Verified hit rates
         </span>
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {building && (
+        <p className="mt-2 text-xs text-muted">
+          Hit rates build as completed race days are matched to logged predictions.
+        </p>
+      )}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
             Win hit rate
           </p>
           <p className="text-xl font-bold tabular text-emerald-300">
-            {pct(stats.winRate)}
+            {totalPicks > 0 ? pct(stats.winRate) : "—"}
           </p>
           <p className="text-[11px] text-muted">
-            {stats.wins}/{stats.totalPicks} #1 picks
+            {stats.wins}/{totalPicks} #1 picks
           </p>
         </div>
         <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
             Top-3 rate
           </p>
-          <p className="text-xl font-bold tabular">{pct(stats.top3Rate)}</p>
+          <p className="text-xl font-bold tabular">
+            {totalPicks > 0 ? pct(stats.top3Rate) : "—"}
+          </p>
           <p className="text-[11px] text-muted">
-            {stats.top3}/{stats.totalPicks} in frame
+            {stats.top3}/{totalPicks} in frame
           </p>
         </div>
         <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
@@ -173,26 +66,47 @@ function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
             Flat £1 ROI
           </p>
           <p
-            className={`text-xl font-bold tabular ${stats.roiFlatStake >= 0 ? "text-emerald-300" : "text-red-300"}`}
+            className={`text-xl font-bold tabular ${
+              totalPicks > 0
+                ? stats.roiFlatStake >= 0
+                  ? "text-emerald-300"
+                  : "text-red-300"
+                : ""
+            }`}
           >
-            {stats.roiFlatStake >= 0 ? "+" : ""}
-            {pct(stats.roiFlatStake)}
+            {totalPicks > 0 ? (
+              <>
+                {stats.roiFlatStake >= 0 ? "+" : ""}
+                {pct(stats.roiFlatStake)}
+              </>
+            ) : (
+              "—"
+            )}
           </p>
           <p className="text-[11px] text-muted">At SP on every #1</p>
         </div>
-        {stats.napPicks > 0 && (
-          <div className="rounded-xl border border-gold/40 bg-gold/5 px-3 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-gold">
-              Nap strike rate
-            </p>
-            <p className="text-xl font-bold tabular text-gold">
-              {pct(stats.napWinRate)}
-            </p>
-            <p className="text-[11px] text-muted">
-              {stats.napWins}/{stats.napPicks} value naps
-            </p>
-          </div>
-        )}
+        <div className="rounded-xl border border-gold/40 bg-gold/5 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-gold">
+            Nap strike rate
+          </p>
+          <p className="text-xl font-bold tabular text-gold">
+            {(stats.napPicks ?? 0) > 0 ? pct(stats.napWinRate) : "—"}
+          </p>
+          <p className="text-[11px] text-muted">
+            {stats.napWins}/{stats.napPicks ?? 0} value naps
+          </p>
+        </div>
+        <div className="rounded-xl border border-sky-500/40 bg-sky-500/5 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-sky-300">
+            Each-way gem place rate
+          </p>
+          <p className="text-xl font-bold tabular text-sky-300">
+            {ewGemPicks > 0 ? pct(ewGemPlaceRate) : "—"}
+          </p>
+          <p className="text-[11px] text-muted">
+            {ewGemPlaces}/{ewGemPicks} EW gems placed
+          </p>
+        </div>
       </div>
     </section>
   );
@@ -523,12 +437,10 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
             </p>
           )}
           {calendar?.model && (
-            <div className="mt-3">
-              <ModelWeightsRow
-                weights={calendar.model.weights}
-                samples={calendar.model.samples}
-              />
-            </div>
+            <p className="mt-2 text-[11px] text-muted">
+              Model trained on {calendar.model.samples.toLocaleString()} completed
+              races
+            </p>
           )}
         </div>
       </div>
@@ -551,25 +463,14 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
         )}
 
         <div className="flex flex-col gap-8">
-          {calendar?.performance && (
-            <PremiumGate feature={FEATURES.racingIntel}>
-              <PerformancePanel stats={calendar.performance} />
-            </PremiumGate>
-          )}
-
           {calendar?.naps && calendar.naps.length > 0 && (
             <PremiumGate feature={FEATURES.racingIntel}>
               <NapPicksPanel naps={calendar.naps} />
             </PremiumGate>
           )}
 
-          {calendar?.review && (
-            <PremiumGate feature={FEATURES.racingAnalysis}>
-            <WinnerReviewPanel
-              review={calendar.review}
-              exportedAt={calendar.exportedAt}
-            />
-            </PremiumGate>
+          {calendar?.performance && (
+            <PerformancePanel stats={calendar.performance} />
           )}
 
           {races.map((race) => (

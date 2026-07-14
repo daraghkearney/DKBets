@@ -23,6 +23,9 @@ export interface PerformanceLedgerEntry {
   winHit: boolean;
   top3Hit: boolean;
   isNap: boolean;
+  /** Each-way gem selection (separate ledger row from the #1 model pick) */
+  isEwGem?: boolean;
+  placeHit?: boolean;
 }
 
 interface LedgerFile {
@@ -60,6 +63,29 @@ interface PredictionRace {
   course: string;
   time: string;
   runners: PredictionRunner[];
+  eachWayGem?: { runnerId: string; name: string; odds: number | null };
+}
+
+/** UK each-way place count by field size. */
+function ewPlacePositions(fieldSize: number): number {
+  if (fieldSize < 5) return 0;
+  if (fieldSize <= 7) return 2;
+  if (fieldSize <= 15) return 3;
+  return 4;
+}
+
+function runnerFinishedPosition(
+  result: ResultRace,
+  runnerId: string,
+  name: string
+): number | null {
+  const norm = normaliseName(name);
+  const row = result.runners.find(
+    (r) =>
+      (runnerId && r.horseId === runnerId) ||
+      normaliseName(r.name) === norm
+  );
+  return row && row.position > 0 ? row.position : null;
 }
 
 function normaliseName(n: string): string {
@@ -152,7 +178,39 @@ export async function recordDayOutcomes(
       winHit: winnerRank === 1,
       top3Hit: winnerRank != null && winnerRank <= 3,
       isNap: napIds.has(result.raceId),
+      isEwGem: false,
     });
+
+    const gem = logged.eachWayGem;
+    if (gem?.name) {
+      const ewKey = `${result.raceId}:ew`;
+      if (!existing.has(ewKey)) {
+        const fieldSize = result.runners.filter((r) => r.position > 0).length;
+        const ewPos = runnerFinishedPosition(result, gem.runnerId, gem.name);
+        const places = ewPlacePositions(fieldSize);
+        const placeHit =
+          ewPos != null && places > 0 && ewPos <= places;
+        ledger.entries.push({
+          date,
+          raceId: ewKey,
+          course: result.course,
+          time: result.time,
+          pick: gem.name,
+          pickOdds: gem.odds,
+          pickProb: null,
+          pickEdge: null,
+          pickRank: 0,
+          winner: winner.name,
+          winnerSp: winner.sp ?? null,
+          winnerRank: ewPos,
+          winHit: ewPos === 1,
+          top3Hit: ewPos != null && ewPos <= 3,
+          isNap: false,
+          isEwGem: true,
+          placeHit,
+        });
+      }
+    }
   }
 
   // Keep last 120 days
@@ -167,15 +225,18 @@ export function computePerformanceStats(
 ): RacingPerformanceStats {
   const cutoff = toIsoDate(addDays(ukToday(), -windowDays));
   const window = entries.filter((e) => e.date >= cutoff);
+  const modelPicks = window.filter((e) => !e.isEwGem);
+  const ewGems = window.filter((e) => e.isEwGem);
 
-  const wins = window.filter((e) => e.winHit).length;
-  const top3 = window.filter((e) => e.top3Hit).length;
-  const naps = window.filter((e) => e.isNap);
+  const wins = modelPicks.filter((e) => e.winHit).length;
+  const top3 = modelPicks.filter((e) => e.top3Hit).length;
+  const naps = modelPicks.filter((e) => e.isNap);
   const napWins = naps.filter((e) => e.winHit).length;
+  const ewPlaces = ewGems.filter((e) => e.placeHit).length;
 
   let roi = 0;
   let staked = 0;
-  for (const e of window) {
+  for (const e of modelPicks) {
     if (e.pickOdds == null || e.pickOdds <= 1) continue;
     staked += 1;
     if (e.winHit) roi += e.pickOdds - 1;
@@ -183,7 +244,7 @@ export function computePerformanceStats(
   }
 
   const byCourse: RacingPerformanceStats["byCourse"] = {};
-  for (const e of window) {
+  for (const e of modelPicks) {
     const c = e.course;
     if (!byCourse[c]) byCourse[c] = { picks: 0, wins: 0 };
     byCourse[c].picks++;
@@ -192,15 +253,18 @@ export function computePerformanceStats(
 
   return {
     windowDays,
-    totalPicks: window.length,
+    totalPicks: modelPicks.length,
     wins,
     top3,
-    winRate: window.length ? wins / window.length : 0,
-    top3Rate: window.length ? top3 / window.length : 0,
+    winRate: modelPicks.length ? wins / modelPicks.length : 0,
+    top3Rate: modelPicks.length ? top3 / modelPicks.length : 0,
     roiFlatStake: staked ? roi / staked : 0,
     napPicks: naps.length,
     napWins,
     napWinRate: naps.length ? napWins / naps.length : 0,
+    ewGemPicks: ewGems.length,
+    ewGemPlaces: ewPlaces,
+    ewGemPlaceRate: ewGems.length ? ewPlaces / ewGems.length : 0,
     byCourse,
     updatedAt: new Date().toISOString(),
   };

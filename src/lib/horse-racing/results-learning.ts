@@ -84,6 +84,7 @@ interface PredictionLogRace {
   time: string;
   name: string;
   runners: PredictionLogRunner[];
+  eachWayGem?: { runnerId: string; name: string; odds: number | null };
 }
 
 interface PredictionLog {
@@ -189,6 +190,13 @@ export async function savePredictionLog(
           winProbability: r.winProbability,
           modelEdge: r.modelEdge,
         })),
+        eachWayGem: race.eachWayGem
+          ? {
+              runnerId: race.eachWayGem.runnerId,
+              name: race.eachWayGem.name,
+              odds: race.eachWayGem.odds,
+            }
+          : undefined,
       })),
   };
   await mkdir(PREDICTIONS_DIR, { recursive: true });

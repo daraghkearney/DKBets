@@ -132,6 +132,9 @@ export interface RacingPerformanceStats {
   napPicks: number;
   napWins: number;
   napWinRate: number;
+  ewGemPicks: number;
+  ewGemPlaces: number;
+  ewGemPlaceRate: number;
   byCourse: Record<string, { picks: number; wins: number }>;
   updatedAt: string;
 }
