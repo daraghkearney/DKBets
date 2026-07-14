@@ -8,7 +8,7 @@ import { isInsiderGradePick } from "./tipster-priority";
 import { loadPeopleStats } from "./people-stats";
 import { learnFromYesterday, savePredictionLog } from "./results-learning";
 import { backfillHistoricalLearning } from "./historical-backfill";
-import { loadPerformanceStats, recordDayOutcomes, saveNapLog } from "./performance-ledger";
+import { loadPerformanceStats, backfillPerformanceLedger, saveNapLog } from "./performance-ledger";
 import { buildValuePicks } from "./value-picks";
 import { fetchHrnRacecards, hrnLinksFromRaces } from "./hrnet";
 import {
@@ -231,7 +231,19 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     }
   }
 
-  const performance = await loadPerformanceStats(90);
+  const performance = await (async () => {
+    try {
+      const backfill = await backfillPerformanceLedger({ windowDays: 90 });
+      if (backfill.dates.length) {
+        console.log(
+          `  racing ledger backfill: ${backfill.recorded} entries from ${backfill.dates.join(", ")}`
+        );
+      }
+    } catch (e) {
+      console.warn("  racing ledger backfill: failed", e);
+    }
+    return loadPerformanceStats(90);
+  })();
 
   // Log today's predictions so tomorrow's run can learn from results
   if (todayIso && todayRaces.some((r) => r.runners.length)) {
