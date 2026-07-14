@@ -15,13 +15,13 @@ import {
 import {
   PLANS,
   PRICING,
-  PRO_PLAN_SLUG,
   type SubscriptionPlan,
 } from "@/lib/subscription/config";
-
-function formatUsd(amount: number): string {
-  return amount % 1 === 0 ? `$${amount}` : `$${amount.toFixed(2)}`;
-}
+import {
+  formatDisplayPrice,
+  getPlanDisplayPrices,
+  type DisplayCurrency,
+} from "@/lib/subscription/currency";
 
 function PlanSubscribeButton({
   planId,
@@ -80,8 +80,10 @@ function PlanSubscribeButton({
 function PlanCard({
   plan,
   clerkPlan,
+  currency,
 }: {
   plan: SubscriptionPlan;
+  currency: DisplayCurrency;
   clerkPlan?: {
     id: string;
     fee: { amount: number };
@@ -93,21 +95,24 @@ function PlanCard({
   const hasAnnual = Boolean(plan.annualUsd && clerkPlan?.annualMonthlyFee);
   const [annual, setAnnual] = useState(false);
 
-  const monthlyPrice =
-    clerkPlan?.fee?.amount != null
-      ? clerkPlan.fee.amount / 100
-      : plan.monthlyUsd;
-  const annualMonthlyPrice =
+  const clerkMonthlyUsd =
+    clerkPlan?.fee?.amount != null ? clerkPlan.fee.amount / 100 : undefined;
+  const clerkAnnualMonthlyUsd =
     clerkPlan?.annualMonthlyFee?.amount != null
       ? clerkPlan.annualMonthlyFee.amount / 100
-      : plan.slug === PRO_PLAN_SLUG
-        ? PRICING.proAnnualMonthlyUsd
-        : plan.annualUsd
-          ? plan.annualUsd / 12
-          : null;
+      : undefined;
+
+  const prices = getPlanDisplayPrices(plan, currency, {
+    clerkMonthlyUsd,
+    clerkAnnualMonthlyUsd,
+  });
 
   const displayPrice =
-    annual && annualMonthlyPrice != null ? annualMonthlyPrice : monthlyPrice;
+    annual && prices.annualMonthly != null
+      ? prices.annualMonthly
+      : prices.monthly;
+
+  const fmt = (n: number) => formatDisplayPrice(n, currency);
 
   const clerkFeatures =
     clerkPlan?.features?.map((f) => f.name) ??
@@ -138,18 +143,17 @@ function PlanCard({
 
       <div className="mt-4">
         <p>
-          <span className="text-2xl font-black">{formatUsd(displayPrice)}</span>
+          <span className="text-2xl font-black">{fmt(displayPrice)}</span>
           <span className="text-sm text-muted">/mo</span>
         </p>
-        {annual && plan.annualUsd && (
+        {annual && prices.annual != null && (
           <p className="mt-1 text-xs text-muted">
-            {formatUsd(plan.annualUsd)} billed annually
+            {fmt(prices.annual)} billed annually
           </p>
         )}
-        {!annual && plan.annualUsd && (
+        {!annual && prices.annual != null && prices.annualMonthly != null && (
           <p className="mt-1 text-xs text-muted">
-            or {formatUsd(plan.annualUsd)}/yr (
-            {formatUsd(annualMonthlyPrice ?? plan.annualUsd / 12)}/mo)
+            or {fmt(prices.annual)}/yr ({fmt(prices.annualMonthly)}/mo)
           </p>
         )}
       </div>
@@ -247,7 +251,11 @@ function BillingSetupPrompt() {
   );
 }
 
-export default function PlanComparison() {
+export default function PlanComparison({
+  currency,
+}: {
+  currency: DisplayCurrency;
+}) {
   const { data: clerkPlans, isLoading, error } = usePlans();
 
   const planBySlug = useMemo(() => {
@@ -282,6 +290,7 @@ export default function PlanComparison() {
           <PlanCard
             key={plan.slug}
             plan={plan}
+            currency={currency}
             clerkPlan={planBySlug.get(plan.slug)}
           />
         ))}

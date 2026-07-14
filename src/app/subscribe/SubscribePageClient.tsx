@@ -1,12 +1,27 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { isSubscriptionEnabled } from "@/lib/subscription/config";
 import AuthControls from "@/components/subscription/AuthControls";
+import CurrencyToggle from "@/components/subscription/CurrencyToggle";
 import PlanComparison from "@/components/subscription/PlanComparison";
 import { BRAND } from "@/lib/brand";
+import {
+  checkoutNote,
+  detectDisplayCurrency,
+  type DisplayCurrency,
+} from "@/lib/subscription/currency";
 
 export default function SubscribePageClient() {
+  const [currency, setCurrency] = useState<DisplayCurrency>("usd");
+  const [autoDetected, setAutoDetected] = useState<DisplayCurrency | undefined>();
+
+  useEffect(() => {
+    const detected = detectDisplayCurrency();
+    setCurrency(detected);
+    setAutoDetected(detected);
+  }, []);
   if (!isSubscriptionEnabled()) {
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
@@ -43,10 +58,21 @@ export default function SubscribePageClient() {
         <p className="mx-auto mt-4 max-w-2xl text-center text-sm leading-relaxed text-muted">
           Football-only, racing-only, NBA props, or full all-access with
           underpriced gems, player head-to-head, the 100% team bet model and
-          value naps. Billed in USD via Stripe.
+          value naps.
         </p>
 
-        <PlanComparison />
+        <div className="mt-6 flex justify-center">
+          <CurrencyToggle
+            value={currency}
+            onChange={setCurrency}
+            autoDetected={autoDetected}
+          />
+        </div>
+        <p className="mx-auto mt-3 max-w-xl text-center text-xs text-muted">
+          {checkoutNote(currency)}
+        </p>
+
+        <PlanComparison currency={currency} />
       </div>
     </div>
   );

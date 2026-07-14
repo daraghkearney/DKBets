@@ -22,12 +22,19 @@ export const PRICING = {
   proMonthlyUsd: 24.99,
   proAnnualUsd: 199,
   proAnnualMonthlyUsd: 16.66,
-  /** Display equivalents for UK marketing copy */
-  footballMonthlyGbp: 11.99,
-  racingMonthlyGbp: 14.99,
-  nbaMonthlyGbp: 9.99,
-  proMonthlyGbp: 24.99,
-  proAnnualGbp: 199,
+  /** Display equivalents — rates from $24.99 → £18.63 / €21.83 */
+  footballMonthlyGbp: 11.18,
+  racingMonthlyGbp: 13.41,
+  nbaMonthlyGbp: 9.68,
+  proMonthlyGbp: 18.63,
+  proAnnualGbp: 148.35,
+  proAnnualMonthlyGbp: 12.42,
+  footballMonthlyEur: 13.09,
+  racingMonthlyEur: 15.71,
+  nbaMonthlyEur: 11.35,
+  proMonthlyEur: 21.83,
+  proAnnualEur: 173.84,
+  proAnnualMonthlyEur: 14.55,
   trialDays: 7,
 } as const;
 
@@ -51,6 +58,11 @@ export interface SubscriptionPlan {
   monthlyUsd: number;
   annualUsd?: number;
   monthlyGbp: number;
+  monthlyEur: number;
+  annualGbp?: number;
+  annualEur?: number;
+  annualMonthlyGbp?: number;
+  annualMonthlyEur?: number;
   features: FeatureSlug[];
   highlights: string[];
   recommended?: boolean;
@@ -66,6 +78,11 @@ export const PLANS: SubscriptionPlan[] = [
     monthlyUsd: PRICING.proMonthlyUsd,
     annualUsd: PRICING.proAnnualUsd,
     monthlyGbp: PRICING.proMonthlyGbp,
+    monthlyEur: PRICING.proMonthlyEur,
+    annualGbp: PRICING.proAnnualGbp,
+    annualEur: PRICING.proAnnualEur,
+    annualMonthlyGbp: PRICING.proAnnualMonthlyGbp,
+    annualMonthlyEur: PRICING.proAnnualMonthlyEur,
     features: [FEATURES.fullAccess],
     highlights: [
       "Full football, racing & NBA access",
@@ -82,6 +99,7 @@ export const PLANS: SubscriptionPlan[] = [
     tagline: "World Cup builders, gems & H2H",
     monthlyUsd: PRICING.footballMonthlyUsd,
     monthlyGbp: PRICING.footballMonthlyGbp,
+    monthlyEur: PRICING.footballMonthlyEur,
     features: [
       FEATURES.footballBuilder,
       FEATURES.footballProps,
@@ -100,6 +118,7 @@ export const PLANS: SubscriptionPlan[] = [
     tagline: "Naps, model scores & tipster intel",
     monthlyUsd: PRICING.racingMonthlyUsd,
     monthlyGbp: PRICING.racingMonthlyGbp,
+    monthlyEur: PRICING.racingMonthlyEur,
     features: [FEATURES.racingIntel, FEATURES.racingAnalysis],
     highlights: [
       "Value naps + performance ledger",
@@ -114,6 +133,7 @@ export const PLANS: SubscriptionPlan[] = [
     tagline: "Prop models & builder legs",
     monthlyUsd: PRICING.nbaMonthlyUsd,
     monthlyGbp: PRICING.nbaMonthlyGbp,
+    monthlyEur: PRICING.nbaMonthlyEur,
     features: [FEATURES.nbaProps],
     highlights: [
       "NBA prop builder",
