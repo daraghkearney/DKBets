@@ -1,5 +1,6 @@
 import Link from "next/link";
 import ProShowcase from "@/components/marketing/ProShowcase";
+import SportQuickNav from "@/components/marketing/SportQuickNav";
 import SportCard from "@/components/sports/SportCard";
 import { SPORTS } from "@/lib/sports/config";
 import { PRICING } from "@/lib/subscription/config";
@@ -23,24 +24,26 @@ export default function HomePage() {
         />
       </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-20">
+      <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-16 lg:py-20">
         {/* Hero — copy + live product showcase */}
-        <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16 xl:gap-20">
+        <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-16 xl:gap-20">
           <div className="text-center lg:text-left">
             <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-accent">
               {BRAND.tagline}
             </p>
-            <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl xl:text-[3.25rem] xl:leading-[1.1]">
+            <h1 className="mt-3 text-3xl font-black tracking-tight sm:mt-4 sm:text-5xl xl:text-[3.25rem] xl:leading-[1.1]">
               Welcome to{" "}
               <span className="bg-gradient-to-r from-accent via-gold to-orange-400 bg-clip-text text-transparent">
                 {BRAND.name}
               </span>
             </h1>
-            <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-lg lg:mx-0">
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted sm:mt-5 sm:text-lg lg:mx-0">
               {BRAND.description}
             </p>
 
-            <ul className="mx-auto mt-8 flex max-w-md flex-col gap-3 text-left text-sm text-muted lg:mx-0">
+            <SportQuickNav />
+
+            <ul className="mx-auto mt-5 hidden max-w-md flex-col gap-2.5 text-left text-sm text-muted sm:flex lg:mx-0">
               {[
                 "Underpriced gems with standout hit-rates",
                 "Positional matchups & career head-to-head",
@@ -56,7 +59,7 @@ export default function HomePage() {
               ))}
             </ul>
 
-            <p className="mt-8 text-xs text-muted lg:text-left">
+            <p className="mt-5 hidden text-xs text-muted sm:block lg:text-left">
               <span className="font-semibold text-gold">{BRAND.proName}</span> ·
               from £{PRICING.footballMonthlyGbp}/mo ·{" "}
               {PRICING.trialDays}-day free trial
@@ -67,8 +70,11 @@ export default function HomePage() {
         </div>
 
         {/* Sports grid */}
-        <div className="mt-20 border-t border-edge/50 pt-16">
-          <div className="mb-10 text-center">
+        <div
+          id="sports"
+          className="mt-12 scroll-mt-24 border-t border-edge/50 pt-10 sm:mt-16 sm:pt-14 lg:mt-20 lg:pt-16"
+        >
+          <div className="mb-8 text-center sm:mb-10">
             <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-muted">
               Multi-sport research
             </p>
@@ -83,7 +89,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="mx-auto mt-16 grid max-w-4xl gap-4 sm:grid-cols-3">
+        <div className="mx-auto mt-10 grid max-w-4xl gap-3 sm:mt-14 sm:grid-cols-3 sm:gap-4">
           {[
             { n: "3", label: "Sports", sub: "Football · NBA · Racing" },
             { n: "12+", label: "Competitions", sub: "Leagues & festivals" },
@@ -100,7 +106,7 @@ export default function HomePage() {
           ))}
         </div>
 
-        <p className="mt-12 text-center text-xs text-muted">
+        <p className="mt-8 text-center text-xs text-muted sm:mt-10">
           Previously World Cup only — now multi-sport.{" "}
           <Link
             href="/football/world-cup/"

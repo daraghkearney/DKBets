@@ -200,6 +200,33 @@ body {
   animation: showcase-float 7s ease-in-out infinite;
 }
 
+.showcase-stage {
+  overflow: visible;
+  perspective: 1200px;
+}
+
+.showcase-card {
+  will-change: transform, opacity;
+}
+
+.showcase-ring-active {
+  animation: showcase-ring-pulse 3s ease-in-out infinite;
+}
+
+@keyframes showcase-ring-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 40px rgba(251, 191, 36, 0.28),
+      0 20px 50px -12px rgba(0, 0, 0, 0.65);
+  }
+  50% {
+    box-shadow:
+      0 0 52px rgba(251, 191, 36, 0.38),
+      0 24px 56px -10px rgba(0, 0, 0, 0.65);
+  }
+}
+
 .showcase-caption {
   animation: showcase-caption-in 0.5s ease-out;
 }
@@ -208,14 +235,7 @@ body {
   animation: showcase-slide-in 0.7s ease-out;
 }
 
-.showcase-frame {
-  transform: perspective(1200px) rotateY(-2deg) rotateX(1deg);
-}
-
 @media (max-width: 1023px) {
-  .showcase-frame {
-    transform: none;
-  }
   .showcase-float {
     animation: showcase-float 8s ease-in-out infinite;
   }
@@ -224,7 +244,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .showcase-float,
   .showcase-caption,
-  .showcase-slide-active {
+  .showcase-slide-active,
+  .showcase-ring-active {
     animation: none;
   }
 }

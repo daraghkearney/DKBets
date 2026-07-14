@@ -7,7 +7,7 @@ import { assetUrl } from "@/lib/basePath";
 import { BRAND } from "@/lib/brand";
 import { PRICING } from "@/lib/subscription/config";
 
-const INTERVAL_MS = 5500;
+const INTERVAL_MS = 3800;
 
 const SLIDES = [
   {
@@ -18,7 +18,8 @@ const SLIDES = [
     description:
       "Highest-probability legs from live Bet365 prices — evens through 50/1, ranked by model hit-rate.",
     accent: "#22c55e",
-    aspect: "aspect-[5/4] sm:aspect-[4/3]",
+    width: 1024,
+    height: 680,
   },
   {
     src: "/showcase/star-player.png",
@@ -28,7 +29,8 @@ const SLIDES = [
     description:
       "Player props backed by tournament form, with combined-probability builders and one-click Bet365 links.",
     accent: "#fbbf24",
-    aspect: "aspect-[4/5] sm:aspect-[3/4]",
+    width: 830,
+    height: 768,
   },
   {
     src: "/showcase/matchups.png",
@@ -38,9 +40,17 @@ const SLIDES = [
     description:
       "Pitch overlays, career H2H history and pick-of-the-day props from positional duels.",
     accent: "#3b82f6",
-    aspect: "aspect-[5/4] sm:aspect-[4/3]",
+    width: 1024,
+    height: 680,
   },
 ] as const;
+
+function slideOffset(index: number, active: number, total: number): number {
+  let diff = index - active;
+  if (diff > total / 2) diff -= total;
+  if (diff < -total / 2) diff += total;
+  return diff;
+}
 
 export default function ProShowcase() {
   const [active, setActive] = useState(0);
@@ -78,7 +88,6 @@ export default function ProShowcase() {
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
     >
-      {/* Ambient glow */}
       <div
         className="pointer-events-none absolute -inset-8 rounded-[3rem] opacity-60 blur-3xl transition-colors duration-700"
         style={{
@@ -87,8 +96,7 @@ export default function ProShowcase() {
       />
 
       <div className="showcase-float relative">
-        {/* Feature label */}
-        <div className="mb-4 flex items-center justify-between gap-3 px-1">
+        <div className="mb-3 flex items-center justify-between gap-3 px-1 sm:mb-4">
           <div className="flex items-center gap-2">
             <span
               className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest transition-colors duration-500"
@@ -113,7 +121,7 @@ export default function ProShowcase() {
                 onClick={() => goTo(i)}
                 className={`h-1.5 rounded-full transition-all duration-300 ${
                   i === active
-                    ? "w-6 bg-accent"
+                    ? "w-6 bg-gold"
                     : "w-1.5 bg-edge hover:bg-muted"
                 }`}
               />
@@ -121,60 +129,94 @@ export default function ProShowcase() {
           </div>
         </div>
 
-        {/* Product frame */}
-        <div className="showcase-frame overflow-hidden rounded-2xl border border-white/[0.08] bg-surface/90 shadow-[0_24px_80px_-12px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.04)_inset] backdrop-blur-sm">
-          <div
-            className={`relative w-full bg-background transition-[aspect-ratio] duration-500 ${slide.aspect}`}
-          >
-            {SLIDES.map((s, i) => (
+        {/* Coverflow carousel */}
+        <div className="showcase-stage relative mx-auto h-[280px] w-full overflow-visible sm:h-[340px] lg:h-[360px]">
+          {SLIDES.map((s, i) => {
+            const offset = slideOffset(i, active, SLIDES.length);
+            const isActive = offset === 0;
+            const isSide = Math.abs(offset) === 1;
+
+            return (
               <div
                 key={s.src}
-                className={`absolute inset-0 transition-all duration-700 ease-out ${
-                  i === active
-                    ? "showcase-slide-active z-10 opacity-100"
-                    : "z-0 opacity-0"
+                className={`showcase-card absolute left-1/2 top-1/2 transition-all duration-500 ease-out ${
+                  isActive
+                    ? "z-30"
+                    : isSide
+                      ? "z-20 cursor-pointer"
+                      : "z-0 pointer-events-none"
                 }`}
-                aria-hidden={i !== active}
+                style={{
+                  transform: isActive
+                    ? "translate(-50%, -50%) scale(1)"
+                    : offset === -1
+                      ? "translate(calc(-50% - 52%), -50%) scale(0.78)"
+                      : offset === 1
+                        ? "translate(calc(-50% + 52%), -50%) scale(0.78)"
+                        : "translate(-50%, -50%) scale(0.55)",
+                  opacity: isActive ? 1 : isSide ? 0.55 : 0,
+                  filter: isActive ? "none" : "brightness(0.72)",
+                }}
+                aria-hidden={!isActive && !isSide}
+                onClick={isSide ? () => goTo(i) : undefined}
+                onKeyDown={
+                  isSide
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") goTo(i);
+                      }
+                    : undefined
+                }
+                role={isSide ? "button" : undefined}
+                tabIndex={isSide ? 0 : undefined}
               >
-                <Image
-                  src={assetUrl(s.src)}
-                  alt={s.alt}
-                  fill
-                  priority={i === 0}
-                  className="object-contain object-top"
-                  sizes="(max-width: 1024px) 100vw, 560px"
-                />
+                <div
+                  className={`overflow-hidden rounded-2xl bg-background transition-shadow duration-500 ${
+                    isActive
+                      ? "showcase-ring-active ring-2 ring-gold/80 ring-offset-2 ring-offset-background shadow-[0_0_40px_rgba(251,191,36,0.28),0_20px_50px_-12px_rgba(0,0,0,0.65)]"
+                      : "ring-1 ring-gold/35 ring-offset-1 ring-offset-background shadow-[0_12px_32px_-8px_rgba(0,0,0,0.5)]"
+                  }`}
+                >
+                  <Image
+                    src={assetUrl(s.src)}
+                    alt={s.alt}
+                    width={s.width}
+                    height={s.height}
+                    priority={i === 0}
+                    className={`block h-auto w-[min(78vw,300px)] sm:w-[min(72vw,320px)] ${
+                      isActive
+                        ? "sm:w-[min(68vw,360px)] lg:w-[380px]"
+                        : "sm:w-[240px]"
+                    }`}
+                    sizes="(max-width: 640px) 78vw, 380px"
+                  />
+                </div>
               </div>
-            ))}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-12 bg-gradient-to-t from-background/80 to-transparent" />
-          </div>
-
-          {/* Progress bar */}
-          <div className="h-0.5 bg-edge">
-            <div
-              className="h-full bg-accent transition-[width] duration-75 ease-linear"
-              style={{ width: `${(paused ? progress : progress) * 100}%` }}
-            />
-          </div>
+            );
+          })}
         </div>
 
-        {/* Caption */}
+        <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-edge">
+          <div
+            className="h-full bg-gold transition-[width] duration-75 ease-linear"
+            style={{ width: `${progress * 100}%` }}
+          />
+        </div>
+
         <div
           key={active}
-          className="showcase-caption mt-5 rounded-2xl border border-edge/60 bg-surface/60 px-5 py-4 backdrop-blur-sm"
+          className="showcase-caption mt-4 rounded-2xl border border-gold/20 bg-surface/60 px-4 py-3 backdrop-blur-sm sm:mt-5 sm:px-5 sm:py-4"
         >
           <h3 className="text-base font-bold tracking-tight">{slide.title}</h3>
-          <p className="mt-1.5 text-sm leading-relaxed text-muted">
+          <p className="mt-1 text-sm leading-relaxed text-muted">
             {slide.description}
           </p>
         </div>
 
-        {/* Nav arrows */}
         <button
           type="button"
           aria-label="Previous slide"
           onClick={() => goTo(active - 1)}
-          className="absolute left-0 top-[42%] z-30 -translate-x-1/2 rounded-full border border-edge/80 bg-surface/90 p-2 text-muted shadow-lg backdrop-blur-sm transition-colors hover:border-accent/40 hover:text-foreground max-lg:hidden"
+          className="absolute left-0 top-[38%] z-40 -translate-x-1/2 rounded-full border border-gold/30 bg-surface/90 p-2 text-muted shadow-lg backdrop-blur-sm transition-colors hover:border-gold/60 hover:text-gold max-lg:hidden"
         >
           <ChevronLeft />
         </button>
@@ -182,13 +224,13 @@ export default function ProShowcase() {
           type="button"
           aria-label="Next slide"
           onClick={() => goTo(active + 1)}
-          className="absolute right-0 top-[42%] z-30 translate-x-1/2 rounded-full border border-edge/80 bg-surface/90 p-2 text-muted shadow-lg backdrop-blur-sm transition-colors hover:border-accent/40 hover:text-foreground max-lg:hidden"
+          className="absolute right-0 top-[38%] z-40 translate-x-1/2 rounded-full border border-gold/30 bg-surface/90 p-2 text-muted shadow-lg backdrop-blur-sm transition-colors hover:border-gold/60 hover:text-gold max-lg:hidden"
         >
           <ChevronRight />
         </button>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-3 sm:mt-6 lg:justify-start">
         <Link
           href="/subscribe/"
           className="rounded-xl bg-accent px-6 py-2.5 text-sm font-bold text-background transition-opacity hover:opacity-90"
@@ -197,7 +239,7 @@ export default function ProShowcase() {
         </Link>
         <Link
           href="/football/world-cup/builder/"
-          className="rounded-xl border border-edge px-6 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-accent/40 hover:text-foreground"
+          className="rounded-xl border border-edge px-6 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-gold/40 hover:text-foreground"
         >
           Explore World Cup →
         </Link>
