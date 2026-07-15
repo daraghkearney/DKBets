@@ -1,7 +1,8 @@
 "use client";
 
-import { useAuth } from "@clerk/clerk-react";
+import { useAuth, useUser } from "@clerk/clerk-react";
 import { isFootballFreeDuringWorldCup } from "@/lib/marketing/world-cup-promo";
+import { hasComplimentaryAccess } from "@/lib/subscription/complimentary";
 import {
   ALL_PLAN_SLUGS,
   FEATURES,
@@ -37,7 +38,9 @@ function checkAccess(
 
 export function usePremiumAccess(feature?: FeatureSlug): PremiumAccess {
   const enabled = isSubscriptionEnabled();
-  const { isLoaded, isSignedIn, has } = useAuth();
+  const { isLoaded: authLoaded, isSignedIn, has } = useAuth();
+  const { isLoaded: userLoaded, user } = useUser();
+  const isLoaded = authLoaded && (!isSignedIn || userLoaded);
 
   if (!enabled) {
     return {
@@ -81,10 +84,14 @@ export function usePremiumAccess(feature?: FeatureSlug): PremiumAccess {
     return { enabled: true, isLoading: false, isSignedIn: false, isPremium: false };
   }
 
+  const complimentary = hasComplimentaryAccess(
+    user?.publicMetadata as Record<string, unknown> | undefined
+  );
+
   return {
     enabled: true,
     isLoading: false,
     isSignedIn: true,
-    isPremium: checkAccess(has, feature),
+    isPremium: complimentary || checkAccess(has, feature),
   };
 }

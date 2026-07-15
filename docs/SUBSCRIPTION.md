@@ -311,7 +311,30 @@ Production keys live only in GitHub Actions secrets (baked into the static build
 
 ## 9. Family / complimentary all-access
 
-**Yes — use a hidden free plan and assign it manually.** Clerk does not yet have a one-click “gift subscription without charging” button for paid plans, but this pattern works today:
+Clerk Billing does not allow **$0.00** plans, so the hidden `family` plan may show as $1/mo. Two ways to grant free all-access:
+
+### A. Public metadata (recommended — no charge, no plan)
+
+The app treats users with complimentary metadata as having full access (same as `full_access`).
+
+1. **Clerk Dashboard → Users** → open the account
+2. **Metadata → Public metadata** → add:
+
+```json
+{ "complimentary": true }
+```
+
+Alternatively `"role": "admin"` works the same way.
+
+3. Save — user gets full Pro access on next page load. No subscription, no Stripe, no $1.
+
+Use this for yourself, family, and beta testers. Revoke by removing the metadata.
+
+Implemented in `src/lib/subscription/complimentary.ts` and checked in `usePremiumAccess()`.
+
+### B. Hidden `family` plan (when metadata is awkward)
+
+**Yes — use a hidden plan and assign it manually.** Clerk does not yet have a one-click “gift subscription without charging” button for paid plans, but this pattern works today:
 
 ### Create the plan (Production + Dev)
 
