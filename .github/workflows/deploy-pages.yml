@@ -77,12 +77,32 @@ jobs:
             .cache/racing-hrnet
             .cache/atr-results
             .cache/racing-performance
-          key: racing-model-v10
+          # run_id so updated weights/ledger are saved each deploy; restore prior v11
+          key: racing-model-v11-${{ github.run_id }}
           restore-keys: |
-            racing-model-v10
-            racing-model-v9
-            racing-model-v8-
-            racing-model-v7-
+            racing-model-v11-
+
+      - name: Seed racing model if cache empty
+        run: |
+          mkdir -p .cache/racing-model
+          SEED=data/racing-model-seed/weights.json
+          CACHE=.cache/racing-model/weights.json
+          if [ ! -f "$CACHE" ]; then
+            cp "$SEED" "$CACHE"
+            echo "Seeded racing model from $SEED"
+          else
+            SAMPLES=$(node -e "try{console.log(require('./.cache/racing-model/weights.json').samples||0)}catch{console.log(0)}")
+            if [ "$SAMPLES" = "0" ]; then
+              cp "$SEED" "$CACHE"
+              echo "Replaced empty cache weights with seed"
+            else
+              echo "Using cached racing model ($SAMPLES samples)"
+            fi
+          fi
+          if [ -f data/racing-model-seed/backfill-state.json ] && [ ! -f .cache/racing-model/backfill-state.json ]; then
+            cp data/racing-model-seed/backfill-state.json .cache/racing-model/backfill-state.json
+            echo "Seeded backfill-state.json"
+          fi
 
       - name: Install
         run: npm ci

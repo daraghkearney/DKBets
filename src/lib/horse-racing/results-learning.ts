@@ -45,6 +45,13 @@ import type {
 
 const MODEL_DIR = path.join(process.cwd(), ".cache", "racing-model");
 const PREDICTIONS_DIR = path.join(process.cwd(), ".cache", "racing-predictions");
+/** Checked-in fallback when Actions cache is empty (gitignored .cache/). */
+const SEED_WEIGHTS = path.join(
+  process.cwd(),
+  "data",
+  "racing-model-seed",
+  "weights.json"
+);
 
 const FACTOR_KEYS = Object.keys(
   DEFAULT_FACTOR_WEIGHTS
@@ -95,22 +102,46 @@ interface PredictionLog {
 
 // ---------------------------------------------------------------- persistence
 
+function parseModel(raw: string): RacingModelInfo | null {
+  try {
+    const data = JSON.parse(raw) as RacingModelInfo;
+    if (!data.weights) return null;
+    const merged = { ...DEFAULT_FACTOR_WEIGHTS, ...data.weights };
+    if (!FACTOR_KEYS.every((k) => typeof merged[k] === "number")) return null;
+    return {
+      ...data,
+      weights: normalizeWeights(merged),
+      samples: typeof data.samples === "number" ? data.samples : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function loadModel(): Promise<RacingModelInfo> {
   try {
     const raw = await readFile(path.join(MODEL_DIR, "weights.json"), "utf8");
-    const data = JSON.parse(raw) as RacingModelInfo;
-    if (data.weights) {
-      const merged = { ...DEFAULT_FACTOR_WEIGHTS, ...data.weights };
-      if (FACTOR_KEYS.every((k) => typeof merged[k] === "number")) {
-        return {
-          ...data,
-          weights: normalizeWeights(merged),
-        };
-      }
+    const cached = parseModel(raw);
+    if (cached && cached.samples > 0) return cached;
+  } catch {
+    // fall through to seed / defaults
+  }
+
+  try {
+    const raw = await readFile(SEED_WEIGHTS, "utf8");
+    const seeded = parseModel(raw);
+    if (seeded && seeded.samples > 0) {
+      console.log(
+        `  racing model: loaded seed weights (${seeded.samples} samples)`
+      );
+      // Persist into cache so later learning continues from the seed
+      await saveModelInternal(seeded);
+      return seeded;
     }
   } catch {
     // fall through to defaults
   }
+
   return {
     weights: { ...DEFAULT_FACTOR_WEIGHTS },
     samples: 0,
