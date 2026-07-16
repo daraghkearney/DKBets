@@ -77,14 +77,16 @@ jobs:
             .cache/racing-hrnet
             .cache/atr-results
             .cache/racing-performance
-          # run_id so updated weights/ledger are saved each deploy; restore prior v11
-          key: racing-model-v11-${{ github.run_id }}
+          # run_id so updated weights/ledger are saved each deploy; restore prior v12
+          key: racing-model-v12-${{ github.run_id }}
           restore-keys: |
+            racing-model-v12-
             racing-model-v11-
 
       - name: Seed racing model if cache empty
         run: |
-          mkdir -p .cache/racing-model
+          mkdir -p .cache/racing-model .cache/racing-predictions .cache/racing-performance
+
           SEED=data/racing-model-seed/weights.json
           CACHE=.cache/racing-model/weights.json
           if [ ! -f "$CACHE" ]; then
@@ -102,6 +104,35 @@ jobs:
           if [ -f data/racing-model-seed/backfill-state.json ] && [ ! -f .cache/racing-model/backfill-state.json ]; then
             cp data/racing-model-seed/backfill-state.json .cache/racing-model/backfill-state.json
             echo "Seeded backfill-state.json"
+          fi
+
+          # Performance ledger + prediction logs (track record needs both)
+          LEDGER_SEED=data/racing-performance-seed/ledger.json
+          LEDGER_CACHE=.cache/racing-performance/ledger.json
+          if [ -f "$LEDGER_SEED" ]; then
+            ENTRIES=0
+            if [ -f "$LEDGER_CACHE" ]; then
+              ENTRIES=$(node -e "try{console.log((require('./.cache/racing-performance/ledger.json').entries||[]).length)}catch{console.log(0)}")
+            fi
+            if [ ! -f "$LEDGER_CACHE" ] || [ "$ENTRIES" = "0" ]; then
+              cp "$LEDGER_SEED" "$LEDGER_CACHE"
+              echo "Seeded performance ledger ($(node -e "console.log(require('./data/racing-performance-seed/ledger.json').entries.length)") entries)"
+            else
+              echo "Using cached performance ledger ($ENTRIES entries)"
+            fi
+          fi
+
+          if [ -d data/racing-performance-seed/predictions ]; then
+            COPIED=0
+            for f in data/racing-performance-seed/predictions/*.json; do
+              [ -f "$f" ] || continue
+              base=$(basename "$f")
+              if [ ! -f ".cache/racing-predictions/$base" ]; then
+                cp "$f" ".cache/racing-predictions/$base"
+                COPIED=$((COPIED + 1))
+              fi
+            done
+            echo "Seeded $COPIED prediction log(s)"
           fi
 
       - name: Install

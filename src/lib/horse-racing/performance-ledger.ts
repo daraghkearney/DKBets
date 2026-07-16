@@ -38,10 +38,33 @@ interface LedgerFile {
 async function loadLedger(): Promise<LedgerFile> {
   try {
     const raw = await readFile(LEDGER_FILE, "utf8");
-    return JSON.parse(raw) as LedgerFile;
+    const file = JSON.parse(raw) as LedgerFile;
+    if (file.entries?.length) return file;
   } catch {
-    return { entries: [], updatedAt: new Date().toISOString() };
+    // fall through to seed
   }
+
+  try {
+    const seedPath = path.join(
+      process.cwd(),
+      "data",
+      "racing-performance-seed",
+      "ledger.json"
+    );
+    const raw = await readFile(seedPath, "utf8");
+    const seeded = JSON.parse(raw) as LedgerFile;
+    if (seeded.entries?.length) {
+      console.log(
+        `  racing ledger: loaded seed (${seeded.entries.length} entries)`
+      );
+      await saveLedger(seeded);
+      return seeded;
+    }
+  } catch {
+    // fall through
+  }
+
+  return { entries: [], updatedAt: new Date().toISOString() };
 }
 
 async function saveLedger(file: LedgerFile): Promise<void> {
