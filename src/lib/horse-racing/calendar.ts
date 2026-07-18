@@ -8,7 +8,12 @@ import { isInsiderGradePick } from "./tipster-priority";
 import { loadPeopleStats } from "./people-stats";
 import { learnFromYesterday, savePredictionLog } from "./results-learning";
 import { backfillHistoricalLearning } from "./historical-backfill";
-import { loadPerformanceStats, backfillPerformanceLedger, saveNapLog } from "./performance-ledger";
+import {
+  loadPerformanceStats,
+  backfillPerformanceLedger,
+  enrichLedgerPickOdds,
+  saveNapLog,
+} from "./performance-ledger";
 import { buildValuePicks } from "./value-picks";
 import { fetchHrnRacecards, hrnLinksFromRaces } from "./hrnet";
 import {
@@ -241,6 +246,16 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
       }
     } catch (e) {
       console.warn("  racing ledger backfill: failed", e);
+    }
+    try {
+      const enrich = await enrichLedgerPickOdds({ maxDates: 7 });
+      if (enrich.updated) {
+        console.log(
+          `  racing ledger enrich: filled ${enrich.updated} pickOdds from SP (${enrich.dates.join(", ")})`
+        );
+      }
+    } catch (e) {
+      console.warn("  racing ledger enrich: failed", e);
     }
     return loadPerformanceStats(90);
   })();

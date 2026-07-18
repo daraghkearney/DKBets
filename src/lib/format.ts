@@ -26,6 +26,18 @@ export function toFractional(decimal: number): string {
   return `${best[0]}/${best[1]}`;
 }
 
+export type OddsDisplayFormat = "decimal" | "fractional";
+
+/** Format decimal odds for UK racing UI (decimal or fractional ladder). */
+export function formatOdds(
+  decimal: number | null | undefined,
+  format: OddsDisplayFormat = "decimal"
+): string | null {
+  if (decimal == null || !Number.isFinite(decimal) || decimal <= 1) return null;
+  if (format === "fractional") return toFractional(decimal);
+  return decimal >= 10 ? decimal.toFixed(0) : decimal.toFixed(1);
+}
+
 export function formatPct(fraction: number, dp = 2): string {
   return `${(fraction * 100).toFixed(dp)}%`;
 }

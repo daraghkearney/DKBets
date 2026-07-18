@@ -11,9 +11,46 @@ import type {
 import PremiumGate from "@/components/subscription/PremiumGate";
 import { usePremiumAccess } from "@/lib/subscription/access";
 import { FEATURES, isSubscriptionEnabled } from "@/lib/subscription/config";
+import { formatOdds, type OddsDisplayFormat } from "@/lib/format";
+import { useOddsFormat } from "@/hooks/useOddsFormat";
 
 function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
+}
+
+function OddsToggle({
+  format,
+  onChange,
+}: {
+  format: OddsDisplayFormat;
+  onChange: (f: OddsDisplayFormat) => void;
+}) {
+  return (
+    <div className="inline-flex items-center rounded-lg border border-edge bg-background/40 p-0.5 text-[11px] font-semibold">
+      <button
+        type="button"
+        onClick={() => onChange("decimal")}
+        className={`rounded-md px-2.5 py-1 transition-colors ${
+          format === "decimal"
+            ? "bg-accent text-background"
+            : "text-muted hover:text-foreground"
+        }`}
+      >
+        Decimal
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("fractional")}
+        className={`rounded-md px-2.5 py-1 transition-colors ${
+          format === "fractional"
+            ? "bg-accent text-background"
+            : "text-muted hover:text-foreground"
+        }`}
+      >
+        Fractional
+      </button>
+    </div>
+  );
 }
 
 function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
@@ -112,7 +149,13 @@ function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
   );
 }
 
-function NapPicksPanel({ naps }: { naps: RacingNapPick[] }) {
+function NapPicksPanel({
+  naps,
+  oddsFormat,
+}: {
+  naps: RacingNapPick[];
+  oddsFormat: OddsDisplayFormat;
+}) {
   if (!naps.length) return null;
   return (
     <section className="rounded-2xl border border-gold/40 bg-gold/5 p-5">
@@ -139,9 +182,9 @@ function NapPicksPanel({ naps }: { naps: RacingNapPick[] }) {
             </p>
             <p className="text-sm font-bold">
               {n.horse}
-              {n.odds != null && (
+              {formatOdds(n.odds, oddsFormat) && (
                 <span className="ml-2 font-normal text-muted tabular">
-                  {n.odds.toFixed(1)}
+                  {formatOdds(n.odds, oddsFormat)}
                 </span>
               )}
             </p>
@@ -163,8 +206,10 @@ function NapPicksPanel({ naps }: { naps: RacingNapPick[] }) {
 
 function EachWayGemBanner({
   gem,
+  oddsFormat,
 }: {
   gem: NonNullable<HorseRace["eachWayGem"]>;
+  oddsFormat: OddsDisplayFormat;
 }) {
   return (
     <div className="border-b border-emerald-500/30 bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-transparent px-4 py-3">
@@ -173,9 +218,9 @@ function EachWayGemBanner({
       </p>
       <p className="mt-0.5 text-sm font-bold">
         {gem.name}
-        {gem.odds != null && (
+        {formatOdds(gem.odds, oddsFormat) && (
           <span className="ml-2 font-normal text-muted tabular">
-            {gem.odds.toFixed(1)}
+            {formatOdds(gem.odds, oddsFormat)}
           </span>
         )}
       </p>
@@ -210,10 +255,12 @@ function RaceCard({
   race,
   hotPicks,
   showPremium,
+  oddsFormat,
 }: {
   race: HorseRace;
   hotPicks: TipsterPick[];
   showPremium: boolean;
+  oddsFormat: OddsDisplayFormat;
 }) {
   const runners = showPremium
     ? [...race.runners].sort((a, b) => b.overallScore - a.overallScore)
@@ -243,7 +290,7 @@ function RaceCard({
         <HotTipBanner key={p.id} pick={p} />
       ))}
       {showPremium && race.eachWayGem && (
-        <EachWayGemBanner gem={race.eachWayGem} />
+        <EachWayGemBanner gem={race.eachWayGem} oddsFormat={oddsFormat} />
       )}
       <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
         {runners.map((r) => {
@@ -292,9 +339,9 @@ function RaceCard({
                 {r.jockey} · {r.trainer}
               </p>
               <p className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-muted">
-                {r.odds != null && (
+                {formatOdds(r.odds, oddsFormat) && (
                   <span className="tabular font-semibold text-foreground/90">
-                    {r.odds.toFixed(1)}
+                    {formatOdds(r.odds, oddsFormat)}
                   </span>
                 )}
                 {r.officialRating != null && (
@@ -407,14 +454,18 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
     races,
     tipsters,
   } = useRacingSelection();
+  const { format: oddsFormat, setFormat: setOddsFormat } = useOddsFormat();
 
   return (
     <div className="min-h-screen">
       <div className="border-b border-edge bg-gradient-to-r from-amber-500/10 to-transparent px-4 py-8 sm:px-6">
         <div className="mx-auto max-w-7xl">
-          <h1 className="text-2xl font-bold sm:text-3xl">
-            {selectedMeeting?.name ?? "Horse Racing"}
-          </h1>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-2xl font-bold sm:text-3xl">
+              {selectedMeeting?.name ?? "Horse Racing"}
+            </h1>
+            <OddsToggle format={oddsFormat} onChange={setOddsFormat} />
+          </div>
           <p className="mt-2 max-w-2xl text-sm text-muted">
             Model-weighted form, course fit, market signals and tipster
             intelligence — updated from every completed race day.
@@ -454,7 +505,7 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
         <div className="flex flex-col gap-8">
           {calendar?.naps && calendar.naps.length > 0 && (
             <PremiumGate feature={FEATURES.racingIntel}>
-              <NapPicksPanel naps={calendar.naps} />
+              <NapPicksPanel naps={calendar.naps} oddsFormat={oddsFormat} />
             </PremiumGate>
           )}
 
@@ -467,6 +518,7 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
               key={race.id}
               race={race}
               showPremium={showPremium}
+              oddsFormat={oddsFormat}
               hotPicks={tipsters.filter(
                 (t) => t.hot && t.raceId === race.id
               )}

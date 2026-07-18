@@ -158,6 +158,23 @@ async function loadNapRaceIds(date: string): Promise<Set<string>> {
   }
 }
 
+function raceKey(course: string, time: string): string {
+  return `${courseSlug(course)}|${to24hTime(time)}`;
+}
+
+/** Prefer card price; fall back to that horse's SP from results. */
+function resolvePickOdds(
+  cardOdds: number | null | undefined,
+  result: ResultRace,
+  horseName: string
+): number | null {
+  if (cardOdds != null && cardOdds > 1) return cardOdds;
+  const norm = normaliseName(horseName);
+  const row = result.runners.find((r) => normaliseName(r.name) === norm);
+  if (row?.sp != null && row.sp > 1) return row.sp;
+  return null;
+}
+
 /**
  * Record outcomes for races where we logged a #1 prediction.
  */
@@ -169,21 +186,23 @@ export async function recordDayOutcomes(
 ): Promise<void> {
   const napIds = napRaceIds ?? (await loadNapRaceIds(date));
   const ledger = await loadLedger();
-  const existing = new Set(
+  const existingIds = new Set(
     ledger.entries.filter((e) => e.date === date).map((e) => e.raceId)
   );
+  const existingKeys = new Set(
+    ledger.entries
+      .filter((e) => e.date === date && !e.isEwGem)
+      .map((e) => raceKey(e.course, e.time))
+  );
 
-  const raceKey = (course: string, time: string) =>
-    `${courseSlug(course)}|${to24hTime(time)}`;
   const byKey = new Map(loggedRaces.map((r) => [raceKey(r.course, r.time), r]));
   const byId = new Map(loggedRaces.map((r) => [r.raceId, r]));
 
   for (const result of results) {
-    const logged =
-      byId.get(result.raceId) ??
-      byKey.get(raceKey(result.course, result.time));
+    const key = raceKey(result.course, result.time);
+    const logged = byId.get(result.raceId) ?? byKey.get(key);
     if (!logged) continue;
-    if (existing.has(result.raceId)) continue;
+    if (existingIds.has(result.raceId) || existingKeys.has(key)) continue;
 
     const pick = logged.runners.find((r) => r.rank === 1);
     if (!pick) continue;
@@ -192,9 +211,6 @@ export async function recordDayOutcomes(
     if (!winner) continue;
 
     const winnerNorm = normaliseName(winner.name);
-    const ranked = [...result.runners]
-      .filter((r) => r.position > 0)
-      .sort((a, b) => a.position - b.position);
 
     let winnerRank: number | null = null;
     for (const r of logged.runners) {
@@ -204,13 +220,15 @@ export async function recordDayOutcomes(
       }
     }
 
+    const pickOdds = resolvePickOdds(pick.odds, result, pick.name);
+
     ledger.entries.push({
       date,
       raceId: result.raceId,
       course: result.course,
       time: result.time,
       pick: pick.name,
-      pickOdds: pick.odds,
+      pickOdds,
       pickProb: pick.winProbability ?? null,
       pickEdge: pick.modelEdge ?? null,
       pickRank: 1,
@@ -222,11 +240,13 @@ export async function recordDayOutcomes(
       isNap: napIds.has(result.raceId) || napIds.has(logged.raceId),
       isEwGem: false,
     });
+    existingIds.add(result.raceId);
+    existingKeys.add(key);
 
     const gem = logged.eachWayGem;
     if (gem?.name) {
       const ewKey = `${result.raceId}:ew`;
-      if (!existing.has(ewKey)) {
+      if (!existingIds.has(ewKey)) {
         const fieldSize = result.runners.filter((r) => r.position > 0).length;
         const ewPos = runnerFinishedPosition(result, gem.runnerId, gem.name);
         const places = ewPlacePositions(fieldSize);
@@ -238,7 +258,7 @@ export async function recordDayOutcomes(
           course: result.course,
           time: result.time,
           pick: gem.name,
-          pickOdds: gem.odds,
+          pickOdds: resolvePickOdds(gem.odds, result, gem.name),
           pickProb: null,
           pickEdge: null,
           pickRank: 0,
@@ -251,6 +271,7 @@ export async function recordDayOutcomes(
           isEwGem: true,
           placeHit,
         });
+        existingIds.add(ewKey);
       }
     }
   }
@@ -262,6 +283,48 @@ export async function recordDayOutcomes(
 }
 
 /**
+ * Fill missing pickOdds from result SPs so flat ROI includes all settled picks.
+ */
+export async function enrichLedgerPickOdds(
+  opts: { maxDates?: number } = {}
+): Promise<{ updated: number; dates: string[] }> {
+  const maxDates = opts.maxDates ?? Number(process.env.RACING_LEDGER_ENRICH_MAX ?? 5);
+  const ledger = await loadLedger();
+  const needByDate = new Map<string, PerformanceLedgerEntry[]>();
+  for (const e of ledger.entries) {
+    if (e.pickOdds != null && e.pickOdds > 1) continue;
+    const list = needByDate.get(e.date) ?? [];
+    list.push(e);
+    needByDate.set(e.date, list);
+  }
+
+  const dates = [...needByDate.keys()].sort().reverse().slice(0, maxDates);
+  let updated = 0;
+
+  for (const date of dates) {
+    const { races } = await fetchResultsForDate(date);
+    if (!races.length) continue;
+    const byKey = new Map(races.map((r) => [raceKey(r.course, r.time), r]));
+    for (const entry of needByDate.get(date) ?? []) {
+      const result = byKey.get(raceKey(entry.course, entry.time));
+      if (!result) continue;
+      const odds = resolvePickOdds(null, result, entry.pick);
+      if (odds == null) continue;
+      entry.pickOdds = odds;
+      if (entry.winnerSp == null) {
+        const winner = result.runners.find((r) => r.position === 1);
+        if (winner?.sp) entry.winnerSp = winner.sp;
+      }
+      updated += 1;
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  if (updated > 0) await saveLedger(ledger);
+  return { updated, dates };
+}
+
+/**
  * Rebuild the performance ledger from saved prediction logs + results.
  * Uses the same prediction history that powered the old review panel.
  */
@@ -270,7 +333,7 @@ export async function backfillPerformanceLedger(
 ): Promise<{ recorded: number; dates: string[] }> {
   const windowDays = opts.windowDays ?? 90;
   const maxPerRun =
-    opts.maxPerRun ?? Number(process.env.RACING_LEDGER_BACKFILL_MAX ?? 7);
+    opts.maxPerRun ?? Number(process.env.RACING_LEDGER_BACKFILL_MAX ?? 14);
 
   let files: string[] = [];
   try {

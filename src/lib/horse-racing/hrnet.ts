@@ -18,7 +18,7 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v8";
+const CARDS_CACHE_VERSION = "v9";
 const CARDS_TTL_MS = 90 * 60 * 1000;
 const RESULTS_TTL_MS = 30 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
@@ -353,6 +353,28 @@ function attrNum(row: string, attr: string): number | null {
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Live price from HRN row — decimal attr first, then fractional text. */
+function parseOddsFromRow(row: string): number | null {
+  const fromAttr =
+    attrNum(row, "data-oddsdecimal") ??
+    attrNum(row, "data-odds") ??
+    attrNum(row, "data-price");
+  if (fromAttr != null && fromAttr > 1) return fromAttr;
+
+  // e.g. <span class="odds">5/2</span> or bare 5/2 near price widgets
+  for (const m of row.matchAll(
+    /(?:odds|price|sp)[^0-9]{0,40}(\d{1,3}\s*\/\s*\d{1,3})/gi
+  )) {
+    const dec = fracToDecimal(m[1].replace(/\s+/g, ""));
+    if (dec) return dec;
+  }
+  for (const m of row.matchAll(/\b(\d{1,3}\/\d{1,3})\b/g)) {
+    const dec = fracToDecimal(m[1]);
+    if (dec && dec >= 1.01 && dec <= 501) return dec;
+  }
+  return null;
 }
 
 function titleCaseSlug(slug: string): string {
@@ -711,7 +733,7 @@ function parseRunnerRow(row: string): HrnRunner | null {
     trainerPct: trainer?.[2] ? Number(trainer[2]) : null,
     age: age ? Number(age[1]) : null,
     weight: weight?.[1]?.trim() ?? "",
-    odds: attrNum(row, "data-oddsdecimal"),
+    odds: parseOddsFromRow(row),
     officialRating: Number.isFinite(or) && or > 0 ? or : null,
     rpr: attrNum(row, "data-rating"),
     topspeed: attrNum(row, "data-topspeed"),
@@ -968,7 +990,8 @@ export async function fetchHrnRacecards(
     );
   } else {
     console.log(`  hrn cards: ${links.length} links from API racecards (${isoDate})`);
-    if (process.env.TAVILY_API_KEY) fetchMode = "tavily";
+    // Prefer direct HTML (has data-oddsdecimal). Tavily is a fallback only.
+    fetchMode = "direct";
   }
 
   if (!links.length) {
@@ -992,17 +1015,37 @@ export async function fetchHrnRacecards(
   let extracted = 0;
 
   if (missingLinks.length) {
-    if (fetchMode === "tavily" || process.env.TAVILY_API_KEY) {
-      if (fetchMode === "direct") fetchMode = "mixed";
-      const urls = missingLinks.map((link) => linkToUrl(d, link));
-      let contents = await tavilyExtractWithRetry(urls);
+    // Always try direct HTML first — it carries data-oddsdecimal for live prices.
+    const directParsed = await mapPool(
+      missingLinks,
+      FETCH_CONCURRENCY,
+      async (link) => {
+        const [slug, time] = link.split("|");
+        const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
+        if (!html) return null;
+        const race = parseRacePage(html, slug, time);
+        if (race) await saveRaceToCache(isoDate, race);
+        return race;
+      }
+    );
+    for (let i = 0; i < missingLinks.length; i++) {
+      const race = directParsed[i];
+      if (race) raceByLink.set(missingLinks[i], race);
+    }
+
+    // Tavily only for races direct fetch missed
+    const stillMissing = links.filter((l) => !raceByLink.has(l));
+    if (stillMissing.length && process.env.TAVILY_API_KEY) {
+      fetchMode = raceByLink.size ? "mixed" : "tavily";
+      const urls = stillMissing.map((link) => linkToUrl(d, link));
+      const contents = await tavilyExtractWithRetry(urls);
       extracted = contents.size;
       console.log(
-        `  hrn tavily: extracted ${contents.size}/${missingLinks.length} race pages`
+        `  hrn tavily: extracted ${contents.size}/${stillMissing.length} race pages (direct miss)`
       );
 
-      let { races: parsed, parseFailed } = await parseLinksToRaces(
-        missingLinks,
+      const { races: parsed } = await parseLinksToRaces(
+        stillMissing,
         d,
         isoDate,
         contents
@@ -1011,32 +1054,13 @@ export async function fetchHrnRacecards(
         raceByLink.set(`${race.courseSlug}|${race.time}`, race);
       }
 
-      // Re-fetch URLs where Tavily returned content but parser failed
-      const retryLinks = parseFailed.filter((link) => contents.has(linkToUrl(d, link)));
-      if (retryLinks.length) {
-        console.log(`  hrn tavily: re-extracting ${retryLinks.length} parse-failed pages`);
-        const retryUrls = retryLinks.map((link) => linkToUrl(d, link));
-        const retryContents = await tavilyExtractWithRetry(retryUrls);
-        extracted += retryContents.size;
-        const retryParsed = await parseLinksToRaces(
-          retryLinks,
-          d,
-          isoDate,
-          retryContents
-        );
-        for (const race of retryParsed.races) {
-          raceByLink.set(`${race.courseSlug}|${race.time}`, race);
-        }
-      }
-
-      // Still missing — Tavily search fallback (extract often quota-limited)
-      const stillMissing = links.filter((l) => !raceByLink.has(l));
-      if (stillMissing.length && process.env.TAVILY_API_KEY) {
+      const stillAfterExtract = links.filter((l) => !raceByLink.has(l));
+      if (stillAfterExtract.length) {
         console.log(
-          `  hrn tavily: search fallback for ${stillMissing.length} races`
+          `  hrn tavily: search fallback for ${stillAfterExtract.length} races`
         );
         const searchParsed = await mapPool(
-          stillMissing,
+          stillAfterExtract,
           4,
           async (link) => {
             const [slug, time] = link.split("|");
@@ -1047,48 +1071,11 @@ export async function fetchHrnRacecards(
             return race;
           }
         );
-        for (let i = 0; i < stillMissing.length; i++) {
+        for (let i = 0; i < stillAfterExtract.length; i++) {
           const race = searchParsed[i];
-          if (race) raceByLink.set(stillMissing[i], race);
+          if (race) raceByLink.set(stillAfterExtract[i], race);
         }
         extracted += searchParsed.filter(Boolean).length;
-      }
-
-      const stillMissingDirect = links.filter((l) => !raceByLink.has(l));
-      if (stillMissingDirect.length && fetchMode !== "tavily") {
-        const directParsed = await mapPool(
-          stillMissingDirect,
-          FETCH_CONCURRENCY,
-          async (link) => {
-            const [slug, time] = link.split("|");
-            const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
-            if (!html) return null;
-            const race = parseRacePage(html, slug, time);
-            if (race) await saveRaceToCache(isoDate, race);
-            return race;
-          }
-        );
-        for (let i = 0; i < stillMissingDirect.length; i++) {
-          const race = directParsed[i];
-          if (race) raceByLink.set(stillMissingDirect[i], race);
-        }
-      }
-    } else {
-      const directParsed = await mapPool(
-        missingLinks,
-        FETCH_CONCURRENCY,
-        async (link) => {
-          const [slug, time] = link.split("|");
-          const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
-          if (!html) return null;
-          const race = parseRacePage(html, slug, time);
-          if (race) await saveRaceToCache(isoDate, race);
-          return race;
-        }
-      );
-      for (let i = 0; i < missingLinks.length; i++) {
-        const race = directParsed[i];
-        if (race) raceByLink.set(missingLinks[i], race);
       }
     }
   }
@@ -1150,7 +1137,7 @@ function parseResultsPage(
         row.match(/class="number position">\s*(\d+)(?:st|nd|rd|th)/i);
       const nameMatch = row.match(/runner-title">\s*([^<]+?)\s*<\/a>/);
       if (!nameMatch) continue;
-      const sp = attrNum(row, "data-oddsdecimal");
+      const sp = parseOddsFromRow(row);
       runners.push({
         name: nameMatch[1].trim(),
         position: posMatch ? Number(posMatch[1]) : 99,
