@@ -2,7 +2,7 @@
 
 **Your daily almanac for form, models & value.**
 
-Multi-sport betting research — football (World Cup builders, underpriced gems, H2H, team bet model), horse racing (value naps, 13-factor model, tipster intel), and NBA props.
+Multi-sport betting research — football (Premier League builders, underpriced gems, H2H, team bet model), horse racing (value naps, 13-factor model, tipster intel), and NBA props.
 
 ## Stack
 

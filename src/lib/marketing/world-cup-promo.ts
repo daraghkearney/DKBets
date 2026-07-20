@@ -1,6 +1,6 @@
 import { FEATURES, type FeatureSlug } from "@/lib/subscription/config";
 
-/** Default: free through World Cup final day (override via env). */
+/** Default: promo ended with World Cup final (override via env). */
 const DEFAULT_FREE_UNTIL = "2026-07-20T23:59:59Z";
 
 const FOOTBALL_FREE_FEATURES: readonly FeatureSlug[] = [
@@ -10,7 +10,8 @@ const FOOTBALL_FREE_FEATURES: readonly FeatureSlug[] = [
 ];
 
 export function isWorldCupFreeEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_WORLD_CUP_FREE_ENABLED !== "false";
+  // Explicit opt-in only — World Cup promo is over by default.
+  return process.env.NEXT_PUBLIC_WORLD_CUP_FREE_ENABLED === "true";
 }
 
 export function getWorldCupFreeEndsAt(): Date | null {

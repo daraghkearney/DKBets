@@ -38,7 +38,7 @@ export function statValue(stat: any): number {
 export function parseMatchPlayerLines(
   matchId: number,
   payload: any,
-  competition = "World Cup"
+  competition = "Premier League"
 ): Map<number, PlayerMatchLine> {
   const out = new Map<number, PlayerMatchLine>();
   const ps = payload?.content?.playerStats;
@@ -180,7 +180,7 @@ export interface RawFixture {
 export function parseFixtures(league: any): RawFixture[] {
   const out: RawFixture[] = [];
   for (const rnd of league?.fixtures?.allMatches ?? []) {
-    const stage = String(rnd.roundName ?? rnd.round ?? "World Cup");
+    const stage = String(rnd.roundName ?? rnd.round ?? "Premier League");
     const matches =
       Array.isArray(rnd.matches) && rnd.matches.length > 0
         ? rnd.matches

@@ -143,12 +143,12 @@ export default function HomePage() {
         </div>
 
         <p className="mt-8 text-center text-xs text-muted sm:mt-10">
-          Previously World Cup only — now multi-sport.{" "}
+          Premier League builders, gems &amp; matchups — live now.{" "}
           <Link
-            href="/football/world-cup/"
+            href="/football/premier-league/"
             className="text-accent underline underline-offset-2"
           >
-            Jump straight to World Cup →
+            Jump straight to Premier League →
           </Link>
           {" · "}
           <Link

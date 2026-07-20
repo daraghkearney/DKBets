@@ -1,5 +1,5 @@
 import LegacyRedirect from "@/components/LegacyRedirect";
 
 export default function Page() {
-  return <LegacyRedirect to="/football/world-cup/builder/" />;
+  return <LegacyRedirect to="/football/premier-league/builder/" />;
 }

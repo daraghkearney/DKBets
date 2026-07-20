@@ -83,13 +83,13 @@ function buildQueries(
     {
       id: "preview",
       kind: "preview",
-      query: `${home} vs ${away} World Cup ${year} tactical preview formation style of play`,
+      query: `${home} vs ${away} Premier League ${year} tactical preview formation style of play`,
       title: "Tactical preview",
     },
     {
       id: "h2h",
       kind: "h2h",
-      query: `${home} vs ${away} recent head to head form World Cup`,
+      query: `${home} vs ${away} recent head to head form Premier League`,
       title: "Recent form & H2H",
     },
   ];

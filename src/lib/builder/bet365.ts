@@ -13,13 +13,15 @@ import {
 import type { Bet365LiveBundle, Bet365LiveMap, Bet365LiveQuote } from "./bet365-live";
 import type { LegCategory } from "./types";
 
+import { PRIMARY_ODDS_API_LEAGUE } from "@/lib/sports/football";
+
 export interface FixtureRef {
   id: number;
   home: string;
   away: string;
 }
 
-const WC_LEAGUE = "international-fifa-world-cup";
+const ODDS_API_LEAGUE = PRIMARY_ODDS_API_LEAGUE;
 
 /** Cap implied probability — Bet365 shortens less aggressively than raw hit rate. */
 const MAX_IMPLIED: Record<LegCategory, number> = {
@@ -602,7 +604,7 @@ async function resolveOddsApiEvents(
   const leagueUrl = new URL("https://api.odds-api.io/v3/events");
   leagueUrl.searchParams.set("apiKey", key);
   leagueUrl.searchParams.set("sport", "football");
-  leagueUrl.searchParams.set("league", WC_LEAGUE);
+  leagueUrl.searchParams.set("league", ODDS_API_LEAGUE);
   leagueUrl.searchParams.set("bookmaker", "Bet365");
   leagueUrl.searchParams.set("status", "pending");
   leagueUrl.searchParams.set("limit", "500");
@@ -655,7 +657,7 @@ export async function fetchBet365LiveOdds(
   try {
     const eventMap = await resolveOddsApiEvents(key, fixtures);
     if (eventMap.size === 0) {
-      console.warn("  bet365 live: no odds-api.io events matched for World Cup fixtures");
+      console.warn("  bet365 live: no odds-api.io events matched for Premier League fixtures");
       return empty;
     }
 

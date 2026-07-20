@@ -1,20 +1,9 @@
-import { readFile } from "fs/promises";
-import path from "path";
 import { use } from "react";
 import LegacyRedirect from "@/components/LegacyRedirect";
+import { footballFixtureStaticParams } from "@/lib/stats/fixture-static-params";
 
 export async function generateStaticParams() {
-  return readFixtureIds().catch(() => [{ id: "0" }]);
-}
-
-async function readFixtureIds(): Promise<Array<{ id: string }>> {
-  const file = path.join(
-    process.cwd(),
-    "public/data/stats/fixture-ids.json"
-  );
-  const raw = await readFile(file, "utf8");
-  const { ids } = JSON.parse(raw) as { ids: number[] };
-  return ids.map((id) => ({ id: String(id) }));
+  return footballFixtureStaticParams();
 }
 
 export default function MatchDetailRedirect({
@@ -23,5 +12,7 @@ export default function MatchDetailRedirect({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  return <LegacyRedirect to={`/football/world-cup/matches/${id}/`} />;
+  return (
+    <LegacyRedirect to={`/football/premier-league/matches/${id}/`} />
+  );
 }

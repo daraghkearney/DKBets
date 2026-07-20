@@ -44,7 +44,7 @@ export function buildGemDescription(leg: BuilderLeg): string {
 
   if (leg.type === "team" && leg.teamName) {
     clauses.push(
-      `${leg.teamName} have hit this team market in ${leg.tournamentHits ?? 0}/${leg.tournamentSample ?? leg.sample} World Cup games`
+      `${leg.teamName} have hit this team market in ${leg.tournamentHits ?? 0}/${leg.tournamentSample ?? leg.sample} Premier League games`
     );
   } else if (leg.playerName) {
     clauses.push(

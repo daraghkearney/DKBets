@@ -41,8 +41,8 @@ export default function WorldCupPromoBanner({ compact = false }: { compact?: boo
 
   if (!active) return null;
 
-  const builderHref = withAttribution("/football/world-cup/builder/");
-  const starHref = withAttribution("/football/world-cup/star-players/");
+  const builderHref = withAttribution("/football/premier-league/builder/");
+  const starHref = withAttribution("/football/premier-league/star-players/");
 
   if (compact) {
     return (

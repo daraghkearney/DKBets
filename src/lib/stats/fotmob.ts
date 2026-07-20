@@ -1,14 +1,20 @@
 /**
  * FotMob open-API client with in-memory caching + request de-duplication.
- * World Cup league id = 77.
+ * Primary league: Premier League (47). World Cup (77) kept for reference.
  */
 
 import { gunzipSync } from "zlib";
+import {
+  PRIMARY_FOOTBALL_LEAGUE_ID,
+  WORLD_CUP_LEAGUE_ID,
+} from "@/lib/sports/football";
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
-export const WC_LEAGUE_ID = 77;
+export const PRIMARY_LEAGUE_ID = PRIMARY_FOOTBALL_LEAGUE_ID;
+/** @deprecated Use PRIMARY_LEAGUE_ID — alias kept for older imports */
+export const WC_LEAGUE_ID = WORLD_CUP_LEAGUE_ID;
 
 interface CacheEntry {
   expires: number;
@@ -87,9 +93,11 @@ export async function pool<T, R>(
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** Full league payload: fixtures, leaderboards, details. */
-export function getLeague(): Promise<any> {
+export function getLeague(
+  leagueId: number = PRIMARY_LEAGUE_ID
+): Promise<any> {
   return fetchJson(
-    `https://www.fotmob.com/api/data/leagues?id=${WC_LEAGUE_ID}&tab=matches&type=league&timeZone=UTC`,
+    `https://www.fotmob.com/api/data/leagues?id=${leagueId}&tab=matches&type=league&timeZone=UTC`,
     10 * 60_000
   );
 }
@@ -108,9 +116,13 @@ export function getPlayerData(playerId: number): Promise<any> {
 }
 
 /** Full leaderboard list for a stat (e.g. "fouls.json"). */
-export function getLeaderboard(seasonId: string | number, statFile: string): Promise<any> {
+export function getLeaderboard(
+  seasonId: string | number,
+  statFile: string,
+  leagueId: number = PRIMARY_LEAGUE_ID
+): Promise<any> {
   return fetchJson(
-    `https://data.fotmob.com/stats/${WC_LEAGUE_ID}/season/${seasonId}/${statFile}`,
+    `https://data.fotmob.com/stats/${leagueId}/season/${seasonId}/${statFile}`,
     30 * 60_000
   );
 }

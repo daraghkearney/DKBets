@@ -33,23 +33,9 @@ function isQualificationStage(stage: string): boolean {
 }
 
 function competitionLabel(stage: string, mode: StatsSampleMode): string {
-  if (isQualificationStage(stage)) return "World Cup Qualification";
   if (mode === "last50") return "All Competitions";
-  if (mode === "alltime-nt") return "National Team";
-  return "World Cup";
-}
-
-const CLUB_LEAGUE_RE =
-  /premier league|la liga|serie a|bundesliga|ligue 1|champions league|europa league|conference league|fa cup|copa del rey|dfb-pokal|coupe de france|carabao|mls|eredivisie|primeira liga|süper lig|super lig|scottish prem|championship|league one|league two|segunda|serie b|2\. bundesliga|ligue 2|jupiler|pro league|süper|eredivisie/i;
-
-function isInternationalCompetition(name: string): boolean {
-  const text = name.toLowerCase();
-  if (CLUB_LEAGUE_RE.test(text)) return false;
-  return (
-    /world cup|euro|nations|copa america|afcon|asian cup|concacaf|qualif|international|friendly|olympic|nations league|uefa|conmebol|caf |afc |ofc /i.test(
-      text
-    ) || text.includes("national")
-  );
+  if (isQualificationStage(stage)) return "Qualification";
+  return "Premier League";
 }
 
 async function ingestFinishedMatches(
@@ -69,7 +55,7 @@ async function ingestFinishedMatches(
       const fx = finishedById.get(id);
       const competition = fx
         ? competitionLabel(fx.stage, mode)
-        : competitionLabel("World Cup", mode);
+        : competitionLabel("Premier League", mode);
       const teamLines =
         fx && raw
           ? parseTeamMatchLines(id, raw, fx.home, fx.away)
@@ -123,7 +109,7 @@ async function buildFromLeagueFixtures(
   const league = (await getLeague()) as any;
   const fixtures = parseFixtures(league).filter((f) => f.finished);
   const filtered =
-    mode === "wc2026"
+    mode === "epl-season"
       ? fixtures.filter((f) => !isQualificationStage(f.stage))
       : fixtures;
   return ingestFinishedMatches(filtered, mode);
@@ -160,7 +146,7 @@ async function collectSquadPlayerIds(): Promise<number[]> {
 }
 
 async function buildFromPlayerRecentMatches(
-  mode: "last50" | "alltime-nt"
+  mode: "last50"
 ): Promise<BuiltStatsIndex> {
   const playerIds = await collectSquadPlayerIds();
   const matchMeta = new Map<
@@ -180,12 +166,7 @@ async function buildFromPlayerRecentMatches(
       }))
       .filter((m: { id: number }) => m.id);
 
-    const filtered =
-      mode === "alltime-nt"
-        ? recent.filter((m: { competition: string }) =>
-            isInternationalCompetition(m.competition)
-          )
-        : recent;
+    const filtered = recent;
 
     const capped = filtered.slice(0, mode === "last50" ? 50 : filtered.length);
     playerMatchIds.set(
@@ -212,9 +193,7 @@ async function buildFromPlayerRecentMatches(
   const ingestMatch = async (matchId: number) => {
     const raw = (await getMatchDetails(matchId, true)) as any;
     const mm = matchMeta.get(matchId);
-    const competition =
-      mm?.competition ??
-      (mode === "last50" ? "All Competitions" : "National Team");
+    const competition = mm?.competition ?? "All Competitions";
     const header = raw?.general ?? raw?.header ?? {};
     const home = header.homeTeam?.name ?? "?";
     const away = header.awayTeam?.name ?? "?";
@@ -255,7 +234,7 @@ async function buildFromPlayerRecentMatches(
 export async function buildStatsIndex(
   mode: StatsSampleMode
 ): Promise<BuiltStatsIndex> {
-  if (mode === "wc2026" || mode === "wc-qual") {
+  if (mode === "epl-season") {
     return buildFromLeagueFixtures(mode);
   }
   return buildFromPlayerRecentMatches(mode);

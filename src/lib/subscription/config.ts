@@ -98,7 +98,7 @@ export const PLANS: SubscriptionPlan[] = [
   {
     slug: "football",
     name: "Football Pro",
-    tagline: "World Cup builders, gems & H2H",
+    tagline: "Premier League builders, gems & H2H",
     monthlyUsd: PRICING.footballMonthlyUsd,
     monthlyGbp: PRICING.footballMonthlyGbp,
     monthlyEur: PRICING.footballMonthlyEur,

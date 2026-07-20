@@ -83,7 +83,7 @@ export default function ProShowcase() {
   const slide = SLIDES[active];
   const worldCupFree = isWorldCupFreeActive();
   const signUpHref = useAttributionHref("/sign-up/");
-  const builderHref = useAttributionHref("/football/world-cup/builder/");
+  const builderHref = useAttributionHref("/football/premier-league/builder/");
   const subscribeHref = useAttributionHref("/subscribe/");
 
   return (
@@ -249,7 +249,7 @@ export default function ProShowcase() {
               href={builderHref}
               className="rounded-xl border border-edge px-6 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-gold/40 hover:text-foreground"
             >
-              Explore World Cup →
+              Explore Premier League →
             </Link>
           </>
         ) : (
@@ -264,7 +264,7 @@ export default function ProShowcase() {
               href={builderHref}
               className="rounded-xl border border-edge px-6 py-2.5 text-sm font-semibold text-muted transition-colors hover:border-gold/40 hover:text-foreground"
             >
-              Explore World Cup →
+              Explore Premier League →
             </Link>
           </>
         )}

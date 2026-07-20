@@ -122,7 +122,7 @@ export function withAttribution(path: string, extra?: Partial<Attribution>): str
 
 /**
  * Build a shareable outreach link for tipsters.
- * Example: buildCampaignLink("/football/world-cup/builder/", { ref: "andyrobson" })
+ * Example: buildCampaignLink("/football/premier-league/builder/", { ref: "andyrobson" })
  */
 export function buildCampaignLink(
   path: string,

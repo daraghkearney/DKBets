@@ -73,7 +73,7 @@ export interface PickStat {
   /** hits in head-to-head meetings between the two players */
   h2hHits: number;
   h2hSample: number;
-  /** hits across this World Cup */
+  /** hits across this season */
   tournamentHits: number;
   tournamentSample: number;
   /** combined hit rate 0..1 */

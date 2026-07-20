@@ -1,5 +1,5 @@
 import { buildStatsIndex } from "./index-build";
-import { getLeague, WC_LEAGUE_ID } from "./fotmob";
+import { getLeague, PRIMARY_LEAGUE_ID } from "./fotmob";
 import {
   parseFixtures,
   type RawFixture,
@@ -73,4 +73,4 @@ export async function getLeagueOverview(): Promise<any> {
   return getLeague();
 }
 
-export { WC_LEAGUE_ID };
+export { PRIMARY_LEAGUE_ID, PRIMARY_LEAGUE_ID as WC_LEAGUE_ID };

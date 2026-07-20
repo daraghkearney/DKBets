@@ -5,8 +5,10 @@
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 
-const WC_LEAGUE = "international-fifa-world-cup";
-const TARGET = { home: "Brazil", away: "Norway" };
+import { PRIMARY_ODDS_API_LEAGUE } from "../src/lib/sports/football";
+
+const ODDS_API_LEAGUE = PRIMARY_ODDS_API_LEAGUE;
+const TARGET = { home: "Arsenal", away: "Chelsea" };
 
 async function fetchJson(url: URL) {
   const res = await fetch(url.toString(), {
@@ -27,7 +29,7 @@ async function main() {
   const eventsUrl = new URL("https://api.odds-api.io/v3/events");
   eventsUrl.searchParams.set("apiKey", key);
   eventsUrl.searchParams.set("sport", "football");
-  eventsUrl.searchParams.set("league", WC_LEAGUE);
+  eventsUrl.searchParams.set("league", ODDS_API_LEAGUE);
   eventsUrl.searchParams.set("bookmaker", "Bet365");
   eventsUrl.searchParams.set("status", "pending");
   eventsUrl.searchParams.set("limit", "500");

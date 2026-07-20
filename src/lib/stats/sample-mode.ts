@@ -1,8 +1,4 @@
-export type StatsSampleMode =
-  | "wc2026"
-  | "wc-qual"
-  | "alltime-nt"
-  | "last50";
+export type StatsSampleMode = "epl-season" | "last50";
 
 export interface SampleModeOption {
   id: StatsSampleMode;
@@ -13,34 +9,22 @@ export interface SampleModeOption {
 
 export const SAMPLE_MODES: SampleModeOption[] = [
   {
-    id: "wc2026",
-    label: "World Cup 2026 Stats",
-    shortLabel: "WC 2026",
-    description: "Finished World Cup 2026 tournament matches only.",
-  },
-  {
-    id: "wc-qual",
-    label: "WC 2026 + Qualification",
-    shortLabel: "WC + Qual",
-    description: "World Cup 2026 and qualification matches combined.",
-  },
-  {
-    id: "alltime-nt",
-    label: "All Time National Team Stats",
-    shortLabel: "National team",
+    id: "epl-season",
+    label: "Premier League season",
+    shortLabel: "EPL season",
     description:
-      "International matches from each player's national-team history (World Cup, Euros, qualifiers, friendlies).",
+      "Finished Premier League matches from the current FotMob season.",
   },
   {
     id: "last50",
-    label: "Player Last 50 Games",
+    label: "Player last 50 games",
     shortLabel: "Last 50",
     description:
-      "Last 50 club and international appearances per squad player (all competitions).",
+      "Last 50 club appearances per squad player (all competitions).",
   },
 ];
 
-export const DEFAULT_SAMPLE_MODE: StatsSampleMode = "wc2026";
+export const DEFAULT_SAMPLE_MODE: StatsSampleMode = "epl-season";
 
 export function isStatsSampleMode(value: string): value is StatsSampleMode {
   return SAMPLE_MODES.some((m) => m.id === value);
