@@ -2,6 +2,7 @@
 
 import { ClerkProvider } from "@clerk/clerk-react";
 import { useRouter } from "next/navigation";
+import { getClerkPublishableKey } from "@/lib/subscription/clerkKey";
 import { isSubscriptionEnabled } from "@/lib/subscription/config";
 
 export default function SubscriptionRoot({
@@ -10,7 +11,7 @@ export default function SubscriptionRoot({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
+  const key = getClerkPublishableKey();
 
   if (!isSubscriptionEnabled() || !key) {
     return <>{children}</>;

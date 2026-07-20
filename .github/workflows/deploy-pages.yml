@@ -172,8 +172,10 @@ jobs:
 
       - name: Guard production Clerk key
         if: vars.USE_CUSTOM_DOMAIN == 'true'
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
         run: |
-          KEY="${{ secrets.CLERK_PUBLISHABLE_KEY }}"
+          KEY="$(printf '%s' "$CLERK_PUBLISHABLE_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
           if [ -z "$KEY" ]; then
             echo "No CLERK_PUBLISHABLE_KEY set — subscriptions stay disabled"
             exit 0
@@ -182,11 +184,28 @@ jobs:
             echo "::error::CLERK_PUBLISHABLE_KEY is still pk_test_ but USE_CUSTOM_DOMAIN=true. Switch to pk_live_ from Clerk Production before go-live."
             exit 1
           fi
-          echo "Clerk key OK for production (pk_live_*)"
+          # Clerk's isPublishableKey is stricter than a pk_live_ prefix check.
+          # Malformed keys used to crash next build prerender; we now skip Clerk instead.
+          if ! CLERK_PUBLISHABLE_KEY="$KEY" node -e "
+            const { isPublishableKey } = require('@clerk/shared/keys');
+            const key = (process.env.CLERK_PUBLISHABLE_KEY || '').trim();
+            if (!isPublishableKey(key)) {
+              console.error('INVALID');
+              process.exit(1);
+            }
+            console.log('Clerk key OK for production (valid pk_live_*, length=' + key.length + ')');
+          "; then
+            echo "::warning::CLERK_PUBLISHABLE_KEY is set but not a valid Clerk publishable key (length=${#KEY}, prefix=${KEY:0:8}…). Re-copy pk_live_ from Clerk Dashboard → API Keys (Production). Deploy continues with subscriptions disabled so data can still update."
+            {
+              echo "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="
+              echo "NEXT_PUBLIC_SUBSCRIPTION_ENABLED=false"
+            } >> "$GITHUB_ENV"
+          fi
 
       - name: Build static site
         run: npm run build
         env:
+          NODE_OPTIONS: --max-old-space-size=6144
           NEXT_PUBLIC_BASE_PATH: ${{ steps.base_path.outputs.path }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_SUBSCRIPTION_ENABLED: ${{ secrets.CLERK_PUBLISHABLE_KEY != '' && 'true' || 'false' }}

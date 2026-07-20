@@ -5,6 +5,8 @@
  * Clerk billing is USD-only — prices below are USD; marketing copy may show £/€.
  */
 
+import { getClerkPublishableKey } from "@/lib/subscription/clerkKey";
+
 /** All-access standard plan */
 export const PRO_PLAN_SLUG = "pro";
 
@@ -177,8 +179,8 @@ export const CLERK_FEATURE_GATES: Record<FeatureSlug, string> = {
 };
 
 export function isSubscriptionEnabled(): boolean {
-  const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
-  if (!key) return false;
+  // Require a Clerk-valid publishable key — malformed keys crash prerender.
+  if (!getClerkPublishableKey()) return false;
   if (process.env.NEXT_PUBLIC_SUBSCRIPTION_ENABLED === "false") return false;
   return true;
 }
