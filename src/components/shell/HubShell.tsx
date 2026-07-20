@@ -12,23 +12,23 @@ import { isLandingPath, sportRoute } from "@/lib/sports/paths";
 import { BRAND } from "@/lib/brand";
 
 const FOOTBALL_LINKS = [
-  { section: "builder", label: "Bet365 Builder", icon: "◈" },
-  { section: "star-players", label: "Star Player", icon: "★" },
-  { section: "team-model", label: "Team Bet Model", icon: "⬡" },
-  { section: "stats", label: "Player Stats", icon: "▤" },
-  { section: "matches", label: "Matchups", icon: "⚔" },
+  { section: "matches", label: "Fixtures" },
+  { section: "star-players", label: "Star Player" },
+  { section: "builder", label: "Bet365 Builder" },
+  { section: "team-model", label: "Team Bet Model" },
+  { section: "stats", label: "Player Stats" },
 ] as const;
 
 const NBA_LINKS = [
-  { section: "", label: "Games Hub", icon: "◎" },
-  { section: "stats", label: "Player Stats", icon: "▤" },
-  { section: "builder", label: "Prop Builder", icon: "◈" },
+  { section: "", label: "Games Hub" },
+  { section: "stats", label: "Player Stats" },
+  { section: "builder", label: "Prop Builder" },
 ] as const;
 
 const RACING_LINKS = [
-  { section: "", label: "Race Cards", icon: "◎" },
-  { section: "analysis", label: "Deep Analysis", icon: "◈" },
-  { section: "tipsters", label: "Tipster Intel", icon: "★" },
+  { section: "", label: "Race Cards" },
+  { section: "analysis", label: "Deep Analysis" },
+  { section: "tipsters", label: "Tipster Intel" },
 ] as const;
 
 const RACING_MEETING_HINTS: Record<string, string | undefined> = {
@@ -72,11 +72,11 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
   return (
     <SampleModeProvider>
       <header className="sticky top-0 z-40 border-b border-edge bg-background/90 backdrop-blur-md">
-        <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Link href="/" className="flex items-center gap-3">
+        <div className="mx-auto max-w-7xl px-4 py-2.5 sm:px-6 sm:py-3">
+          <div className="flex items-center justify-between gap-3">
+            <Link href="/" className="flex min-w-0 items-center gap-2.5 sm:gap-3">
               <div
-                className="flex h-9 w-9 items-center justify-center rounded-xl text-lg font-black"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base font-black sm:h-9 sm:w-9 sm:text-lg"
                 style={{
                   backgroundColor: `${competitionConfig?.accent ?? "#22c55e"}22`,
                   color: competitionConfig?.accent ?? "#22c55e",
@@ -84,32 +84,39 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
               >
                 {sportConfig?.emoji ?? BRAND.initials}
               </div>
-              <div>
-                <p className="text-lg font-bold leading-tight tracking-tight">
+              <div className="min-w-0">
+                <p className="truncate text-base font-bold leading-tight tracking-tight sm:text-lg">
                   {competitionConfig?.shortLabel ?? BRAND.name}
-                  <span className="font-normal text-muted">
+                  <span className="hidden font-normal text-muted sm:inline">
                     {" "}
                     · {sportConfig?.label}
                   </span>
                 </p>
-                <p className="text-[11px] text-muted">
+                <p className="hidden text-[11px] text-muted sm:block">
                   {competitionConfig?.tagline ?? "Research hub"}
                 </p>
               </div>
             </Link>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <Link
                 href={sportRoute(sport!)}
-                className="rounded-xl border border-edge px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:border-accent/40 hover:text-foreground"
+                className="hidden rounded-xl border border-edge px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:border-accent/40 hover:text-foreground sm:inline-flex"
               >
                 ← Change {sport === "horse-racing" ? "meeting" : "competition"}
+              </Link>
+              <Link
+                href={sportRoute(sport!)}
+                className="rounded-xl border border-edge px-2.5 py-1.5 text-xs font-semibold text-muted transition-colors hover:border-accent/40 hover:text-foreground sm:hidden"
+                aria-label={`Change ${sport === "horse-racing" ? "meeting" : "competition"}`}
+              >
+                ←
               </Link>
               <AuthControls />
             </div>
           </div>
         </div>
         <nav className="border-b border-edge bg-surface/80 backdrop-blur-md">
-          <div className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 sm:px-6">
+          <div className="mx-auto flex max-w-7xl items-center gap-0.5 overflow-x-auto px-2 sm:gap-1 sm:px-6">
             {links.map((l) => {
               const href = hubUrl(l.section);
               const active =
@@ -120,14 +127,15 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={l.section || "home"}
                   href={href}
-                  className={`relative shrink-0 px-4 py-3 text-sm font-medium transition-colors ${
-                    active ? "text-accent" : "text-muted hover:text-foreground"
+                  className={`relative shrink-0 px-3 py-3.5 text-sm font-medium transition-colors sm:px-4 ${
+                    active
+                      ? "text-foreground"
+                      : "text-muted hover:text-foreground"
                   }`}
                 >
-                  <span className="mr-1.5 opacity-70">{l.icon}</span>
                   {l.label}
                   {active && (
-                    <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-accent" />
+                    <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-full bg-foreground sm:inset-x-3" />
                   )}
                 </Link>
               );

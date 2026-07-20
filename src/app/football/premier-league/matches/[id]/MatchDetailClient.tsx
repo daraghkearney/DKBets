@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import MatchupPanel, { MatchHeader } from "@/components/stats/MatchupPanel";
-import MatchStarPlayer from "@/components/star/MatchStarPlayer";
+import { MatchHeader } from "@/components/stats/MatchupPanel";
+import MatchFeatures from "@/components/fixtures/MatchFeatures";
 import PremiumGate from "@/components/subscription/PremiumGate";
 import { useSampleMode } from "@/components/SampleModeProvider";
 import { FEATURES } from "@/lib/subscription/config";
@@ -28,23 +28,22 @@ export default function MatchDetailClient() {
 
   return (
     <PremiumGate feature={FEATURES.footballProps}>
-    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      {error && (
-        <p className="text-sm text-red-400">Could not load this match.</p>
-      )}
-      {!detail && !error && (
-        <div className="flex justify-center py-24">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-edge border-t-accent" />
-        </div>
-      )}
-      {detail && (
-        <>
-          <MatchHeader detail={detail} />
-          <MatchStarPlayer matchId={detail.fixture.id} />
-          <MatchupPanel detail={detail} />
-        </>
-      )}
-    </main>
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:max-w-5xl sm:px-6 sm:py-8">
+        {error && (
+          <p className="text-sm text-red-400">Could not load this match.</p>
+        )}
+        {!detail && !error && (
+          <div className="flex justify-center py-24">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-edge border-t-accent" />
+          </div>
+        )}
+        {detail && (
+          <>
+            <MatchHeader detail={detail} />
+            <MatchFeatures detail={detail} defaultTab="matchups" />
+          </>
+        )}
+      </main>
     </PremiumGate>
   );
 }

@@ -28,7 +28,13 @@ export default function MatchStarPlayer({ matchId }: { matchId: number }) {
     });
   }, [matchId, sampleUrl, sampleMode]);
 
-  if (!fixture?.stars.length) return null;
+  if (!fixture?.stars.length) {
+    return (
+      <p className="py-6 text-center text-sm text-muted">
+        No star player specials for this match yet.
+      </p>
+    );
+  }
 
   return (
     <section className="mb-8">

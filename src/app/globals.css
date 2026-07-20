@@ -250,6 +250,16 @@ body {
   }
 }
 
+.fixture-expand {
+  animation: toast-in 0.22s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fixture-expand {
+    animation: none;
+  }
+}
+
 ::-webkit-scrollbar {
   height: 8px;
   width: 8px;

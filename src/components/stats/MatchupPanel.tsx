@@ -7,6 +7,7 @@ import LineupPitch from "@/components/stats/LineupPitch";
 import LineupStatusBadge from "@/components/stats/LineupStatusBadge";
 import { effectiveLineupStatus } from "@/lib/stats/lineup-status";
 import type { LineupPlayer, MatchDetailPayload, Matchup } from "@/lib/stats/types";
+import TeamCrest from "@/components/fixtures/TeamCrest";
 import StatBlock, { StatToggle } from "./StatBlock";
 import PlayerAvatar from "./PlayerAvatar";
 
@@ -38,7 +39,15 @@ function resolveLineups(detail: MatchDetailPayload): {
   };
 }
 
-export default function MatchupPanel({ detail }: { detail: MatchDetailPayload }) {
+export type MatchupPanelSections = "all" | "lineups" | "matchups";
+
+export default function MatchupPanel({
+  detail,
+  sections = "all",
+}: {
+  detail: MatchDetailPayload;
+  sections?: MatchupPanelSections;
+}) {
   const [now, setNow] = useState(() => new Date());
   const lineups = useMemo(() => resolveLineups(detail), [detail]);
 
@@ -73,79 +82,87 @@ export default function MatchupPanel({ detail }: { detail: MatchDetailPayload })
 
   const [selected, setSelected] = useState(0);
   const m = flat[selected];
-  const highlightedIds = m
-    ? [m.a.player.id, m.b.player.id]
-    : [];
+  const highlightedIds =
+    sections === "lineups"
+      ? []
+      : m
+        ? [m.a.player.id, m.b.player.id]
+        : [];
+
+  const showLineups = sections === "all" || sections === "lineups";
+  const showMatchups = sections === "all" || sections === "matchups";
 
   return (
     <div className="flex flex-col gap-6">
-      <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-bold uppercase tracking-wide text-foreground">
-              Lineups
-            </h2>
-            <p className="text-[11px] text-muted">
-              Select a duel below to highlight both players on the pitch
-            </p>
-          </div>
-          <LineupStatusBadge
-            detail={{
-              ...detail,
-              homeLineup: lineups.homeLineup,
-              awayLineup: lineups.awayLineup,
-            }}
-          />
-        </div>
-        <LineupPitch
-          homeTeam={detail.fixture.home}
-          awayTeam={detail.fixture.away}
-          homeFormation={detail.homeFormation}
-          awayFormation={detail.awayFormation}
-          homeLineup={lineups.homeLineup}
-          awayLineup={lineups.awayLineup}
-          homeBench={lineups.homeBench}
-          awayBench={lineups.awayBench}
-          highlightedPlayerIds={highlightedIds}
-          dashed={lineupStatus === "predicted"}
-        />
-      </section>
-
-      {!m ? (
-        <p className="text-sm text-muted">
-          No positional matchups available yet — check back when lineups are
-          published.
-        </p>
-      ) : (
-        <div className="grid gap-6 lg:grid-cols-5">
-          <div className="flex flex-col gap-4 lg:col-span-2">
-            <MatchupSection
-              title="Positional duels"
-              subtitle="Flanks, channels & central battles"
-              matchups={positional}
-              flat={flat}
-              selected={selected}
-              onSelect={setSelected}
+      {showLineups && (
+        <section>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-foreground">
+                Lineups
+              </h2>
+              <p className="text-[11px] text-muted">
+                {sections === "all"
+                  ? "Select a duel below to highlight both players on the pitch"
+                  : "Predicted or confirmed starting elevens"}
+              </p>
+            </div>
+            <LineupStatusBadge
+              detail={{
+                ...detail,
+                homeLineup: lineups.homeLineup,
+                awayLineup: lineups.awayLineup,
+              }}
             />
-            {notable.length > 0 && (
+          </div>
+          <LineupPitch
+            homeTeam={detail.fixture.home}
+            awayTeam={detail.fixture.away}
+            homeFormation={detail.homeFormation}
+            awayFormation={detail.awayFormation}
+            homeLineup={lineups.homeLineup}
+            awayLineup={lineups.awayLineup}
+            homeBench={lineups.homeBench}
+            awayBench={lineups.awayBench}
+            highlightedPlayerIds={highlightedIds}
+            dashed={lineupStatus === "predicted"}
+          />
+        </section>
+      )}
+
+      {showMatchups &&
+        (!m ? (
+          <p className="text-sm text-muted">
+            No positional matchups available yet — check back when lineups are
+            published.
+          </p>
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-5">
+            <div className="flex flex-col gap-4 lg:col-span-2">
               <MatchupSection
-                title="Notable rivalries"
-                subtitle="Cross-position career history"
-                matchups={notable}
+                title="Positional duels"
+                subtitle="Flanks, channels & central battles"
+                matchups={positional}
                 flat={flat}
                 selected={selected}
                 onSelect={setSelected}
               />
-            )}
+              {notable.length > 0 && (
+                <MatchupSection
+                  title="Notable rivalries"
+                  subtitle="Cross-position career history"
+                  matchups={notable}
+                  flat={flat}
+                  selected={selected}
+                  onSelect={setSelected}
+                />
+              )}
+            </div>
+            <div className="lg:col-span-3">
+              <MatchupDetail matchup={m} lineupStatus={lineupStatus} />
+            </div>
           </div>
-          <div className="lg:col-span-3">
-            <MatchupDetail
-              matchup={m}
-              lineupStatus={lineupStatus}
-            />
-          </div>
-        </div>
-      )}
+        ))}
     </div>
   );
 }
@@ -440,24 +457,71 @@ export function MatchHeader({ detail }: { detail: MatchDetailPayload }) {
   const positionalCount = detail.matchups.filter(
     (m) => m.kind === "positional"
   ).length;
+  const timeLabel = fixture.finished
+    ? "FT"
+    : fixture.started
+      ? "LIVE"
+      : formatKickoff(fixture.kickoff);
+
   return (
     <div className="mb-6">
-      <Link href="/matches" className="text-xs text-muted hover:text-accent">
-        ← All matchups
+      <Link
+        href="/football/premier-league/matches/"
+        className="text-xs text-muted transition-colors hover:text-accent"
+      >
+        ← Fixtures
       </Link>
-      <h1 className="mt-2 text-2xl font-bold">
-        {fixture.home} v {fixture.away}
-      </h1>
-      <p className="text-sm text-muted">
-        {fixture.stage} · {formatKickoff(fixture.kickoff)} UTC ·{" "}
-        {positionalCount} positional duels
-        {detail.homeFormation && detail.awayFormation && (
-          <>
-            {" "}
-            · {detail.homeFormation} vs {detail.awayFormation}
-          </>
-        )}
-      </p>
+
+      <div className="mt-4 rounded-2xl border border-edge bg-surface px-4 py-6 sm:px-8">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 sm:gap-6">
+          <div className="flex min-w-0 flex-col items-end gap-2">
+            <TeamCrest
+              teamId={fixture.homeId}
+              name={fixture.home}
+              size={48}
+            />
+            <p className="w-full truncate text-right text-base font-bold leading-snug sm:text-xl">
+              {fixture.home}
+            </p>
+          </div>
+
+          <div className="flex flex-col items-center px-2">
+            <span
+              className={`tabular text-xl font-black tracking-tight sm:text-2xl ${
+                fixture.started && !fixture.finished
+                  ? "text-accent"
+                  : "text-foreground"
+              }`}
+            >
+              {timeLabel}
+            </span>
+            <p className="mt-1 text-center text-[11px] text-muted">
+              {fixture.stage}
+            </p>
+          </div>
+
+          <div className="flex min-w-0 flex-col items-start gap-2">
+            <TeamCrest
+              teamId={fixture.awayId}
+              name={fixture.away}
+              size={48}
+            />
+            <p className="w-full truncate text-left text-base font-bold leading-snug sm:text-xl">
+              {fixture.away}
+            </p>
+          </div>
+        </div>
+
+        <p className="mt-4 text-center text-xs text-muted">
+          {positionalCount} positional duels
+          {detail.homeFormation && detail.awayFormation && (
+            <>
+              {" "}
+              · {detail.homeFormation} vs {detail.awayFormation}
+            </>
+          )}
+        </p>
+      </div>
     </div>
   );
 }
