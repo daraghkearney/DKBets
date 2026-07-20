@@ -145,11 +145,8 @@ async function main() {
   const clerkSecret = process.env.CLERK_SECRET_KEY?.trim();
   const resendKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.REMINDER_FROM_EMAIL?.trim();
+  const testTo = process.env.REMINDER_TEST_TO?.trim();
 
-  if (!clerkSecret) {
-    console.error("Missing CLERK_SECRET_KEY");
-    process.exit(1);
-  }
   if (!resendKey) {
     console.error("Missing RESEND_API_KEY");
     process.exit(1);
@@ -158,6 +155,19 @@ async function main() {
     console.error(
       "Missing REMINDER_FROM_EMAIL (e.g. Statmanac <updates@statmanac.com>)"
     );
+    process.exit(1);
+  }
+
+  // One-off proofread send — does not touch the campaign marker.
+  if (testTo) {
+    console.log(`Sending test email to ${testTo} (campaign not updated)…`);
+    await sendReminder(resendKey, from, testTo, null, freeEndsAt());
+    console.log("Test sent. Check that inbox (and spam).");
+    return;
+  }
+
+  if (!clerkSecret) {
+    console.error("Missing CLERK_SECRET_KEY");
     process.exit(1);
   }
 
@@ -242,7 +252,9 @@ async function main() {
 
   console.log(
     `Done — ${sent} sent this run, ${failed} failed, ${marker.sentEmails.length} total for campaign` +
-      (marker.status === "complete" ? " (complete)" : " (incomplete — re-run to finish)")
+      (marker.status === "complete"
+        ? " (complete)"
+        : " (incomplete — re-run to finish)")
   );
   if (failed > 0) process.exit(1);
 }
