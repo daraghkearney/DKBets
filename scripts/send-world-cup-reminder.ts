@@ -100,7 +100,6 @@ async function sendReminder(
   apiKey: string,
   from: string,
   to: string,
-  name: string | null | undefined,
   ends: Date
 ): Promise<void> {
   const endLabel = ends.toLocaleDateString("en-GB", {
@@ -109,7 +108,6 @@ async function sendReminder(
     month: "long",
     timeZone: "UTC",
   });
-  const greeting = name?.trim() ? `Hi ${name.trim()},` : "Hi,";
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -122,7 +120,6 @@ async function sendReminder(
       to: [to],
       subject: "Premier League is a few weeks away — keep your Statmanac edge",
       html: `
-        <p>${greeting}</p>
         <p>With the <strong>Premier League</strong> season just a few weeks away, Statmanac is ready for it.</p>
         <p>Your free World Cup access ends on <strong>${endLabel}</strong>. After that, football Pro (Bet365 builders, underpriced gems, star players, matchups and stats) moves to paid plans — with a <strong>7-day free trial</strong> on All-Access Pro.</p>
         <p><strong>All-Access</strong> also unlocks horse racing (value naps, model scores, tipster intel) and NBA props — so one plan covers every sport on Statmanac.</p>
