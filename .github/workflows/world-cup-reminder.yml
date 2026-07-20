@@ -1,10 +1,12 @@
-name: World Cup free-ending reminder
+name: Premier League season reminder
 
+# One-shot email blast — run manually only (no schedule).
+# Idempotent via data/email-campaigns/pl-season-reminder-2026.json
 on:
-  schedule:
-    # Daily at 09:00 UTC during promo week — script only sends inside 48h window
-    - cron: "0 9 14-20 7 *"
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   remind:
@@ -29,4 +31,16 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           REMINDER_FROM_EMAIL: ${{ vars.REMINDER_FROM_EMAIL }}
           NEXT_PUBLIC_WORLD_CUP_FREE_UNTIL: "2026-07-20T23:59:59Z"
-          REMINDER_HOURS_BEFORE: "48"
+
+      - name: Commit campaign marker
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain data/email-campaigns)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/email-campaigns
+            git commit -m "Record pl-season-reminder-2026 email campaign progress."
+            git push
+          else
+            echo "No campaign marker changes to commit"
+          fi

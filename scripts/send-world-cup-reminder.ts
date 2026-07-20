@@ -1,11 +1,21 @@
 /**
- * Send "World Cup free ending soon" emails to all Clerk users.
+ * One-shot Premier League season reminder to all Clerk users.
  *
- * Run via GitHub Actions on a schedule, or locally:
- *   CLERK_SECRET_KEY=... RESEND_API_KEY=... REMINDER_FROM_EMAIL="Statmanac <noreply@statmanac.com>" npm run remind:world-cup
+ * Idempotent: tracks recipients in data/email-campaigns/pl-season-reminder-2026.json
+ * so re-runs skip anyone already emailed.
+ *
+ *   CLERK_SECRET_KEY=... RESEND_API_KEY=... REMINDER_FROM_EMAIL="Statmanac <updates@statmanac.com>" npm run remind:world-cup
  */
+import { mkdir, readFile, writeFile } from "fs/promises";
+import path from "path";
+
+const CAMPAIGN_ID = "pl-season-reminder-2026";
+const MARKER_PATH = path.join(
+  process.cwd(),
+  "data/email-campaigns",
+  `${CAMPAIGN_ID}.json`
+);
 const DEFAULT_FREE_UNTIL = "2026-07-20T23:59:59Z";
-const REMINDER_HOURS_BEFORE = Number(process.env.REMINDER_HOURS_BEFORE ?? "48");
 
 interface ClerkEmail {
   email_address: string;
@@ -17,17 +27,51 @@ interface ClerkUser {
   email_addresses?: ClerkEmail[];
 }
 
+interface CampaignMarker {
+  campaignId: string;
+  status: "in_progress" | "complete";
+  sentAt?: string;
+  completedAt?: string;
+  sentEmails: string[];
+  sentCount: number;
+  failedCount: number;
+}
+
+async function loadMarker(): Promise<CampaignMarker> {
+  try {
+    const raw = await readFile(MARKER_PATH, "utf8");
+    const parsed = JSON.parse(raw) as CampaignMarker;
+    return {
+      campaignId: CAMPAIGN_ID,
+      status: parsed.status === "complete" ? "complete" : "in_progress",
+      sentAt: parsed.sentAt,
+      completedAt: parsed.completedAt,
+      sentEmails: Array.isArray(parsed.sentEmails) ? parsed.sentEmails : [],
+      sentCount: parsed.sentCount ?? 0,
+      failedCount: parsed.failedCount ?? 0,
+    };
+  } catch {
+    return {
+      campaignId: CAMPAIGN_ID,
+      status: "in_progress",
+      sentEmails: [],
+      sentCount: 0,
+      failedCount: 0,
+    };
+  }
+}
+
+async function saveMarker(marker: CampaignMarker): Promise<void> {
+  await mkdir(path.dirname(MARKER_PATH), { recursive: true });
+  await writeFile(MARKER_PATH, `${JSON.stringify(marker, null, 2)}\n`, "utf8");
+}
+
 function freeEndsAt(): Date {
-  const raw = process.env.NEXT_PUBLIC_WORLD_CUP_FREE_UNTIL?.trim() || DEFAULT_FREE_UNTIL;
+  const raw =
+    process.env.NEXT_PUBLIC_WORLD_CUP_FREE_UNTIL?.trim() || DEFAULT_FREE_UNTIL;
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) throw new Error(`Invalid end date: ${raw}`);
   return d;
-}
-
-function inReminderWindow(ends: Date): boolean {
-  const msUntil = ends.getTime() - Date.now();
-  const hoursUntil = msUntil / (1000 * 60 * 60);
-  return hoursUntil > 0 && hoursUntil <= REMINDER_HOURS_BEFORE;
 }
 
 async function listClerkUsers(secret: string): Promise<ClerkUser[]> {
@@ -76,13 +120,17 @@ async function sendReminder(
     body: JSON.stringify({
       from,
       to: [to],
-      subject: "Your free World Cup access ends soon — Statmanac",
+      subject: "Premier League is a few weeks away — keep your Statmanac edge",
       html: `
         <p>${greeting}</p>
-        <p>Your free <strong>Statmanac</strong> World Cup access ends on <strong>${endLabel}</strong>.</p>
-        <p>After that, football Pro features (Bet365 builders, star players, matchups and stats) move to paid plans — with a 7-day free trial on All-Access Pro.</p>
-        <p><a href="https://statmanac.com/subscribe/">View plans and keep access →</a></p>
-        <p>Thanks for trying Statmanac — good luck for the semis and final.</p>
+        <p>With the <strong>Premier League</strong> season just a few weeks away, Statmanac is ready for it.</p>
+        <p>Your free World Cup access ends on <strong>${endLabel}</strong>. After that, football Pro (Bet365 builders, underpriced gems, star players, matchups and stats) moves to paid plans — with a <strong>7-day free trial</strong> on All-Access Pro.</p>
+        <p><strong>All-Access</strong> also unlocks horse racing (value naps, model scores, tipster intel) and NBA props — so one plan covers every sport on Statmanac.</p>
+        <p>Lock in access now so you’re set for opening weekend: the same toolkit that covered the World Cup, now pointed at every EPL fixture.</p>
+        <p><a href="https://statmanac.com/football/premier-league/">Explore the Premier League hub →</a></p>
+        <p><a href="https://statmanac.com/subscribe/">View plans &amp; start your trial →</a></p>
+        <p>See you for the new season.</p>
+        <p style="color:#666;font-size:13px">If you’ve already purchased a subscription, you can safely ignore this email — you’re all set.</p>
         <p style="color:#888;font-size:12px">Statmanac · 18+ · Gamble responsibly</p>
       `,
     }),
@@ -107,19 +155,24 @@ async function main() {
     process.exit(1);
   }
   if (!from) {
-    console.error("Missing REMINDER_FROM_EMAIL (e.g. Statmanac <noreply@statmanac.com>)");
+    console.error(
+      "Missing REMINDER_FROM_EMAIL (e.g. Statmanac <updates@statmanac.com>)"
+    );
     process.exit(1);
   }
 
-  const ends = freeEndsAt();
-  if (!inReminderWindow(ends)) {
-    const hoursUntil = (ends.getTime() - Date.now()) / (1000 * 60 * 60);
+  const marker = await loadMarker();
+  if (marker.status === "complete") {
     console.log(
-      `Not in reminder window (${hoursUntil.toFixed(1)}h until end; sends within ${REMINDER_HOURS_BEFORE}h)`
+      `Campaign ${CAMPAIGN_ID} already complete (${marker.sentCount} sent at ${marker.completedAt}). Skipping.`
     );
     return;
   }
 
+  const alreadySent = new Set(
+    marker.sentEmails.map((e) => e.trim().toLowerCase())
+  );
+  const ends = freeEndsAt();
   const users = await listClerkUsers(clerkSecret);
   const emails = [
     ...new Set(
@@ -129,31 +182,68 @@ async function main() {
     ),
   ];
 
+  const pending = emails.filter(
+    (e) => !alreadySent.has(e.trim().toLowerCase())
+  );
+
   if (!emails.length) {
     console.log("No user emails to notify");
     return;
   }
 
-  console.log(`Sending World Cup reminder to ${emails.length} user(s)…`);
+  if (!pending.length) {
+    marker.status = "complete";
+    marker.completedAt = new Date().toISOString();
+    marker.sentCount = marker.sentEmails.length;
+    await saveMarker(marker);
+    console.log(
+      `All ${emails.length} user(s) already emailed for ${CAMPAIGN_ID}. Marked complete.`
+    );
+    return;
+  }
+
+  console.log(
+    `Campaign ${CAMPAIGN_ID}: sending to ${pending.length} user(s) (${alreadySent.size} already sent)…`
+  );
+
+  if (!marker.sentAt) marker.sentAt = new Date().toISOString();
   let sent = 0;
   let failed = 0;
 
-  for (const email of emails) {
+  for (const email of pending) {
     const user = users.find((u) =>
       u.email_addresses?.some((e) => e.email_address === email)
     );
     try {
       await sendReminder(resendKey, from, email, user?.first_name, ends);
       sent += 1;
+      marker.sentEmails.push(email);
+      marker.sentCount = marker.sentEmails.length;
+      alreadySent.add(email.trim().toLowerCase());
+      await saveMarker(marker);
       console.log(`  sent ${email}`);
       await new Promise((r) => setTimeout(r, 200));
     } catch (e) {
       failed += 1;
+      marker.failedCount = (marker.failedCount ?? 0) + 1;
+      await saveMarker(marker);
       console.warn(`  failed ${email}:`, e);
     }
   }
 
-  console.log(`Done — ${sent} sent, ${failed} failed`);
+  const remaining = emails.filter(
+    (e) => !alreadySent.has(e.trim().toLowerCase())
+  );
+  if (remaining.length === 0) {
+    marker.status = "complete";
+    marker.completedAt = new Date().toISOString();
+    await saveMarker(marker);
+  }
+
+  console.log(
+    `Done — ${sent} sent this run, ${failed} failed, ${marker.sentEmails.length} total for campaign` +
+      (marker.status === "complete" ? " (complete)" : " (incomplete — re-run to finish)")
+  );
   if (failed > 0) process.exit(1);
 }
 

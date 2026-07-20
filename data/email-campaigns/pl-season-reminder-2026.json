@@ -1,0 +1,8 @@
+{
+  "campaignId": "pl-season-reminder-2026",
+  "status": "in_progress",
+  "sentEmails": [],
+  "sentCount": 0,
+  "failedCount": 0,
+  "note": "One-shot Premier League season reminder. After a successful send, status becomes complete and re-runs are no-ops."
+}
