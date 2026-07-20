@@ -158,7 +158,7 @@ async function main() {
   // One-off proofread send — does not touch the campaign marker.
   if (testTo) {
     console.log(`Sending test email to ${testTo} (campaign not updated)…`);
-    await sendReminder(resendKey, from, testTo, null, freeEndsAt());
+    await sendReminder(resendKey, from, testTo, freeEndsAt());
     console.log("Test sent. Check that inbox (and spam).");
     return;
   }
@@ -218,11 +218,8 @@ async function main() {
   let failed = 0;
 
   for (const email of pending) {
-    const user = users.find((u) =>
-      u.email_addresses?.some((e) => e.email_address === email)
-    );
     try {
-      await sendReminder(resendKey, from, email, user?.first_name, ends);
+      await sendReminder(resendKey, from, email, ends);
       sent += 1;
       marker.sentEmails.push(email);
       marker.sentCount = marker.sentEmails.length;
