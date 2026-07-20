@@ -13,7 +13,7 @@ export const SAMPLE_MODES: SampleModeOption[] = [
     label: "Premier League season",
     shortLabel: "EPL season",
     description:
-      "Finished Premier League matches from the current FotMob season.",
+      "Finished Premier League matches (uses last completed season until the new one has results).",
   },
   {
     id: "last50",

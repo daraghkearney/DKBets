@@ -1,4 +1,12 @@
-import { clearFotmobCache, getLeague, getMatchDetails, getPlayerData, pool } from "./fotmob";
+import {
+  clearFotmobCache,
+  getLeague,
+  getMatchDetails,
+  getPlayerData,
+  previousSeasonFromLeague,
+  PRIMARY_LEAGUE_ID,
+  pool,
+} from "./fotmob";
 import {
   parseFixtures,
   parseMatchPlayerLines,
@@ -38,13 +46,49 @@ function competitionLabel(stage: string, mode: StatsSampleMode): string {
   return "Premier League";
 }
 
+/** Prefer current season; if no finished matches yet (preseason), use prior season. */
+async function leagueWithFinishedFixtures(): Promise<{
+  league: any;
+  fixtures: RawFixture[];
+  seasonUsed: string | undefined;
+}> {
+  const current = (await getLeague()) as any;
+  const currentFinished = parseFixtures(current).filter((f) => f.finished);
+  if (currentFinished.length > 0) {
+    return {
+      league: current,
+      fixtures: currentFinished,
+      seasonUsed: current?.details?.selectedSeason,
+    };
+  }
+
+  const prev = previousSeasonFromLeague(current);
+  if (!prev) {
+    return { league: current, fixtures: [], seasonUsed: undefined };
+  }
+
+  console.log(
+    `  stats: current season has 0 finished matches — using ${prev} for hit rates`
+  );
+  const prior = (await getLeague(PRIMARY_LEAGUE_ID, prev)) as any;
+  const priorFinished = parseFixtures(prior).filter((f) => f.finished);
+  return {
+    league: prior,
+    fixtures: priorFinished,
+    seasonUsed: prev,
+  };
+}
+
 async function ingestFinishedMatches(
   fixtures: RawFixture[],
   mode: StatsSampleMode
 ): Promise<BuiltStatsIndex> {
   const finishedById = new Map(fixtures.map((f) => [f.id, f]));
   const linesByPlayer = new Map<number, PlayerMatchLine[]>();
-  const meta = new Map<number, { name: string; teamId: number; teamName: string }>();
+  const meta = new Map<
+    number,
+    { name: string; teamId: number; teamName: string }
+  >();
   const allTeamLines: TeamMatchLine[] = [];
 
   const results = await pool(
@@ -57,9 +101,7 @@ async function ingestFinishedMatches(
         ? competitionLabel(fx.stage, mode)
         : competitionLabel("Premier League", mode);
       const teamLines =
-        fx && raw
-          ? parseTeamMatchLines(id, raw, fx.home, fx.away)
-          : [];
+        fx && raw ? parseTeamMatchLines(id, raw, fx.home, fx.away) : [];
       const lines = parseMatchPlayerLines(id, raw, competition);
       return { lines, meta: parsePlayerMeta(raw), teamLines };
     }
@@ -106,22 +148,31 @@ function assembleIndex(
 async function buildFromLeagueFixtures(
   mode: StatsSampleMode
 ): Promise<BuiltStatsIndex> {
-  const league = (await getLeague()) as any;
-  const fixtures = parseFixtures(league).filter((f) => f.finished);
+  const { fixtures } = await leagueWithFinishedFixtures();
   const filtered =
     mode === "epl-season"
       ? fixtures.filter((f) => !isQualificationStage(f.stage))
       : fixtures;
-  return ingestFinishedMatches(filtered, mode);
+  // Full PL season is ~380 matches — cap ingest for CI time; prefer recent.
+  const capped =
+    filtered.length > 120
+      ? [...filtered]
+          .sort((a, b) => b.kickoff.localeCompare(a.kickoff))
+          .slice(0, 120)
+      : filtered;
+  if (filtered.length > capped.length) {
+    console.log(
+      `  stats: ingesting ${capped.length}/${filtered.length} finished matches (recent cap)`
+    );
+  }
+  return ingestFinishedMatches(capped, mode);
 }
 
 async function collectSquadPlayerIds(): Promise<number[]> {
-  const league = (await getLeague()) as any;
-  const fixtures = parseFixtures(league);
-  const finished = fixtures.filter((f) => f.finished);
+  const { fixtures } = await leagueWithFinishedFixtures();
   const ids = new Set<number>();
 
-  const finishedSample = finished.slice(0, Math.min(finished.length, 12));
+  const finishedSample = fixtures.slice(0, Math.min(fixtures.length, 16));
   await pool(finishedSample, 3, async (fx) => {
     const raw = (await getMatchDetails(fx.id, true)) as any;
     for (const p of Object.values(raw?.content?.playerStats ?? {}) as any[]) {
@@ -129,7 +180,11 @@ async function collectSquadPlayerIds(): Promise<number[]> {
     }
   });
 
-  const upcoming = fixtures.filter((f) => !f.finished).slice(0, 8);
+  // Also try current-season upcoming lineups when available.
+  const current = (await getLeague()) as any;
+  const upcoming = parseFixtures(current)
+    .filter((f) => !f.finished)
+    .slice(0, 8);
   await pool(upcoming, 3, async (fx) => {
     const raw = (await getMatchDetails(fx.id, false)) as any;
     for (const side of [
@@ -142,6 +197,7 @@ async function collectSquadPlayerIds(): Promise<number[]> {
     }
   });
 
+  console.log(`  stats: seeded ${ids.size} squad player id(s)`);
   return [...ids];
 }
 
@@ -149,6 +205,9 @@ async function buildFromPlayerRecentMatches(
   mode: "last50"
 ): Promise<BuiltStatsIndex> {
   const playerIds = await collectSquadPlayerIds();
+  if (!playerIds.length) {
+    console.warn("  stats: no squad player ids — last50 index will be empty");
+  }
   const matchMeta = new Map<
     number,
     { competition: string; date: string; opponent?: string }
@@ -166,9 +225,7 @@ async function buildFromPlayerRecentMatches(
       }))
       .filter((m: { id: number }) => m.id);
 
-    const filtered = recent;
-
-    const capped = filtered.slice(0, mode === "last50" ? 50 : filtered.length);
+    const capped = recent.slice(0, mode === "last50" ? 50 : recent.length);
     playerMatchIds.set(
       playerId,
       capped.map((m: { id: number }) => m.id)
@@ -187,7 +244,10 @@ async function buildFromPlayerRecentMatches(
 
   const uniqueMatchIds = [...new Set([...matchMeta.keys()])];
   const linesByPlayer = new Map<number, PlayerMatchLine[]>();
-  const meta = new Map<number, { name: string; teamId: number; teamName: string }>();
+  const meta = new Map<
+    number,
+    { name: string; teamId: number; teamName: string }
+  >();
   const allTeamLines: TeamMatchLine[] = [];
 
   const ingestMatch = async (matchId: number) => {
@@ -218,7 +278,6 @@ async function buildFromPlayerRecentMatches(
     clearFotmobCache();
   }
 
-  // Keep only lines for matches in each player's capped list
   for (const [pid, allowed] of playerMatchIds) {
     const allowedSet = new Set(allowed);
     const lines = (linesByPlayer.get(pid) ?? []).filter((l) =>

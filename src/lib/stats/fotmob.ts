@@ -94,12 +94,29 @@ export async function pool<T, R>(
 
 /** Full league payload: fixtures, leaderboards, details. */
 export function getLeague(
-  leagueId: number = PRIMARY_LEAGUE_ID
+  leagueId: number = PRIMARY_LEAGUE_ID,
+  season?: string
 ): Promise<any> {
-  return fetchJson(
-    `https://www.fotmob.com/api/data/leagues?id=${leagueId}&tab=matches&type=league&timeZone=UTC`,
-    10 * 60_000
-  );
+  const url = new URL("https://www.fotmob.com/api/data/leagues");
+  url.searchParams.set("id", String(leagueId));
+  url.searchParams.set("tab", "matches");
+  url.searchParams.set("type", "league");
+  url.searchParams.set("timeZone", "UTC");
+  if (season) url.searchParams.set("season", season);
+  return fetchJson(url.toString(), 10 * 60_000);
+}
+
+/** Previous season label from a league payload, e.g. "2025/2026". */
+export function previousSeasonFromLeague(league: any): string | undefined {
+  const seasons = league?.allAvailableSeasons;
+  if (!Array.isArray(seasons) || seasons.length < 2) return undefined;
+  const current =
+    league?.details?.selectedSeason ??
+    league?.details?.latestSeason ??
+    seasons[0];
+  const idx = seasons.indexOf(current);
+  if (idx >= 0 && idx + 1 < seasons.length) return String(seasons[idx + 1]);
+  return String(seasons[1]);
 }
 
 /** Match details: lineups, per-player match stats, events, h2h. */
