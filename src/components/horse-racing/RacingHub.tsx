@@ -475,10 +475,22 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
             Model-weighted form, course fit, market signals and tipster
             intelligence — updated from every completed race day.
           </p>
+          {calendar?.enrichmentWarning && (
+            <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100/90">
+              <p className="font-semibold text-amber-200">
+                Limited card data this export
+              </p>
+              <p className="mt-1 text-amber-100/75">
+                {calendar.enrichmentWarning}
+              </p>
+            </div>
+          )}
           {calendar?.source &&
             !calendar.source.startsWith("demo") && (
             <span className="mt-2 inline-block rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
-              Live racecards
+              {calendar.source.includes("hrnet")
+                ? "Live racecards + odds"
+                : calendar.sourceLabel || "Live racecards"}
             </span>
           )}
           {calendar?.model && (

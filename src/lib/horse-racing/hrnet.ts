@@ -18,7 +18,7 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v9";
+const CARDS_CACHE_VERSION = "v10";
 const CARDS_TTL_MS = 30 * 60 * 1000;
 const RESULTS_TTL_MS = 30 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
@@ -146,11 +146,67 @@ async function hrnFetch(pathname: string): Promise<string | null> {
   }
 }
 
+/**
+ * CI runners are often blocked by horseracing.net. Fetch HTML via public
+ * reader/proxies so we keep `data-oddsdecimal` (Tavily markdown usually cannot).
+ */
+async function hrnFetchViaHtmlProxy(pathname: string): Promise<string | null> {
+  const target = `${HRN_BASE}${pathname}`;
+  const attempts: Array<() => Promise<string | null>> = [
+    async () => {
+      // Jina Reader can return HTML when asked
+      const res = await fetch(`https://r.jina.ai/${target}`, {
+        headers: {
+          Accept: "text/html",
+          "X-Return-Format": "html",
+          "User-Agent": UA,
+        },
+        signal: AbortSignal.timeout(45_000),
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const text = await res.text();
+      return text.length > 1000 ? text : null;
+    },
+    async () => {
+      const res = await fetch(
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
+        {
+          headers: { "User-Agent": UA },
+          signal: AbortSignal.timeout(45_000),
+          cache: "no-store",
+        }
+      );
+      if (!res.ok) return null;
+      const text = await res.text();
+      return text.length > 1000 ? text : null;
+    },
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const html = await attempt();
+      if (html && isHtmlContent(html)) return html;
+      // Even without data-tip markers, keep long HTML for downstream parsers
+      if (html && html.includes("data-oddsdecimal")) return html;
+    } catch {
+      // try next proxy
+    }
+  }
+  return null;
+}
+
 async function hrnFetchRetry(pathname: string): Promise<string | null> {
   for (let attempt = 0; attempt < FETCH_RETRIES; attempt++) {
     const html = await hrnFetch(pathname);
     if (html) return html;
     await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+  // Cloud / Actions IPs are frequently blocked — try HTML-preserving proxies
+  const proxied = await hrnFetchViaHtmlProxy(pathname);
+  if (proxied) {
+    console.log(`  hrn proxy: fetched ${pathname}`);
+    return proxied;
   }
   return null;
 }
@@ -848,6 +904,34 @@ function linkToUrl(d: string, link: string): string {
   return `${HRN_BASE}/${slug}/${d}/${time}`;
 }
 
+/**
+ * Meeting pages embed every race with live `data-oddsdecimal` rows.
+ * Prefer one fetch per course over N race fetches (more CI-friendly).
+ */
+function parseMeetingPage(
+  html: string,
+  courseSlug: string,
+  wantedTimes?: Set<string>
+): HrnRace[] {
+  if (!isHtmlContent(html)) return [];
+
+  const sections = html.split(/<section\s+data-time="/i).slice(1);
+  const races: HrnRace[] = [];
+
+  for (const chunk of sections) {
+    const timeMatch = chunk.match(/^(\d{1,2}:\d{2})"/);
+    if (!timeMatch) continue;
+    const time = timeMatch[1]!;
+    if (wantedTimes && !wantedTimes.has(time)) continue;
+
+    const sectionHtml = `<section data-time="${chunk}`;
+    const race = parseRacePageHtml(sectionHtml, courseSlug, time);
+    if (race) races.push(race);
+  }
+
+  return races;
+}
+
 async function loadCache<T>(file: string, ttlMs: number): Promise<T | null> {
   try {
     const raw = await readFile(path.join(CACHE_DIR, file), "utf8");
@@ -1015,25 +1099,64 @@ export async function fetchHrnRacecards(
   let extracted = 0;
 
   if (missingLinks.length) {
-    // Always try direct HTML first — it carries data-oddsdecimal for live prices.
-    const directParsed = await mapPool(
-      missingLinks,
-      FETCH_CONCURRENCY,
-      async (link) => {
-        const [slug, time] = link.split("|");
-        const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
-        if (!html) return null;
-        const race = parseRacePage(html, slug, time);
-        if (race) await saveRaceToCache(isoDate, race);
-        return race;
-      }
-    );
-    for (let i = 0; i < missingLinks.length; i++) {
-      const race = directParsed[i];
-      if (race) raceByLink.set(missingLinks[i], race);
+    // Prefer meeting pages (one HTML doc per course, includes live odds).
+    const byCourse = new Map<string, string[]>();
+    for (const link of missingLinks) {
+      const [slug, time] = link.split("|");
+      const list = byCourse.get(slug) ?? [];
+      list.push(time);
+      byCourse.set(slug, list);
     }
 
-    // Tavily only for races direct fetch missed
+    const meetingParsed = await mapPool(
+      [...byCourse.entries()],
+      Math.min(4, FETCH_CONCURRENCY),
+      async ([slug, times]) => {
+        const html = await hrnFetchRetry(`/${slug}/${d}`);
+        if (!html) return [] as HrnRace[];
+        const wanted = new Set(times);
+        const races = parseMeetingPage(html, slug, wanted);
+        for (const race of races) {
+          await saveRaceToCache(isoDate, race);
+        }
+        return races;
+      }
+    );
+
+    for (const batch of meetingParsed) {
+      for (const race of batch) {
+        raceByLink.set(`${race.courseSlug}|${race.time}`, race);
+      }
+    }
+    if (meetingParsed.some((b) => b.length)) {
+      fetchMode = "direct";
+      console.log(
+        `  hrn cards: meeting pages filled ${[...raceByLink.keys()].filter((l) => missingLinks.includes(l)).length}/${missingLinks.length} races`
+      );
+    }
+
+    // Per-race HTML for anything meeting scrape missed
+    const stillAfterMeetings = links.filter((l) => !raceByLink.has(l));
+    if (stillAfterMeetings.length) {
+      const directParsed = await mapPool(
+        stillAfterMeetings,
+        FETCH_CONCURRENCY,
+        async (link) => {
+          const [slug, time] = link.split("|");
+          const html = await hrnFetchRetry(`/${slug}/${d}/${time}`);
+          if (!html) return null;
+          const race = parseRacePage(html, slug, time);
+          if (race) await saveRaceToCache(isoDate, race);
+          return race;
+        }
+      );
+      for (let i = 0; i < stillAfterMeetings.length; i++) {
+        const race = directParsed[i];
+        if (race) raceByLink.set(stillAfterMeetings[i]!, race);
+      }
+    }
+
+    // Tavily only for races direct/proxy HTML still missed
     const stillMissing = links.filter((l) => !raceByLink.has(l));
     if (stillMissing.length && process.env.TAVILY_API_KEY) {
       fetchMode = raceByLink.size ? "mixed" : "tavily";
@@ -1073,7 +1196,7 @@ export async function fetchHrnRacecards(
         );
         for (let i = 0; i < stillAfterExtract.length; i++) {
           const race = searchParsed[i];
-          if (race) raceByLink.set(stillAfterExtract[i], race);
+          if (race) raceByLink.set(stillAfterExtract[i]!, race);
         }
         extracted += searchParsed.filter(Boolean).length;
       }

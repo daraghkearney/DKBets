@@ -169,13 +169,38 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     sourceLabel = "Live racecards";
   } else if (anyLive) {
     source = "racing-api";
-    sourceLabel = "Live racecards";
+    sourceLabel = "Live racecards (odds enrichment pending)";
   } else if (anyHrn) {
     source = "hrnet";
     sourceLabel = "Live racecards";
   } else {
     source = "demo+web";
     sourceLabel = "Sample racecards";
+  }
+
+  const todayIso = week[0]?.date;
+  const todayDay = days.find((d) => d.date === todayIso) ?? days[0];
+  const todayRunners =
+    todayDay?.meetings.flatMap((m) => m.races.flatMap((r) => r.runners)) ?? [];
+  const todayWithOdds = todayRunners.filter(
+    (r) => r.odds != null && r.odds > 1
+  ).length;
+  const oddsRate = todayRunners.length
+    ? todayWithOdds / todayRunners.length
+    : 0;
+
+  let enrichmentWarning: string | undefined;
+  if (todayRunners.length >= 8 && oddsRate < 0.25) {
+    enrichmentWarning =
+      `Live odds missing for most runners (${todayWithOdds}/${todayRunners.length}). ` +
+      `HorseRacing.net enrichment failed in this export — Market/Ground/Form scores stay near defaults until the next successful scrape.`;
+    console.warn(`  racing enrichment: ${enrichmentWarning}`);
+    if (process.env.HRN_REQUIRE_TODAY === "true") {
+      console.error(
+        `  racing enrichment: HRN_REQUIRE_TODAY is set — odds coverage only ${(oddsRate * 100).toFixed(0)}%. ` +
+          `Export continues with a warning so football/other sports still deploy.`
+      );
+    }
   }
 
   const hrnPicks: TipsterPick[] = [];
@@ -187,7 +212,6 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
   }
   console.log(`  hrn tips: ${hrnPicks.length} press/verdict picks`);
 
-  const todayIso = week[0]?.date;
   const tipsterDay = days.find((d) => d.date === todayIso) ?? days[0];
   const todayRaces =
     tipsterDay?.meetings.flatMap((m) => m.races) ?? [];
@@ -288,5 +312,6 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     naps,
     performance,
     hrnDebug: hrnNotes.join(" | ") || undefined,
+    enrichmentWarning,
   };
 }

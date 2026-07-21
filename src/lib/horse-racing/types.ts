@@ -182,6 +182,11 @@ export interface RacingCalendarPayload {
   performance?: RacingPerformanceStats;
   /** HorseRacing.net scrape/merge diagnostics */
   hrnDebug?: string;
+  /**
+   * True when today's cards lack live odds/HRN enrichment.
+   * UI shows a degraded-data banner; CI can fail the export when set.
+   */
+  enrichmentWarning?: string;
 }
 
 export type RacingFactorKey =
