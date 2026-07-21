@@ -127,7 +127,7 @@ export interface RacingPerformanceStats {
   top3: number;
   winRate: number;
   top3Rate: number;
-  /** Flat £1 stake ROI on all #1 picks at SP */
+  /** Flat £1 stake ROI on all #1 picks settled at SP */
   roiFlatStake: number;
   napPicks: number;
   napWins: number;
@@ -142,8 +142,13 @@ export interface RacingPerformanceStats {
 export interface EachWayGem {
   runnerId: string;
   name: string;
-  odds: number | null;
+  /** Required at selection time — EW value is meaningless without a price. */
+  odds: number;
   rationale: string;
+  /** placeProb − placeImplied at 1/5 terms */
+  placeEdge?: number;
+  placeProb?: number;
+  placeImplied?: number;
 }
 
 export interface RacingMeeting {

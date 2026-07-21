@@ -30,7 +30,6 @@ import {
 import {
   fetchHorseHistory,
   fetchResultsForDate,
-  isRacingApiConfigured,
   type ResultRace,
 } from "./racing-api";
 import { addDays, courseSlug, to24hTime, toIsoDate, ukToday } from "./dates";
@@ -394,17 +393,19 @@ function updateWeights(
     if (vals.length) avgEdges[key] = mean(vals);
   }
 
-  // Target weights: amplify factors that separated winners from the field
+  // Target weights: amplify factors that separated winners, relative to *current* model
   const target = {} as Record<RacingFactorKey, number>;
   for (const key of FACTOR_KEYS) {
     const edge = Math.max(-0.25, Math.min(0.25, avgEdges[key] ?? 0));
-    target[key] = DEFAULT_FACTOR_WEIGHTS[key] * (1 + edge * 3);
+    target[key] = model.weights[key] * (1 + edge * 3);
   }
   const targetNorm = normalizeWeights(target);
 
-  // EMA toward the day's target, learning rate shrinks as samples grow
+  // EMA toward the day's target. Floor alpha so learning stays meaningful at scale;
+  // effectiveSamples caps how much "old" mass freezes the model.
   const n = learnings.length;
-  const alpha = Math.min(0.4, n / (model.samples + n));
+  const effectiveSamples = Math.min(model.samples, 500);
+  const alpha = Math.max(0.08, Math.min(0.4, n / (effectiveSamples + n)));
   const blended = {} as Record<RacingFactorKey, number>;
   for (const key of FACTOR_KEYS) {
     blended[key] =
@@ -437,17 +438,26 @@ async function collectLearnings(
     const byKey = new Map(
       log.races.map((r) => [raceKey(r.course, r.time), r])
     );
+    const matched = new Set<string>();
     for (const result of results) {
       const logged =
         byId.get(result.raceId) ??
         byKey.get(raceKey(result.course, result.time));
       if (!logged) continue;
       const learning = learnFromLoggedRace(result, logged);
+      if (learning) {
+        learnings.push(learning);
+        matched.add(result.raceId);
+      }
+    }
+
+    // Cold-fill unmatched results so partial ID mismatches don't skip a day
+    const unmatched = results.filter((r) => !matched.has(r.raceId));
+    for (const result of unmatched.slice(0, coldLimit)) {
+      const learning = await learnFromColdRace(result);
       if (learning) learnings.push(learning);
     }
-  }
-
-  if (!learnings.length) {
+  } else {
     for (const result of results.slice(0, coldLimit)) {
       const learning = await learnFromColdRace(result);
       if (learning) learnings.push(learning);
@@ -537,7 +547,8 @@ export async function learnFromYesterday(): Promise<{
   review?: RacingWinnerReview;
 }> {
   let model = await loadModel();
-  if (!isRacingApiConfigured()) return { model };
+  // Learning can use ATR/HRN result scrapers even when Racing API auth is missing.
+  // Only skip if we have no way to persist (always can) — always attempt.
 
   const yesterday = toIsoDate(addDays(ukToday(), -1));
 

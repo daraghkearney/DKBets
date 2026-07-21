@@ -19,7 +19,7 @@ const UA =
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
 const CARDS_CACHE_VERSION = "v9";
-const CARDS_TTL_MS = 90 * 60 * 1000;
+const CARDS_TTL_MS = 30 * 60 * 1000;
 const RESULTS_TTL_MS = 30 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
 const FETCH_RETRIES = 3;

@@ -3,7 +3,7 @@ import { fetchRacecardsForDate, isRacingApiConfigured } from "./racing-api";
 import { fetchTipsterIntelligence } from "./tipster-research";
 import { fetchLeagueTipsterPicks } from "./tipster-feeds";
 import { applyModel, augmentSignalHotTips } from "./model";
-import { pickEachWayGem } from "./each-way";
+import { selectDailyEachWayGems } from "./each-way";
 import { isInsiderGradePick } from "./tipster-priority";
 import { loadPeopleStats } from "./people-stats";
 import { learnFromYesterday, savePredictionLog } from "./results-learning";
@@ -218,10 +218,15 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     for (const meeting of day.meetings) {
       applyModel(meeting.races, tipsters, model.weights, peopleStats);
       for (const race of meeting.races) {
-        const gem = pickEachWayGem(race);
-        if (gem) race.eachWayGem = gem;
         race.runners.sort((a, b) => b.overallScore - a.overallScore);
       }
+    }
+    // Strict EW gems: require odds + place edge; few per day (football-gem style)
+    const dayRaces = day.meetings.flatMap((m) => m.races);
+    selectDailyEachWayGems(dayRaces);
+    const gemCount = dayRaces.filter((r) => r.eachWayGem).length;
+    if (gemCount) {
+      console.log(`  racing EW gems (${day.date}): ${gemCount} selective picks`);
     }
   }
   augmentSignalHotTips(days, tipsters);

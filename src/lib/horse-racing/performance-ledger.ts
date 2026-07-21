@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import { addDays, courseSlug, to24hTime, toIsoDate, ukToday } from "./dates";
+import { ewPlacePositions } from "./each-way";
 import { fetchResultsForDate } from "./racing-api";
 import type { ResultRace } from "./racing-api";
 import type { RacingNapPick, RacingPerformanceStats } from "./types";
@@ -108,14 +109,6 @@ async function loadPredictionLog(date: string): Promise<PredictionLogFile | null
   }
 }
 
-/** UK each-way place count by field size. */
-function ewPlacePositions(fieldSize: number): number {
-  if (fieldSize < 5) return 0;
-  if (fieldSize <= 7) return 2;
-  if (fieldSize <= 15) return 3;
-  return 4;
-}
-
 function runnerFinishedPosition(
   result: ResultRace,
   runnerId: string,
@@ -162,16 +155,16 @@ function raceKey(course: string, time: string): string {
   return `${courseSlug(course)}|${to24hTime(time)}`;
 }
 
-/** Prefer card price; fall back to that horse's SP from results. */
+/** Prefer SP for settled ROI; fall back to card price only if SP missing. */
 function resolvePickOdds(
   cardOdds: number | null | undefined,
   result: ResultRace,
   horseName: string
 ): number | null {
-  if (cardOdds != null && cardOdds > 1) return cardOdds;
   const norm = normaliseName(horseName);
   const row = result.runners.find((r) => normaliseName(r.name) === norm);
   if (row?.sp != null && row.sp > 1) return row.sp;
+  if (cardOdds != null && cardOdds > 1) return cardOdds;
   return null;
 }
 
@@ -221,6 +214,7 @@ export async function recordDayOutcomes(
     }
 
     const pickOdds = resolvePickOdds(pick.odds, result, pick.name);
+    const pickFinish = runnerFinishedPosition(result, pick.id, pick.name);
 
     ledger.entries.push({
       date,
@@ -236,7 +230,8 @@ export async function recordDayOutcomes(
       winnerSp: winner.sp ?? null,
       winnerRank,
       winHit: winnerRank === 1,
-      top3Hit: winnerRank != null && winnerRank <= 3,
+      // Honest "in frame": our #1 pick finished in the top 3
+      top3Hit: pickFinish != null && pickFinish <= 3,
       isNap: napIds.has(result.raceId) || napIds.has(logged.raceId),
       isEwGem: false,
     });

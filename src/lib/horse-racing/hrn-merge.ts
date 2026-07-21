@@ -207,18 +207,16 @@ export function mergeHrnIntoRaces(
   return { races: racesMatched, runners: runnersMerged };
 }
 
-function formRunsFromHrn(
-  hr: HrnRunner,
-  race: HrnRace
-): HorseFormRun[] {
+function formRunsFromHrn(hr: HrnRunner): HorseFormRun[] {
   const positions = parseFormPositions(hr.form);
   if (!positions.length) return [];
+  // Position digits only — do not invent today's going/course/trip on past runs.
   return positions.slice(0, 6).map((pos, i) => ({
     date: `recent-${i}`,
-    course: hr.courseWinner ? race.course : "",
-    distance: race.distance,
-    distanceYards: race.distanceYards,
-    going: race.going,
+    course: "",
+    distance: "",
+    distanceYards: 0,
+    going: "",
     position: pos,
     runners: 12,
     jockey: hr.jockey,
@@ -236,7 +234,7 @@ export function racesFromHrn(hrnRaces: HrnRace[], isoDate: string): HorseRace[] 
     const runners: HorseRunner[] = [];
     for (const hr of hrn.runners) {
       if (hr.nonRunner) continue;
-      const formRuns = formRunsFromHrn(hr, hrn);
+      const formRuns = formRunsFromHrn(hr);
       const base = enrichRunner(
         {
           id: `hrn-${hrn.courseSlug}-${isoDate}-${hrn.time}-${hr.number ?? hr.name}`,

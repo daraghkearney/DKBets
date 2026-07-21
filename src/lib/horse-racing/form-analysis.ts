@@ -242,7 +242,9 @@ export function scoreDistanceFit(
 
   const tolerance = targetYards * 0.12;
   const similar = runs.filter(
-    (r) => Math.abs(r.distanceYards - targetYards) <= tolerance
+    (r) =>
+      r.distanceYards > 0 &&
+      Math.abs(r.distanceYards - targetYards) <= tolerance
   );
   if (!similar.length) {
     notes.push(`No runs within ${Math.round(tolerance)}y of today's trip`);
@@ -478,14 +480,24 @@ export function enrichRunner(
     ...recent.notes,
     ...fresh.notes,
   ];
+  if (runner.courseWinner) {
+    notes.push(`Course winner at ${ctx.course}`);
+  }
+  if (runner.distanceWinner) {
+    notes.push("Distance winner");
+  }
   if (runner.headgear && /^(b|v|h|t)1?$/i.test(runner.headgear.trim())) {
     notes.push(`Headgear: ${runner.headgear}`);
   }
 
   const enriched: HorseRunner = {
     ...runner,
-    distanceFitScore: dist.score,
-    courseFitScore: course.score,
+    distanceFitScore: runner.distanceWinner
+      ? Math.max(dist.score, 0.72)
+      : dist.score,
+    courseFitScore: runner.courseWinner
+      ? Math.max(course.score, 0.72)
+      : course.score,
     recentFormScore: recent.score,
     goingFitScore: going.score,
     freshnessScore: fresh.score,

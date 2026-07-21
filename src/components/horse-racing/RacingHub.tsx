@@ -89,13 +89,13 @@ function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
         </div>
         <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
           <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
-            Top-3 rate
+            #1 place rate
           </p>
           <p className="text-xl font-bold tabular">
             {totalPicks > 0 ? pct(stats.top3Rate) : "—"}
           </p>
           <p className="text-[11px] text-muted">
-            {stats.top3}/{totalPicks} in frame
+            {stats.top3}/{totalPicks} finished top 3
           </p>
         </div>
         <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
@@ -120,7 +120,7 @@ function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
               "—"
             )}
           </p>
-          <p className="text-[11px] text-muted">At SP on every #1</p>
+          <p className="text-[11px] text-muted">Settled at SP</p>
         </div>
         <div className="rounded-xl border border-gold/40 bg-gold/5 px-3 py-2.5">
           <p className="text-[10px] font-bold uppercase tracking-wide text-gold">
@@ -221,6 +221,11 @@ function EachWayGemBanner({
         {formatOdds(gem.odds, oddsFormat) && (
           <span className="ml-2 font-normal text-muted tabular">
             {formatOdds(gem.odds, oddsFormat)}
+          </span>
+        )}
+        {gem.placeEdge != null && (
+          <span className="ml-2 text-[11px] font-semibold text-emerald-300">
+            +{Math.round(gem.placeEdge * 100)}pts place edge
           </span>
         )}
       </p>

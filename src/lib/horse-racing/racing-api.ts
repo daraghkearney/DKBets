@@ -196,20 +196,16 @@ function mapFormRun(row: HorseResultRow): HorseFormRun {
   };
 }
 
-/** Minimal form runs from the form string when full history unavailable. */
-function formRunsFromString(
-  form: string,
-  course: string,
-  distance: string,
-  yards: number
-): HorseFormRun[] {
+/** Minimal form runs from the form string when full history unavailable.
+ *  Do NOT stamp today's course/distance/going — that invents false suitability. */
+function formRunsFromString(form: string): HorseFormRun[] {
   const positions = parseFormPositions(form);
   if (!positions.length) return [];
   return positions.slice(0, 6).map((pos, i) => ({
     date: `recent-${i}`,
-    course,
-    distance,
-    distanceYards: yards,
+    course: "",
+    distance: "",
+    distanceYards: 0,
     going: "",
     position: pos,
     runners: 12,
@@ -460,12 +456,7 @@ async function mapRunner(
     await new Promise((r) => setTimeout(r, 520));
   }
   if (!formRuns.length && api.form) {
-    formRuns = formRunsFromString(
-      api.form,
-      race.course,
-      race.distance,
-      race.distanceYards
-    );
+    formRuns = formRunsFromString(api.form);
   }
 
   const base: Omit<
@@ -518,9 +509,16 @@ async function mapRunner(
 
 async function buildRacesFromApi(
   raw: ApiRace[],
-  creds: RacingApiCredentials
+  creds: RacingApiCredentials,
+  dayOffset = 0
 ): Promise<HorseRace[]> {
-  const fetchHistory = process.env.RACING_FETCH_HISTORY === "true";
+  const fetchHistory =
+    process.env.RACING_FETCH_HISTORY === "true" &&
+    (dayOffset === 0 || process.env.RACING_FETCH_HISTORY_ALL_DAYS === "true");
+  const historyPerRace = Math.max(
+    1,
+    Math.min(6, Number(process.env.RACING_HISTORY_PER_RACE ?? 3))
+  );
   const races: HorseRace[] = [];
 
   for (const apiRace of raw) {
@@ -530,7 +528,7 @@ async function buildRacesFromApi(
 
     for (const [i, r] of runners.entries()) {
       mapped.push(
-        await mapRunner(r, race, creds, fetchHistory && i < 3)
+        await mapRunner(r, race, creds, fetchHistory && i < historyPerRace)
       );
     }
 
@@ -588,7 +586,7 @@ export async function fetchRacecardsForDate(
       continue;
     }
 
-    const races = await buildRacesFromApi(raw, creds);
+    const races = await buildRacesFromApi(raw, creds, dayOffset);
     if (races.length) {
       console.log(`  racing api: ${races.length} races for ${isoDate} via ${path}`);
       return { races, debug: notes.join("; ") };
