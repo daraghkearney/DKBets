@@ -3,24 +3,26 @@
 import { useRacingSelection } from "@/components/horse-racing/RacingSelectionProvider";
 
 export default function RacingAnalysisPage() {
-  const { selectedMeeting, races } = useRacingSelection();
+  const { selectedMeeting, selectedRace } = useRacingSelection();
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-bold">Deep race analysis</h1>
       <p className="mt-2 text-sm text-muted">
-        {selectedMeeting
-          ? `${selectedMeeting.name} — distance suitability, course history and recent form.`
-          : "Select a day and meeting above."}
+        {selectedMeeting && selectedRace
+          ? `${selectedMeeting.name} ${selectedRace.time} — distance suitability, course history and recent form.`
+          : selectedMeeting
+            ? `${selectedMeeting.name} — select a race time above.`
+            : "Select a day, meeting and race time above."}
       </p>
 
-      {races.map((race) => (
-        <section key={race.id} className="mt-8">
+      {selectedRace ? (
+        <section className="mt-8">
           <h2 className="text-lg font-bold">
-            {race.time} · {race.name}
+            {selectedRace.time} · {selectedRace.name}
           </h2>
           <div className="mt-3 grid gap-2">
-            {race.runners
+            {[...selectedRace.runners]
               .sort((a, b) => b.overallScore - a.overallScore)
               .map((r) => (
                 <div
@@ -42,7 +44,7 @@ export default function RacingAnalysisPage() {
               ))}
           </div>
         </section>
-      ))}
+      ) : null}
     </div>
   );
 }

@@ -456,7 +456,7 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
     loading,
     error,
     selectedMeeting,
-    races,
+    selectedRace,
     tipsters,
   } = useRacingSelection();
   const { format: oddsFormat, setFormat: setOddsFormat } = useOddsFormat();
@@ -530,23 +530,29 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
             <PerformancePanel stats={calendar.performance} />
           )}
 
-          {races.map((race) => (
+          {selectedRace ? (
             <RaceCard
-              key={race.id}
-              race={race}
+              key={selectedRace.id}
+              race={selectedRace}
               showPremium={showPremium}
               oddsFormat={oddsFormat}
               hotPicks={tipsters.filter(
-                (t) => t.hot && t.raceId === race.id
+                (t) => t.hot && t.raceId === selectedRace.id
               )}
             />
-          ))}
+          ) : (
+            selectedMeeting && (
+              <p className="text-sm text-muted">
+                Select a race time above to view the card.
+              </p>
+            )
+          )}
 
-          {!showPremium && races.length > 0 && (
+          {!showPremium && selectedRace && (
             <PremiumGate feature={FEATURES.racingIntel} compact />
           )}
 
-          {races.length > 0 && tipsters.length > 0 && (
+          {selectedRace && tipsters.length > 0 && (
             <PremiumGate feature={FEATURES.racingIntel}>
             <section>
               <h2 className="mb-3 text-lg font-bold">
