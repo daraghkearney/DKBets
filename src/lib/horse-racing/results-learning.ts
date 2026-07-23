@@ -90,6 +90,7 @@ interface PredictionLogRace {
   time: string;
   name: string;
   runners: PredictionLogRunner[];
+  topPickConfidence?: "standard" | "confident" | "nap";
   eachWayGem?: { runnerId: string; name: string; odds: number | null };
 }
 
@@ -210,6 +211,7 @@ export async function savePredictionLog(
         course: race.course,
         time: race.time,
         name: race.name,
+        topPickConfidence: race.topPickConfidence,
         runners: race.runners.map((r) => ({
           id: r.id,
           name: r.name,

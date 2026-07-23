@@ -92,6 +92,13 @@ export interface HorseRace {
   eachWayGem?: EachWayGem;
   /** Today's top model pick with value edge */
   topPick?: ValuePickSummary;
+  /**
+   * How strongly we stand behind the #1:
+   * - standard — every race has a ranking leader
+   * - confident — clears value/separation gates (feeds headline win rate)
+   * - nap — most selective daily shortlist
+   */
+  topPickConfidence?: "standard" | "confident" | "nap";
   runners: HorseRunner[];
 }
 
@@ -101,6 +108,7 @@ export interface ValuePickSummary {
   odds: number | null;
   modelProb: number;
   edge: number;
+  confidence?: "standard" | "confident" | "nap";
 }
 
 export interface RacingNapPick {
@@ -129,6 +137,17 @@ export interface RacingPerformanceStats {
   top3Rate: number;
   /** Flat £1 stake ROI on all #1 picks settled at SP */
   roiFlatStake: number;
+  /**
+   * Headline KPI: #1 picks the model marked confident (or nap).
+   * Not every race — only where gates cleared.
+   */
+  confidentPicks: number;
+  confidentWins: number;
+  confidentWinRate: number;
+  /** @deprecated Prefer confidentPicks — kept for older payloads */
+  valuePicks: number;
+  valueWins: number;
+  valueWinRate: number;
   napPicks: number;
   napWins: number;
   napWinRate: number;

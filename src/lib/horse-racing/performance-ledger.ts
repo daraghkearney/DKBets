@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import { addDays, courseSlug, to24hTime, toIsoDate, ukToday } from "./dates";
-import { ewPlacePositions } from "./each-way";
+import { EW_MIN_ODDS, ewPlacePositions } from "./each-way";
 import { fetchResultsForDate } from "./racing-api";
 import type { ResultRace } from "./racing-api";
 import type { RacingNapPick, RacingPerformanceStats } from "./types";
@@ -26,6 +26,8 @@ export interface PerformanceLedgerEntry {
   winHit: boolean;
   top3Hit: boolean;
   isNap: boolean;
+  /** Cleared confident #1 gates (includes naps). */
+  isConfident?: boolean;
   /** Each-way gem selection (separate ledger row from the #1 model pick) */
   isEwGem?: boolean;
   placeHit?: boolean;
@@ -89,6 +91,7 @@ interface PredictionRace {
   course: string;
   time: string;
   runners: PredictionRunner[];
+  topPickConfidence?: "standard" | "confident" | "nap";
   eachWayGem?: { runnerId: string; name: string; odds: number | null };
 }
 
@@ -139,10 +142,34 @@ export async function saveNapLog(
   );
 }
 
+export async function saveConfidentLog(
+  date: string,
+  raceIds: string[]
+): Promise<void> {
+  await mkdir(LEDGER_DIR, { recursive: true });
+  await writeFile(
+    path.join(LEDGER_DIR, `confident-${date}.json`),
+    JSON.stringify([...new Set(raceIds)]),
+    "utf8"
+  );
+}
+
 async function loadNapRaceIds(date: string): Promise<Set<string>> {
   try {
     const raw = await readFile(
       path.join(LEDGER_DIR, `naps-${date}.json`),
+      "utf8"
+    );
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+async function loadConfidentRaceIds(date: string): Promise<Set<string>> {
+  try {
+    const raw = await readFile(
+      path.join(LEDGER_DIR, `confident-${date}.json`),
       "utf8"
     );
     return new Set(JSON.parse(raw) as string[]);
@@ -175,9 +202,12 @@ export async function recordDayOutcomes(
   date: string,
   results: ResultRace[],
   loggedRaces: PredictionRace[],
-  napRaceIds?: Set<string>
+  napRaceIds?: Set<string>,
+  confidentRaceIds?: Set<string>
 ): Promise<void> {
   const napIds = napRaceIds ?? (await loadNapRaceIds(date));
+  const confidentIds =
+    confidentRaceIds ?? (await loadConfidentRaceIds(date));
   const ledger = await loadLedger();
   const existingIds = new Set(
     ledger.entries.filter((e) => e.date === date).map((e) => e.raceId)
@@ -215,6 +245,18 @@ export async function recordDayOutcomes(
 
     const pickOdds = resolvePickOdds(pick.odds, result, pick.name);
     const pickFinish = runnerFinishedPosition(result, pick.id, pick.name);
+    const isNap = napIds.has(result.raceId) || napIds.has(logged.raceId);
+    const loggedConfidence = logged.topPickConfidence;
+    const isConfident =
+      isNap ||
+      confidentIds.has(result.raceId) ||
+      confidentIds.has(logged.raceId) ||
+      loggedConfidence === "confident" ||
+      loggedConfidence === "nap" ||
+      // Backfill heuristic for days before confident logs existed
+      (loggedConfidence == null &&
+        pick.modelEdge != null &&
+        pick.modelEdge >= 1.08);
 
     ledger.entries.push({
       date,
@@ -232,7 +274,8 @@ export async function recordDayOutcomes(
       winHit: winnerRank === 1,
       // Honest "in frame": our #1 pick finished in the top 3
       top3Hit: pickFinish != null && pickFinish <= 3,
-      isNap: napIds.has(result.raceId) || napIds.has(logged.raceId),
+      isNap,
+      isConfident,
       isEwGem: false,
     });
     existingIds.add(result.raceId);
@@ -385,6 +428,21 @@ export async function backfillPerformanceLedger(
   return { recorded, dates: targets };
 }
 
+/** Min modelEdge used only as a backfill heuristic when confident logs missing. */
+const VALUE_EDGE_MIN = 1.08;
+
+/** Strict EW gems only — drops pre-rewrite soft / short-priced / no-odds rows. */
+function isStrictEwGem(e: PerformanceLedgerEntry): boolean {
+  return Boolean(e.isEwGem && e.pickOdds != null && e.pickOdds >= EW_MIN_ODDS);
+}
+
+function isConfidentPick(e: PerformanceLedgerEntry): boolean {
+  if (e.isEwGem) return false;
+  if (e.isConfident || e.isNap) return true;
+  // Historical rows before confident logging
+  return e.pickEdge != null && e.pickEdge >= VALUE_EDGE_MIN;
+}
+
 export function computePerformanceStats(
   entries: PerformanceLedgerEntry[],
   windowDays = 90
@@ -392,12 +450,14 @@ export function computePerformanceStats(
   const cutoff = toIsoDate(addDays(ukToday(), -windowDays));
   const window = entries.filter((e) => e.date >= cutoff);
   const modelPicks = window.filter((e) => !e.isEwGem);
-  const ewGems = window.filter((e) => e.isEwGem);
+  const ewGems = window.filter(isStrictEwGem);
+  const confident = modelPicks.filter(isConfidentPick);
+  const naps = modelPicks.filter((e) => e.isNap);
 
   const wins = modelPicks.filter((e) => e.winHit).length;
   const top3 = modelPicks.filter((e) => e.top3Hit).length;
-  const naps = modelPicks.filter((e) => e.isNap);
   const napWins = naps.filter((e) => e.winHit).length;
+  const confidentWins = confident.filter((e) => e.winHit).length;
   const ewPlaces = ewGems.filter((e) => e.placeHit).length;
 
   let roi = 0;
@@ -425,6 +485,12 @@ export function computePerformanceStats(
     winRate: modelPicks.length ? wins / modelPicks.length : 0,
     top3Rate: modelPicks.length ? top3 / modelPicks.length : 0,
     roiFlatStake: staked ? roi / staked : 0,
+    confidentPicks: confident.length,
+    confidentWins,
+    confidentWinRate: confident.length ? confidentWins / confident.length : 0,
+    valuePicks: confident.length,
+    valueWins: confidentWins,
+    valueWinRate: confident.length ? confidentWins / confident.length : 0,
     napPicks: naps.length,
     napWins,
     napWinRate: naps.length ? napWins / naps.length : 0,

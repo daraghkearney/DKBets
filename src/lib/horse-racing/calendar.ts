@@ -13,8 +13,13 @@ import {
   backfillPerformanceLedger,
   enrichLedgerPickOdds,
   saveNapLog,
+  saveConfidentLog,
 } from "./performance-ledger";
-import { buildValuePicks } from "./value-picks";
+import {
+  annotateRacePickTiers,
+  buildValuePicks,
+  confidentRaceIds,
+} from "./value-picks";
 import { fetchHrnRacecards, hrnLinksFromRaces } from "./hrnet";
 import {
   buildHrnTipsterPicks,
@@ -252,16 +257,24 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     if (gemCount) {
       console.log(`  racing EW gems (${day.date}): ${gemCount} selective picks`);
     }
+    // Tag standard vs confident #1 for every day (naps only for today below)
+    if (day.date !== todayIso) {
+      annotateRacePickTiers(dayRaces);
+    }
   }
   augmentSignalHotTips(days, tipsters);
 
   const naps = buildValuePicks(todayRaces, todayIso ?? week[0].date);
-  console.log(`  racing naps: ${naps.length} selective value picks`);
-  if (todayIso && naps.length) {
+  const confIds = confidentRaceIds(todayRaces);
+  console.log(
+    `  racing picks: ${confIds.length} confident #1s, ${naps.length} naps (of ${todayRaces.length} races)`
+  );
+  if (todayIso) {
     try {
-      await saveNapLog(todayIso, naps);
+      await saveConfidentLog(todayIso, confIds);
+      if (naps.length) await saveNapLog(todayIso, naps);
     } catch (e) {
-      console.warn("  racing naps: failed to save nap log", e);
+      console.warn("  racing picks: failed to save confident/nap logs", e);
     }
   }
 

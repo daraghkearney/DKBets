@@ -55,6 +55,11 @@ function OddsToggle({
 
 function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
   const totalPicks = stats.totalPicks ?? 0;
+  const napPicks = stats.napPicks ?? 0;
+  const confidentPicks = stats.confidentPicks ?? stats.valuePicks ?? 0;
+  const confidentWins = stats.confidentWins ?? stats.valueWins ?? 0;
+  const confidentWinRate =
+    stats.confidentWinRate ?? stats.valueWinRate ?? 0;
   const ewGemPicks = stats.ewGemPicks ?? 0;
   const ewGemPlaces = stats.ewGemPlaces ?? 0;
   const ewGemPlaceRate = stats.ewGemPlaceRate ?? 0;
@@ -67,35 +72,39 @@ function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
           Model track record ({stats.windowDays} days)
         </h2>
         <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
-          Verified hit rates
+          Verified outcomes
         </span>
       </div>
+      <p className="mt-2 text-xs text-muted">
+        Headline win rate uses confident #1s only — races where the model clears
+        value and separation gates. Every race still gets a standard ranking.
+      </p>
       {building && (
         <p className="mt-2 text-xs text-muted">
           Hit rates build as completed race days are matched to logged predictions.
         </p>
       )}
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
-            Win hit rate
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 sm:col-span-2 lg:col-span-1">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+            Confident #1 win rate
           </p>
           <p className="text-xl font-bold tabular text-emerald-300">
-            {totalPicks > 0 ? pct(stats.winRate) : "—"}
+            {confidentPicks > 0 ? pct(confidentWinRate) : "—"}
           </p>
           <p className="text-[11px] text-muted">
-            {stats.wins}/{totalPicks} #1 picks
+            {confidentWins}/{confidentPicks} high-conviction #1s
           </p>
         </div>
-        <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
-            #1 place rate
+        <div className="rounded-xl border border-gold/40 bg-gold/5 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-gold">
+            Nap strike rate
           </p>
-          <p className="text-xl font-bold tabular">
-            {totalPicks > 0 ? pct(stats.top3Rate) : "—"}
+          <p className="text-xl font-bold tabular text-gold">
+            {napPicks > 0 ? pct(stats.napWinRate) : "—"}
           </p>
           <p className="text-[11px] text-muted">
-            {stats.top3}/{totalPicks} finished top 3
+            {stats.napWins}/{napPicks} most selective daily shortlist
           </p>
         </div>
         <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
@@ -120,28 +129,39 @@ function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
               "—"
             )}
           </p>
-          <p className="text-[11px] text-muted">Settled at SP</p>
+          <p className="text-[11px] text-muted">All #1s · settled at SP</p>
         </div>
-        <div className="rounded-xl border border-gold/40 bg-gold/5 px-3 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-gold">
-            Nap strike rate
+        <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+            All #1 win rate
           </p>
-          <p className="text-xl font-bold tabular text-gold">
-            {(stats.napPicks ?? 0) > 0 ? pct(stats.napWinRate) : "—"}
+          <p className="text-xl font-bold tabular">
+            {totalPicks > 0 ? pct(stats.winRate) : "—"}
           </p>
           <p className="text-[11px] text-muted">
-            {stats.napWins}/{stats.napPicks ?? 0} value naps
+            {stats.wins}/{totalPicks} every race (market baseline)
+          </p>
+        </div>
+        <div className="rounded-xl border border-edge/60 bg-background/30 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+            #1 place rate
+          </p>
+          <p className="text-xl font-bold tabular">
+            {totalPicks > 0 ? pct(stats.top3Rate) : "—"}
+          </p>
+          <p className="text-[11px] text-muted">
+            {stats.top3}/{totalPicks} finished top 3
           </p>
         </div>
         <div className="rounded-xl border border-sky-500/40 bg-sky-500/5 px-3 py-2.5">
           <p className="text-[10px] font-bold uppercase tracking-wide text-sky-300">
-            Each-way gem place rate
+            Strict EW gem place rate
           </p>
           <p className="text-xl font-bold tabular text-sky-300">
             {ewGemPicks > 0 ? pct(ewGemPlaceRate) : "—"}
           </p>
           <p className="text-[11px] text-muted">
-            {ewGemPlaces}/{ewGemPicks} EW gems placed
+            {ewGemPlaces}/{ewGemPicks} at ≥5/1 only
           </p>
         </div>
       </div>
@@ -271,13 +291,28 @@ function RaceCard({
     ? [...race.runners].sort((a, b) => b.overallScore - a.overallScore)
     : [...race.runners].sort((a, b) => a.name.localeCompare(b.name));
   const visibleHotPicks = showPremium ? hotPicks : [];
+  const pickTier = race.topPickConfidence ?? "standard";
+  const isNapPick = showPremium && pickTier === "nap";
+  const isConfidentPick = showPremium && pickTier === "confident";
 
   return (
     <section className="overflow-hidden rounded-2xl border border-edge bg-surface">
       <div className="border-b border-edge px-4 py-3">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-gold">
-          {race.time} · {race.course}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gold">
+            {race.time} · {race.course}
+          </p>
+          {isNapPick && (
+            <span className="rounded-full border border-gold/50 bg-gold/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gold">
+              Nap
+            </span>
+          )}
+          {isConfidentPick && (
+            <span className="rounded-full border border-emerald-500/45 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
+              Confident #1
+            </span>
+          )}
+        </div>
         <h2 className="text-lg font-bold">{race.name}</h2>
         <p className="text-xs text-muted">
           {race.distance} · {race.going} · {race.raceClass}
@@ -302,20 +337,36 @@ function RaceCard({
             const isEwGem =
               showPremium && race.eachWayGem?.runnerId === r.id;
             const isTopPick = showPremium && r.id === runners[0]?.id;
+            const topHighlight =
+              isTopPick && isNapPick
+                ? "border-gold/50 bg-gold/10"
+                : isTopPick && isConfidentPick
+                  ? "border-emerald-500/45 bg-emerald-500/10"
+                  : isTopPick
+                    ? "border-edge/80 bg-background/40"
+                    : isEwGem
+                      ? "border-emerald-500/45 bg-emerald-500/10"
+                      : "border-edge/60 bg-background/30";
             return (
             <div
               key={r.id}
-              className={`rounded-xl border p-3 ${
-                isTopPick
-                  ? "border-gold/50 bg-gold/10"
-                  : isEwGem
-                    ? "border-emerald-500/45 bg-emerald-500/10"
-                    : "border-edge/60 bg-background/30"
-              }`}
+              className={`rounded-xl border p-3 ${topHighlight}`}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="font-bold">
-                  {isTopPick && <span className="mr-1 text-gold">①</span>}
+                  {isTopPick && (
+                    <span
+                      className={`mr-1 ${
+                        isNapPick
+                          ? "text-gold"
+                          : isConfidentPick
+                            ? "text-emerald-300"
+                            : "text-muted"
+                      }`}
+                    >
+                      ①
+                    </span>
+                  )}
                   {isEwGem && <span className="mr-1 text-emerald-300">💎</span>}
                   {r.name}
                   {showPremium && r.tipsterScore > 0.6 && (
@@ -333,7 +384,24 @@ function RaceCard({
                   </span>
                 )}
               </div>
-              {showPremium && r.modelEdge != null && r.modelEdge >= 1.12 && (
+              {showPremium && isTopPick && isConfidentPick && (
+                <p className="mt-1 text-[10px] font-bold text-emerald-300">
+                  High-conviction #1
+                  {r.modelEdge != null &&
+                    ` · ${r.modelEdge.toFixed(2)}× edge`}
+                </p>
+              )}
+              {showPremium && isTopPick && isNapPick && (
+                <p className="mt-1 text-[10px] font-bold text-gold">
+                  Nap of the day
+                  {r.modelEdge != null &&
+                    ` · ${r.modelEdge.toFixed(2)}× edge`}
+                </p>
+              )}
+              {showPremium &&
+                !isTopPick &&
+                r.modelEdge != null &&
+                r.modelEdge >= 1.12 && (
                 <p className="mt-1 text-[10px] font-bold text-emerald-300 tabular">
                   Value edge {r.modelEdge.toFixed(2)}× vs SP
                   {r.winProbability != null &&
