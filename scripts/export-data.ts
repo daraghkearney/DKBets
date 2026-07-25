@@ -20,6 +20,7 @@ import {
   clearPlayerIndexCache,
   ensurePlayerIndex,
   getTeamHistory,
+  setActiveFootballCompetition,
   setActiveSampleMode,
 } from "../src/lib/stats/store";
 import { clearFotmobCache } from "../src/lib/stats/fotmob";
@@ -27,6 +28,7 @@ import {
   DEFAULT_SAMPLE_MODE,
   SAMPLE_MODES,
   sampleModeLabel,
+  sampleModesForCompetition,
   type StatsSampleMode,
 } from "../src/lib/stats/sample-mode";
 import { buildHorseRacingPayload } from "../src/lib/horse-racing/engine";
@@ -34,6 +36,10 @@ import { buildRacingCalendarPayload } from "../src/lib/horse-racing/calendar";
 import { exportPerformanceArtifacts } from "../src/lib/horse-racing/performance-ledger";
 import { buildNbaPayload } from "../src/lib/nba/client";
 import { SPORTS } from "../src/lib/sports/config";
+import {
+  liveFootballCompetitions,
+  type FootballCompetitionMeta,
+} from "../src/lib/sports/football";
 import {
   loadCachedBet365EventUrls,
   loadCachedBet365Odds,
@@ -48,16 +54,32 @@ async function writeJson(rel: string, data: unknown) {
   console.log("  wrote", rel);
 }
 
-async function exportSampleMode(mode: StatsSampleMode) {
-  console.log(`\n  [${mode}] exporting sample dataset …`);
+async function exportSampleMode(
+  mode: StatsSampleMode,
+  competition: FootballCompetitionMeta
+) {
+  const tag = `${competition.id}/${mode}`;
+  console.log(`\n  [${tag}] exporting sample dataset …`);
   clearFotmobCache();
   clearPlayerIndexCache();
+  setActiveFootballCompetition(competition.id);
   setActiveSampleMode(mode);
-  const prefix = `samples/${mode}`;
+
+  const prefix =
+    competition.dataRoot === "legacy"
+      ? `samples/${mode}`
+      : `football/${competition.id}/samples/${mode}`;
+
+  const modeLabel =
+    sampleModesForCompetition(competition.id).find((m) => m.id === mode)
+      ?.label ?? sampleModeLabel(mode);
+
   const sampleMeta = {
     sampleMode: mode,
-    sampleLabel: sampleModeLabel(mode),
-    sourceLabel: sampleModeLabel(mode),
+    sampleLabel: modeLabel,
+    sourceLabel: modeLabel,
+    competitionId: competition.id,
+    competitionLabel: competition.label,
     exportedAt: new Date().toISOString(),
   };
 
@@ -87,11 +109,11 @@ async function exportSampleMode(mode: StatsSampleMode) {
         });
       }
     } catch (e) {
-      console.warn(`  skip match ${id} (${mode}):`, e);
+      console.warn(`  skip match ${id} (${tag}):`, e);
     }
   }
 
-  console.log(`  [${mode}] builder …`);
+  console.log(`  [${tag}] builder …`);
   const builder = await loadBuilderPayload();
   builder.precomputed = precomputeBuilderViews(
     builder.legs,
@@ -109,7 +131,7 @@ async function exportSampleMode(mode: StatsSampleMode) {
   const eventUrls = await loadCachedBet365EventUrls();
   const playerIndex = await ensurePlayerIndex(mode);
 
-  console.log(`  [${mode}] star players …`);
+  console.log(`  [${tag}] star players …`);
   const starPlayers = await buildStarPlayersPayload(
     builder.legs,
     upcoming,
@@ -123,7 +145,7 @@ async function exportSampleMode(mode: StatsSampleMode) {
     ...sampleMeta,
   });
 
-  console.log(`  [${mode}] team model …`);
+  console.log(`  [${tag}] team model …`);
   const teamHistory = getTeamHistory(mode);
   const teamModel = buildTeamModelPayload(
     teamHistory,
@@ -134,19 +156,45 @@ async function exportSampleMode(mode: StatsSampleMode) {
   );
   await writeJson(`${prefix}/team-model.json`, { ...teamModel, ...sampleMeta });
 
+  // Mirror default mode to competition root (legacy PL → /data, scoped → /data/football/{id})
   if (mode === DEFAULT_SAMPLE_MODE) {
-    await writeJson("stats/players.json", { ...players, ...sampleMeta });
-    await writeJson("stats/matches.json", { fixtures, ...sampleMeta });
-    await writeJson("stats/bankers.json", { bankers, ...sampleMeta });
-    await writeJson("stats/fixture-ids.json", { ids, ...sampleMeta });
-    await writeJson("builder.json", { ...builder, ...sampleMeta });
-    await writeJson("star-players.json", { ...starPlayers, ...sampleMeta });
-    await writeJson("team-model.json", { ...teamModel, ...sampleMeta });
+    const rootPrefix =
+      competition.dataRoot === "legacy"
+        ? ""
+        : `football/${competition.id}/`;
+    await writeJson(`${rootPrefix}stats/players.json`, {
+      ...players,
+      ...sampleMeta,
+    });
+    await writeJson(`${rootPrefix}stats/matches.json`, {
+      fixtures,
+      ...sampleMeta,
+    });
+    await writeJson(`${rootPrefix}stats/bankers.json`, {
+      bankers,
+      ...sampleMeta,
+    });
+    await writeJson(`${rootPrefix}stats/fixture-ids.json`, {
+      ids,
+      ...sampleMeta,
+    });
+    await writeJson(`${rootPrefix}builder.json`, { ...builder, ...sampleMeta });
+    await writeJson(`${rootPrefix}star-players.json`, {
+      ...starPlayers,
+      ...sampleMeta,
+    });
+    await writeJson(`${rootPrefix}team-model.json`, {
+      ...teamModel,
+      ...sampleMeta,
+    });
     for (const id of ids) {
       try {
         const detail = await loadMatchDetail(id);
         if (detail) {
-          await writeJson(`stats/match/${id}.json`, { ...detail, ...sampleMeta });
+          await writeJson(`${rootPrefix}stats/match/${id}.json`, {
+            ...detail,
+            ...sampleMeta,
+          });
         }
       } catch {
         /* already logged */
@@ -164,15 +212,31 @@ async function main() {
   await writeJson("sample-manifest.json", {
     defaultMode: DEFAULT_SAMPLE_MODE,
     modes: SAMPLE_MODES,
+    competitions: liveFootballCompetitions().map((c) => ({
+      id: c.id,
+      label: c.label,
+      live: c.live,
+    })),
     exportedAt: new Date().toISOString(),
   });
 
-  for (const mode of SAMPLE_MODES) {
-    await exportSampleMode(mode.id);
+  for (const competition of liveFootballCompetitions()) {
+    console.log(`\n=== Football: ${competition.label} ===`);
+    setActiveFootballCompetition(competition.id);
+    for (const mode of SAMPLE_MODES) {
+      await exportSampleMode(mode.id, competition);
+    }
   }
 
+  // Restore PL as active default for any later tooling
+  setActiveFootballCompetition("premier-league");
+
   try {
-    const cacheFile = path.join(process.cwd(), ".cache", "bet365-live-odds.json");
+    const cacheFile = path.join(
+      process.cwd(),
+      ".cache",
+      "bet365-live-odds.json"
+    );
     const raw = await readFile(cacheFile, "utf8");
     await writeJson("bet365-prices.json", JSON.parse(raw));
   } catch {
@@ -196,7 +260,9 @@ async function main() {
   try {
     const nba = await buildNbaPayload();
     await writeJson("nba/nba/hub.json", nba);
-    console.log(`  nba: ${nba.leaders.length} leaders, ${nba.scoreboard.length} games, ${nba.playerProps.length} prop profiles`);
+    console.log(
+      `  nba: ${nba.leaders.length} leaders, ${nba.scoreboard.length} games, ${nba.playerProps.length} prop profiles`
+    );
   } catch (e) {
     console.warn("  nba: export failed", e);
   }
@@ -211,7 +277,6 @@ async function main() {
     console.log(
       `  racing calendar: ${dayCount} days with meetings, ${calendar.tipsters.length} tipsters`
     );
-    // Durable settlement inputs for the next deploy (Actions cache is lossy)
     const perf = await exportPerformanceArtifacts(
       path.join(ROOT, "horse-racing", "performance")
     );

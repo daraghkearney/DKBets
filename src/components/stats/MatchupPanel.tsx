@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatKickoff, formatPct } from "@/lib/format";
+import { useSport } from "@/components/SportProvider";
 import LineupPitch from "@/components/stats/LineupPitch";
 import LineupStatusBadge from "@/components/stats/LineupStatusBadge";
 import { effectiveLineupStatus } from "@/lib/stats/lineup-status";
@@ -453,6 +454,7 @@ function HistoryCells({
 }
 
 export function MatchHeader({ detail }: { detail: MatchDetailPayload }) {
+  const { hubUrl } = useSport();
   const { fixture } = detail;
   const positionalCount = detail.matchups.filter(
     (m) => m.kind === "positional"
@@ -466,7 +468,7 @@ export function MatchHeader({ detail }: { detail: MatchDetailPayload }) {
   return (
     <div className="mb-6">
       <Link
-        href="/football/premier-league/matches/"
+        href={hubUrl("matches")}
         className="text-xs text-muted transition-colors hover:text-accent"
       >
         ← Fixtures

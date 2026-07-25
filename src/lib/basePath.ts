@@ -4,6 +4,10 @@
  */
 import type { StatsSampleMode } from "@/lib/stats/sample-mode";
 import { DEFAULT_SAMPLE_MODE } from "@/lib/stats/sample-mode";
+import {
+  PRIMARY_FOOTBALL_COMPETITION_ID,
+  footballCompetition,
+} from "@/lib/sports/football";
 
 export const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -16,10 +20,15 @@ export function dataUrl(relative: string): string {
 /** Stats JSON for a selected sample mode (WC 2026, qual, last 50, etc.). */
 export function sampleDataUrl(
   mode: StatsSampleMode,
-  relative: string
+  relative: string,
+  competitionId: string = PRIMARY_FOOTBALL_COMPETITION_ID
 ): string {
   const path = relative.startsWith("/") ? relative : `/${relative}`;
-  return `${basePath}/data/samples/${mode}${path}`;
+  const meta = footballCompetition(competitionId);
+  if (!meta || meta.dataRoot === "legacy") {
+    return `${basePath}/data/samples/${mode}${path}`;
+  }
+  return `${basePath}/data/football/${competitionId}/samples/${mode}${path}`;
 }
 
 export function sampleManifestUrl(): string {

@@ -1,12 +1,30 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import type { Bet365LiveMap, Bet365LiveQuote } from "./bet365-live";
+import { PRIMARY_FOOTBALL_COMPETITION_ID } from "@/lib/sports/football";
 
-const CACHE_FILE = path.join(process.cwd(), ".cache", "bet365-live-odds.json");
 /** Fresh cache for routine push deploys (hourly refresh keeps this valid). */
 const CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 /** Bump when parser logic changes — invalidates stale wrong-price caches. */
 export const BET365_CACHE_VERSION = 6;
+
+function cacheFileForCompetition(competitionId?: string): string {
+  let id = competitionId;
+  if (!id) {
+    try {
+      // Lazy — store may set active competition during export
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getActiveFootballCompetitionId } = require("@/lib/stats/store") as typeof import("@/lib/stats/store");
+      id = getActiveFootballCompetitionId();
+    } catch {
+      id = PRIMARY_FOOTBALL_COMPETITION_ID;
+    }
+  }
+  if (id === PRIMARY_FOOTBALL_COMPETITION_ID) {
+    return path.join(process.cwd(), ".cache", "bet365-live-odds.json");
+  }
+  return path.join(process.cwd(), ".cache", `bet365-live-odds-${id}.json`);
+}
 
 interface Bet365OddsCache {
   version: number;
@@ -28,7 +46,7 @@ export async function loadCachedBet365Odds(
   options: { ignoreAge?: boolean } = {}
 ): Promise<Bet365LiveMap | null> {
   try {
-    const raw = await readFile(CACHE_FILE, "utf8");
+    const raw = await readFile(cacheFileForCompetition(), "utf8");
     const data = JSON.parse(raw) as Bet365OddsCache;
     if (data.version !== BET365_CACHE_VERSION) {
       console.warn(
@@ -54,7 +72,7 @@ export async function loadCachedBet365Odds(
 
 export async function loadCachedBet365EventUrls(): Promise<Map<number, string>> {
   try {
-    const raw = await readFile(CACHE_FILE, "utf8");
+    const raw = await readFile(cacheFileForCompetition(), "utf8");
     const data = JSON.parse(raw) as Bet365OddsCache;
     if (data.version !== BET365_CACHE_VERSION || !data.eventUrls?.length) {
       return new Map();
@@ -72,13 +90,14 @@ export async function saveCachedBet365Odds(
   eventUrls: Map<number, string> = new Map()
 ): Promise<void> {
   if (map.size === 0) return;
-  await mkdir(path.dirname(CACHE_FILE), { recursive: true });
+  const file = cacheFileForCompetition();
+  await mkdir(path.dirname(file), { recursive: true });
   const payload: Bet365OddsCache = {
     version: BET365_CACHE_VERSION,
     savedAt: new Date().toISOString(),
     prices: [...map.entries()],
     eventUrls: [...eventUrls.entries()].map(([id, url]) => [String(id), url]),
   };
-  await writeFile(CACHE_FILE, JSON.stringify(payload), "utf8");
+  await writeFile(file, JSON.stringify(payload), "utf8");
   console.log(`  bet365 live: cached ${map.size} prices for reuse on push deploys`);
 }

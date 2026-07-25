@@ -10,6 +10,13 @@ import {
 } from "./sample-mode";
 import type { TeamMatchLine } from "./team-lines";
 import type { PlayerTournamentStats } from "./types";
+import {
+  PRIMARY_FOOTBALL_COMPETITION_ID,
+  PRIMARY_FOOTBALL_LEAGUE_ID,
+  PRIMARY_FOOTBALL_LABEL,
+  PRIMARY_ODDS_API_LEAGUE,
+  footballCompetition,
+} from "@/lib/sports/football";
 
 interface ModeCache {
   playerIndex: Map<number, PlayerTournamentStats>;
@@ -18,8 +25,16 @@ interface ModeCache {
 }
 
 const INDEX_TTL = 15 * 60_000;
-const cacheByMode = new Map<StatsSampleMode, ModeCache>();
+const cacheByKey = new Map<string, ModeCache>();
 let activeSampleMode: StatsSampleMode = DEFAULT_SAMPLE_MODE;
+let activeCompetitionId = PRIMARY_FOOTBALL_COMPETITION_ID;
+let activeLeagueId = PRIMARY_FOOTBALL_LEAGUE_ID;
+let activeOddsLeague = PRIMARY_ODDS_API_LEAGUE;
+let activeCompetitionLabel = PRIMARY_FOOTBALL_LABEL;
+
+function cacheKey(mode: StatsSampleMode): string {
+  return `${activeLeagueId}:${mode}`;
+}
 
 export function setActiveSampleMode(mode: StatsSampleMode): void {
   activeSampleMode = mode;
@@ -29,21 +44,50 @@ export function getActiveSampleMode(): StatsSampleMode {
   return activeSampleMode;
 }
 
+/** Switch FotMob league + odds-api slug for multi-competition export/runtime. */
+export function setActiveFootballCompetition(competitionId: string): void {
+  const meta = footballCompetition(competitionId);
+  if (!meta) {
+    throw new Error(`Unknown football competition: ${competitionId}`);
+  }
+  activeCompetitionId = meta.id;
+  activeLeagueId = meta.fotmobLeagueId;
+  activeOddsLeague = meta.oddsApiLeague;
+  activeCompetitionLabel = meta.label;
+}
+
+export function getActiveFootballCompetitionId(): string {
+  return activeCompetitionId;
+}
+
+export function getActiveFootballLeagueId(): number {
+  return activeLeagueId;
+}
+
+export function getActiveOddsApiLeague(): string {
+  return activeOddsLeague;
+}
+
+export function getActiveCompetitionLabel(): string {
+  return activeCompetitionLabel;
+}
+
 export function clearPlayerIndexCache(mode?: StatsSampleMode): void {
-  if (mode) cacheByMode.delete(mode);
-  else cacheByMode.clear();
+  if (mode) cacheByKey.delete(cacheKey(mode));
+  else cacheByKey.clear();
 }
 
 export async function ensurePlayerIndex(
   mode: StatsSampleMode = activeSampleMode
 ): Promise<Map<number, PlayerTournamentStats>> {
-  const hit = cacheByMode.get(mode);
+  const key = cacheKey(mode);
+  const hit = cacheByKey.get(key);
   if (hit && Date.now() - hit.builtAt < INDEX_TTL) {
     return hit.playerIndex;
   }
 
   const built = await buildStatsIndex(mode);
-  cacheByMode.set(mode, {
+  cacheByKey.set(key, {
     playerIndex: built.playerIndex,
     teamIndex: built.teamIndex,
     builtAt: Date.now(),
@@ -54,23 +98,23 @@ export async function ensurePlayerIndex(
 export function getTeamHistory(
   mode: StatsSampleMode = activeSampleMode
 ): Map<string, TeamMatchLine[]> {
-  return cacheByMode.get(mode)?.teamIndex ?? new Map();
+  return cacheByKey.get(cacheKey(mode))?.teamIndex ?? new Map();
 }
 
 export function getPlayerStats(
   playerId: number,
   mode: StatsSampleMode = activeSampleMode
 ): PlayerTournamentStats | null {
-  return cacheByMode.get(mode)?.playerIndex.get(playerId) ?? null;
+  return cacheByKey.get(cacheKey(mode))?.playerIndex.get(playerId) ?? null;
 }
 
 export async function getFixtures(): Promise<RawFixture[]> {
-  const league = (await getLeague()) as any;
+  const league = (await getLeague(activeLeagueId)) as any;
   return parseFixtures(league);
 }
 
 export async function getLeagueOverview(): Promise<any> {
-  return getLeague();
+  return getLeague(activeLeagueId);
 }
 
 export { PRIMARY_LEAGUE_ID, PRIMARY_LEAGUE_ID as WC_LEAGUE_ID };

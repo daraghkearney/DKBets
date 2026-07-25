@@ -43,7 +43,14 @@ function isQualificationStage(stage: string): boolean {
 function competitionLabel(stage: string, mode: StatsSampleMode): string {
   if (mode === "last50") return "All Competitions";
   if (isQualificationStage(stage)) return "Qualification";
-  return "Premier League";
+  // Lazy import avoids circular init with store
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getActiveCompetitionLabel } = require("./store") as typeof import("./store");
+    return getActiveCompetitionLabel();
+  } catch {
+    return "Competition";
+  }
 }
 
 /** Prefer current season; if no finished matches yet (preseason), use prior season. */
@@ -52,7 +59,9 @@ async function leagueWithFinishedFixtures(): Promise<{
   fixtures: RawFixture[];
   seasonUsed: string | undefined;
 }> {
-  const current = (await getLeague()) as any;
+  const { getActiveFootballLeagueId } = await import("./store");
+  const leagueId = getActiveFootballLeagueId() || PRIMARY_LEAGUE_ID;
+  const current = (await getLeague(leagueId)) as any;
   const currentFinished = parseFixtures(current).filter((f) => f.finished);
   if (currentFinished.length > 0) {
     return {
@@ -70,7 +79,7 @@ async function leagueWithFinishedFixtures(): Promise<{
   console.log(
     `  stats: current season has 0 finished matches — using ${prev} for hit rates`
   );
-  const prior = (await getLeague(PRIMARY_LEAGUE_ID, prev)) as any;
+  const prior = (await getLeague(leagueId, prev)) as any;
   const priorFinished = parseFixtures(prior).filter((f) => f.finished);
   return {
     league: prior,
@@ -181,7 +190,8 @@ async function collectSquadPlayerIds(): Promise<number[]> {
   });
 
   // Also try current-season upcoming lineups when available.
-  const current = (await getLeague()) as any;
+  const { getActiveFootballLeagueId } = await import("./store");
+  const current = (await getLeague(getActiveFootballLeagueId())) as any;
   const upcoming = parseFixtures(current)
     .filter((f) => !f.finished)
     .slice(0, 8);

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSampleMode } from "@/components/SampleModeProvider";
+import { useSport } from "@/components/SportProvider";
 import MatchFeatures from "@/components/fixtures/MatchFeatures";
 import type { MatchDetailPayload, PickStat } from "@/lib/stats/types";
 
@@ -13,6 +14,7 @@ export default function FixtureExpandPanel({
   likelyProps?: PickStat[];
 }) {
   const { mode: sampleMode, sampleUrl } = useSampleMode();
+  const { hubUrl } = useSport();
   const [detail, setDetail] = useState<MatchDetailPayload | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -59,7 +61,7 @@ export default function FixtureExpandPanel({
       <MatchFeatures
         detail={detail}
         likelyProps={likelyProps}
-        fullMatchHref={`/football/premier-league/matches/${matchId}/`}
+        fullMatchHref={`${hubUrl("matches")}${matchId}/`}
       />
     </div>
   );

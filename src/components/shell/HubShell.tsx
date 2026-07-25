@@ -53,7 +53,8 @@ export default function HubShell({ children }: { children: React.ReactNode }) {
         ? NBA_LINKS
         : RACING_LINKS;
 
-  const showSampleSelector = sport === "football" && competition === "premier-league";
+  const showSampleSelector =
+    sport === "football" && Boolean(competitionConfig?.live);
   const isRacing = sport === "horse-racing";
   const racingMeetingHint =
     competition && isRacing
