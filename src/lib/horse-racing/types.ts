@@ -155,6 +155,8 @@ export interface RacingPerformanceStats {
   ewGemPlaces: number;
   ewGemPlaceRate: number;
   byCourse: Record<string, { picks: number; wins: number }>;
+  /** Most recent race day present in the settled ledger */
+  lastSettledDate?: string;
   updatedAt: string;
 }
 

@@ -76,6 +76,181 @@ async function saveLedger(file: LedgerFile): Promise<void> {
   await writeFile(LEDGER_FILE, JSON.stringify(file, null, 2), "utf8");
 }
 
+function performanceMirrorBase(): string | null {
+  if (process.env.RACING_PERFORMANCE_MIRROR === "0") return null;
+  const raw =
+    process.env.RACING_PERFORMANCE_MIRROR_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "https://statmanac.com";
+  return raw.replace(/\/$/, "");
+}
+
+function entryDedupeKey(e: PerformanceLedgerEntry): string {
+  if (e.isEwGem) return `${e.date}|ew|${e.raceId}`;
+  return `${e.date}|${courseSlug(e.course)}|${to24hTime(e.time)}|pick`;
+}
+
+/**
+ * Pull ledger + recent prediction logs from the live site into `.cache`.
+ * Actions cache alone is lossy; Pages keeps dated prediction files across deploys
+ * when we re-export the rolling window each run.
+ */
+export async function hydratePerformanceFromMirror(
+  opts: { lookbackDays?: number } = {}
+): Promise<{ ledgerMerged: number; predictionsFetched: number }> {
+  const base = performanceMirrorBase();
+  if (!base) return { ledgerMerged: 0, predictionsFetched: 0 };
+
+  const lookbackDays = opts.lookbackDays ?? 21;
+  let ledgerMerged = 0;
+  let predictionsFetched = 0;
+
+  try {
+    const res = await fetch(`${base}/data/horse-racing/performance/ledger.json`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (res.ok) {
+      const remote = (await res.json()) as LedgerFile;
+      if (remote.entries?.length) {
+        const local = await loadLedger();
+        const seen = new Set(local.entries.map(entryDedupeKey));
+        for (const e of remote.entries) {
+          const key = entryDedupeKey(e);
+          if (seen.has(key)) continue;
+          local.entries.push(e);
+          seen.add(key);
+          ledgerMerged += 1;
+        }
+        if (ledgerMerged > 0) {
+          const cutoff = toIsoDate(addDays(ukToday(), -120));
+          local.entries = local.entries.filter((e) => e.date >= cutoff);
+          await saveLedger(local);
+          console.log(
+            `  racing ledger: mirrored +${ledgerMerged} entries from ${base}`
+          );
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("  racing ledger: mirror fetch failed", e);
+  }
+
+  await mkdir(PREDICTIONS_DIR, { recursive: true });
+  await mkdir(LEDGER_DIR, { recursive: true });
+  const yesterday = toIsoDate(addDays(ukToday(), -1));
+  for (let i = 0; i < lookbackDays; i++) {
+    const date = toIsoDate(addDays(ukToday(), -i));
+    if (date > yesterday) continue;
+    const localPred = path.join(PREDICTIONS_DIR, `${date}.json`);
+    try {
+      await readFile(localPred, "utf8");
+      continue;
+    } catch {
+      // fetch remote
+    }
+    try {
+      const res = await fetch(
+        `${base}/data/horse-racing/performance/predictions/${date}.json`,
+        {
+          headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(15_000),
+        }
+      );
+      if (!res.ok) continue;
+      const body = await res.text();
+      if (!body.includes("raceId") && !body.includes('"races"')) continue;
+      await writeFile(localPred, body, "utf8");
+      predictionsFetched += 1;
+    } catch {
+      // ignore missing days
+    }
+
+    for (const kind of ["naps", "confident"] as const) {
+      const localSide = path.join(LEDGER_DIR, `${kind}-${date}.json`);
+      try {
+        await readFile(localSide, "utf8");
+        continue;
+      } catch {
+        // fetch
+      }
+      try {
+        const res = await fetch(
+          `${base}/data/horse-racing/performance/${kind}-${date}.json`,
+          {
+            headers: { Accept: "application/json" },
+            signal: AbortSignal.timeout(10_000),
+          }
+        );
+        if (!res.ok) continue;
+        await writeFile(localSide, await res.text(), "utf8");
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  if (predictionsFetched) {
+    console.log(
+      `  racing ledger: mirrored ${predictionsFetched} prediction log(s) from ${base}`
+    );
+  }
+  return { ledgerMerged, predictionsFetched };
+}
+
+/** Copy cache → public/data so the next deploy can settle yesterday without Actions cache. */
+export async function exportPerformanceArtifacts(
+  outDir: string
+): Promise<{ ledger: boolean; predictions: number }> {
+  await mkdir(outDir, { recursive: true });
+  const predOut = path.join(outDir, "predictions");
+  await mkdir(predOut, { recursive: true });
+
+  let ledgerOk = false;
+  try {
+    const ledger = await loadLedger();
+    await writeFile(
+      path.join(outDir, "ledger.json"),
+      JSON.stringify(ledger),
+      "utf8"
+    );
+    ledgerOk = true;
+  } catch (e) {
+    console.warn("  racing performance export: ledger failed", e);
+  }
+
+  let predictions = 0;
+  const cutoff = toIsoDate(addDays(ukToday(), -90));
+  try {
+    const files = await readdir(PREDICTIONS_DIR);
+    for (const f of files) {
+      if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
+      const date = f.replace(".json", "");
+      if (date < cutoff) continue;
+      const raw = await readFile(path.join(PREDICTIONS_DIR, f), "utf8");
+      await writeFile(path.join(predOut, f), raw, "utf8");
+      predictions += 1;
+    }
+  } catch {
+    // no prediction dir yet
+  }
+
+  try {
+    const sideFiles = await readdir(LEDGER_DIR);
+    for (const f of sideFiles) {
+      if (!/^(naps|confident)-\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
+      const date = f.replace(/^(naps|confident)-/, "").replace(".json", "");
+      if (date < cutoff) continue;
+      const raw = await readFile(path.join(LEDGER_DIR, f), "utf8");
+      await writeFile(path.join(outDir, f), raw, "utf8");
+    }
+  } catch {
+    // ignore
+  }
+
+  return { ledger: ledgerOk, predictions };
+}
+
 interface PredictionRunner {
   id: string;
   name: string;
@@ -477,6 +652,11 @@ export function computePerformanceStats(
     if (e.winHit) byCourse[c].wins++;
   }
 
+  const lastSettledDate = modelPicks.reduce<string | undefined>((max, e) => {
+    if (!max || e.date > max) return e.date;
+    return max;
+  }, undefined);
+
   return {
     windowDays,
     totalPicks: modelPicks.length,
@@ -498,6 +678,7 @@ export function computePerformanceStats(
     ewGemPlaces: ewPlaces,
     ewGemPlaceRate: ewGems.length ? ewPlaces / ewGems.length : 0,
     byCourse,
+    lastSettledDate,
     updatedAt: new Date().toISOString(),
   };
 }

@@ -78,6 +78,9 @@ function PerformancePanel({ stats }: { stats: RacingPerformanceStats }) {
       <p className="mt-2 text-xs text-muted">
         Headline win rate uses confident #1s only — races where the model clears
         value and separation gates. Every race still gets a standard ranking.
+        {stats.lastSettledDate
+          ? ` Settled through ${stats.lastSettledDate}.`
+          : ""}
       </p>
       {building && (
         <p className="mt-2 text-xs text-muted">

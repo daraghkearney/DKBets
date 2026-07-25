@@ -67,21 +67,31 @@ jobs:
           key: racing-tipsters-v4-${{ github.run_id }}
           restore-keys: racing-tipsters-v4-
 
-      - name: Restore racing model + prediction log
+      # Keep model/ledger/predictions in a small cache separate from HRN HTML
+      # so hit-rate settlement files are less likely to be dropped.
+      - name: Restore racing model + performance ledger
         uses: actions/cache@v4
         with:
           path: |
             .cache/racing-model
             .cache/racing-predictions
             .cache/racing-stats
-            .cache/racing-hrnet
-            .cache/atr-results
             .cache/racing-performance
-          # run_id so updated weights/ledger are saved each deploy; restore prior v12
-          key: racing-model-v12-${{ github.run_id }}
+          key: racing-ledger-v13-${{ github.run_id }}
           restore-keys: |
+            racing-ledger-v13-
             racing-model-v12-
             racing-model-v11-
+
+      - name: Restore racing scrape caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/racing-hrnet
+            .cache/atr-results
+          key: racing-scrape-v13-${{ github.run_id }}
+          restore-keys: |
+            racing-scrape-v13-
 
       - name: Seed racing model if cache empty
         run: |

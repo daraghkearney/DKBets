@@ -31,6 +31,7 @@ import {
 } from "../src/lib/stats/sample-mode";
 import { buildHorseRacingPayload } from "../src/lib/horse-racing/engine";
 import { buildRacingCalendarPayload } from "../src/lib/horse-racing/calendar";
+import { exportPerformanceArtifacts } from "../src/lib/horse-racing/performance-ledger";
 import { buildNbaPayload } from "../src/lib/nba/client";
 import { SPORTS } from "../src/lib/sports/config";
 import {
@@ -209,6 +210,13 @@ async function main() {
     const dayCount = calendar.days.filter((d) => d.meetings.length).length;
     console.log(
       `  racing calendar: ${dayCount} days with meetings, ${calendar.tipsters.length} tipsters`
+    );
+    // Durable settlement inputs for the next deploy (Actions cache is lossy)
+    const perf = await exportPerformanceArtifacts(
+      path.join(ROOT, "horse-racing", "performance")
+    );
+    console.log(
+      `  racing performance: exported ledger=${perf.ledger} predictionLogs=${perf.predictions}`
     );
   } catch (e) {
     console.warn("  racing calendar: export failed", e);

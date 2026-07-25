@@ -12,6 +12,7 @@ import {
   loadPerformanceStats,
   backfillPerformanceLedger,
   enrichLedgerPickOdds,
+  hydratePerformanceFromMirror,
   saveNapLog,
   saveConfidentLog,
 } from "./performance-ledger";
@@ -72,6 +73,14 @@ function demoRacesForDate(date: string): HorseRace[] {
 }
 
 export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayload> {
+  // Recover ledger + prediction logs from the live site when Actions cache
+  // dropped a day — otherwise hit rates freeze even though learning runs.
+  try {
+    await hydratePerformanceFromMirror({ lookbackDays: 21 });
+  } catch (e) {
+    console.warn("  racing ledger: hydrate failed", e);
+  }
+
   // Optional historical backfill (5 days per export to protect API quota)
   try {
     const backfill = await backfillHistoricalLearning();
@@ -84,8 +93,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
 
   // Learn from yesterday's results BEFORE scoring today, so today's
   // predictions use the freshest weights.
-  const { model } = await learnFromYesterday();
-  console.log(
+  const { model } = await learnFromYesterday();  console.log(
     `  racing model: weights ${Object.entries(model.weights)
       .map(([k, v]) => `${k}=${(v as number).toFixed(2)}`)
       .join(" ")} (${model.samples} samples)`

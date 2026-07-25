@@ -33,7 +33,7 @@ import {
   type ResultRace,
 } from "./racing-api";
 import { addDays, courseSlug, to24hTime, toIsoDate, ukToday } from "./dates";
-import { recordDayOutcomes } from "./performance-ledger";
+import { getLedgerEntries, recordDayOutcomes } from "./performance-ledger";
 import type {
   HorseRace,
   RacingFactorKey,
@@ -658,12 +658,22 @@ async function recordLedgerIfPossible(
   if (!results.length) return;
   const log = await loadPredictionLog(date);
   if (!log?.races.length) {
-    console.log(`  racing ledger: no prediction log for ${date} — skipping`);
+    console.warn(
+      `  racing ledger: no prediction log for ${date} — hit rates will not update until that day's picks are restored`
+    );
     return;
   }
   try {
+    const before = (await getLedgerEntries()).filter(
+      (e) => e.date === date && !e.isEwGem
+    ).length;
     await recordDayOutcomes(date, results, log.races);
-    console.log(`  racing ledger: recorded outcomes for ${date}`);
+    const after = (await getLedgerEntries()).filter(
+      (e) => e.date === date && !e.isEwGem
+    ).length;
+    console.log(
+      `  racing ledger: ${date} → ${after} settled picks (${Math.max(0, after - before)} new) from ${log.races.length} logged races / ${results.length} results`
+    );
   } catch (e) {
     console.warn("  racing ledger: failed to record outcomes", e);
   }
