@@ -35,6 +35,12 @@ export interface FootballCompetitionMeta {
    * Other competitions use `/data/football/{id}/samples/{mode}/`.
    */
   dataRoot: "legacy" | "scoped";
+  /**
+   * Also discover fixtures from FotMob's date feed whose league name matches
+   * this pattern (e.g. "Champions League Qualification" is a separate FotMob
+   * competition from the main CL league id).
+   */
+  dateFixtureNamePattern?: RegExp;
 }
 
 export const FOOTBALL_COMPETITIONS: FootballCompetitionMeta[] = [
@@ -55,6 +61,9 @@ export const FOOTBALL_COMPETITIONS: FootballCompetitionMeta[] = [
     oddsApiLeague: CHAMPIONS_LEAGUE_ODDS_API,
     live: true,
     dataRoot: "scoped",
+    // Qualifiers are a separate FotMob competition (not under league id 42).
+    // Anchor at start so we don't pick Women's / ASEAN / USL "Championship".
+    dateFixtureNamePattern: /^champions league/i,
   },
 ];
 

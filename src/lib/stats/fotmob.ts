@@ -119,6 +119,14 @@ export function previousSeasonFromLeague(league: any): string | undefined {
   return String(seasons[1]);
 }
 
+/** All leagues' matches for a UTC calendar day (`YYYYMMDD`). */
+export function getMatchesByDate(yyyymmdd: string): Promise<any> {
+  const url = new URL("https://www.fotmob.com/api/data/matches");
+  url.searchParams.set("date", yyyymmdd);
+  url.searchParams.set("timezone", "UTC");
+  return fetchJson(url.toString(), 5 * 60_000);
+}
+
 /** Match details: lineups, per-player match stats, events, h2h. */
 export function getMatchDetails(matchId: number, finished: boolean): Promise<any> {
   // Finished matches are immutable — cache for a day. Upcoming: lineups can flip

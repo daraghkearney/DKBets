@@ -189,10 +189,9 @@ async function collectSquadPlayerIds(): Promise<number[]> {
     }
   });
 
-  // Also try current-season upcoming lineups when available.
-  const { getActiveFootballLeagueId } = await import("./store");
-  const current = (await getLeague(getActiveFootballLeagueId())) as any;
-  const upcoming = parseFixtures(current)
+  // Also try upcoming lineups (includes date-feed competitions like CL quals).
+  const { getFixtures } = await import("./store");
+  const upcoming = (await getFixtures())
     .filter((f) => !f.finished)
     .slice(0, 8);
   await pool(upcoming, 3, async (fx) => {

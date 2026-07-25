@@ -206,6 +206,43 @@ export function parseFixtures(league: any): RawFixture[] {
   return out;
 }
 
+/**
+ * Parse FotMob `/api/data/matches?date=` league buckets into RawFixture[].
+ * Used when fixtures live outside the main league page (e.g. CL qualification).
+ */
+export function parseDateFeedFixtures(
+  dayPayload: any,
+  leagueNamePattern: RegExp
+): RawFixture[] {
+  const out: RawFixture[] = [];
+  const leagues = Array.isArray(dayPayload?.leagues) ? dayPayload.leagues : [];
+  for (const lg of leagues) {
+    const name = String(lg?.name ?? lg?.primaryTitle ?? "");
+    if (!leagueNamePattern.test(name)) continue;
+    const stage = name.includes("Qualification")
+      ? "Qualification"
+      : name || "Champions League";
+    for (const m of lg?.matches ?? []) {
+      const home = m?.home?.name ?? m?.home?.longName;
+      const away = m?.away?.name ?? m?.away?.longName;
+      if (!home || !away) continue;
+      out.push({
+        id: Number(m.id),
+        home: String(home),
+        away: String(away),
+        homeId: Number(m.home?.id ?? 0),
+        awayId: Number(m.away?.id ?? 0),
+        kickoff: String(m.status?.utcTime ?? ""),
+        stage,
+        started: Boolean(m.status?.started),
+        finished: Boolean(m.status?.finished),
+        roundName: stage,
+      });
+    }
+  }
+  return out;
+}
+
 function mapLineupPlayer(p: any, onPitch: boolean): import("./types").LineupPlayer {
   const band = bandFromPositionId(p.positionId);
   const side = lateralFromY(p.horizontalLayout?.y);

@@ -110,7 +110,25 @@ export function getPlayerStats(
 
 export async function getFixtures(): Promise<RawFixture[]> {
   const league = (await getLeague(activeLeagueId)) as any;
-  return parseFixtures(league);
+  const fromLeague = parseFixtures(league);
+
+  const meta = footballCompetition(activeCompetitionId);
+  if (!meta?.dateFixtureNamePattern) return fromLeague;
+
+  // CL qualification (and similar) aren't on the main league page — pull from
+  // FotMob's date feed and merge.
+  const { discoverFixturesByDate } = await import("./date-fixtures");
+  const discovered = await discoverFixturesByDate(meta.dateFixtureNamePattern);
+  const byId = new Map<number, RawFixture>();
+  for (const fx of fromLeague) byId.set(fx.id, fx);
+  for (const fx of discovered) byId.set(fx.id, fx);
+  const merged = [...byId.values()].sort((a, b) =>
+    a.kickoff.localeCompare(b.kickoff)
+  );
+  console.log(
+    `  fixtures: ${fromLeague.length} from league ${activeLeagueId} + ${discovered.length} from date feed → ${merged.length} unique (${merged.filter((f) => !f.finished).length} upcoming)`
+  );
+  return merged;
 }
 
 export async function getLeagueOverview(): Promise<any> {
