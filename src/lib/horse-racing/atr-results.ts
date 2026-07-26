@@ -262,11 +262,18 @@ function toResultRaces(parsed: AtrParsedRace[], isoDate: string): ResultRace[] {
   }));
 }
 
-async function loadCache(isoDate: string): Promise<ResultRace[] | null> {
+interface AtrCacheFile {
+  savedAt?: string;
+  races: ResultRace[];
+}
+
+async function loadCache(
+  isoDate: string
+): Promise<AtrCacheFile | null> {
   try {
     const raw = await readFile(path.join(CACHE_DIR, `${isoDate}.json`), "utf8");
-    const data = JSON.parse(raw) as { races: ResultRace[] };
-    return data.races?.length ? data.races : null;
+    const data = JSON.parse(raw) as AtrCacheFile;
+    return data.races?.length ? data : null;
   } catch {
     return null;
   }
@@ -279,6 +286,21 @@ async function saveCache(isoDate: string, races: ResultRace[]): Promise<void> {
     JSON.stringify({ savedAt: new Date().toISOString(), races }),
     "utf8"
   );
+}
+
+/** Early race-day scrapes are often tiny — refresh recent dates instead of locking them in. */
+function shouldRefreshAtrCache(isoDate: string, cached: AtrCacheFile): boolean {
+  const yesterday = toIsoDate(addDays(ukToday(), -1));
+  const recentCutoff = toIsoDate(addDays(ukToday(), -3));
+  if (isoDate < recentCutoff) return false;
+
+  const savedMs = cached.savedAt ? Date.parse(cached.savedAt) : 0;
+  const ageMs = Number.isFinite(savedMs) ? Date.now() - savedMs : Infinity;
+  // Re-scrape yesterday/today-window at least every 90 minutes
+  if (isoDate >= yesterday && ageMs > 90 * 60 * 1000) return true;
+  // Sparse cache on a UK/IRE card day is almost always incomplete
+  if (cached.races.length < 15 && ageMs > 30 * 60 * 1000) return true;
+  return false;
 }
 
 async function fetchDirect(url: string): Promise<string | null> {
@@ -342,14 +364,23 @@ export async function fetchAtrResultsForDate(
   isoDate: string
 ): Promise<{ races: ResultRace[]; debug: string }> {
   const cached = await loadCache(isoDate);
-  if (cached?.length) {
-    return { races: cached, debug: `atr cache → ${cached.length} races` };
+  if (cached && !shouldRefreshAtrCache(isoDate, cached)) {
+    return {
+      races: cached.races,
+      debug: `atr cache → ${cached.races.length} races`,
+    };
   }
 
   const rel = atrPathForDate(isoDate);
   const url = `${ATR_BASE}${rel}`;
   const text = await loadPageText(url);
   if (!text) {
+    if (cached?.races.length) {
+      return {
+        races: cached.races,
+        debug: `atr fetch failed (${rel}); using cache → ${cached.races.length} races`,
+      };
+    }
     return { races: [], debug: `atr fetch failed (${rel})` };
   }
 
@@ -362,11 +393,28 @@ export async function fetchAtrResultsForDate(
     `  atr results: ${races.length} UK/IRE races from ${rel} (${isoDate})`
   );
 
-  if (races.length) await saveCache(isoDate, races);
+  // Keep the richer set — never shrink a good cache with a partial scrape
+  const best =
+    cached && cached.races.length > races.length ? cached.races : races;
+  if (best.length) await saveCache(isoDate, best);
+
+  if (!races.length && cached?.races.length) {
+    return {
+      races: cached.races,
+      debug: `atr ${rel} parsed 0; using cache → ${cached.races.length} races`,
+    };
+  }
+
   return {
-    races,
-    debug: races.length
-      ? `atr ${rel} → ${races.length} races`
+    races: best,
+    debug: best.length
+      ? `atr ${rel} → ${best.length} races${
+          cached && best === cached.races && races.length < cached.races.length
+            ? ` (kept cache over fresh ${races.length})`
+            : cached && races.length > cached.races.length
+              ? ` (was ${cached.races.length})`
+              : ""
+        }`
       : `atr ${rel} parsed 0 races`,
   };
 }

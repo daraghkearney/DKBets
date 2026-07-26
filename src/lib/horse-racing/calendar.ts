@@ -12,6 +12,7 @@ import {
   loadPerformanceStats,
   backfillPerformanceLedger,
   enrichLedgerPickOdds,
+  hydratePerformanceFromDurable,
   hydratePerformanceFromMirror,
   saveNapLog,
   saveConfidentLog,
@@ -73,12 +74,17 @@ function demoRacesForDate(date: string): HorseRace[] {
 }
 
 export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayload> {
-  // Recover ledger + prediction logs from the live site when Actions cache
-  // dropped a day — otherwise hit rates freeze even though learning runs.
+  // 1) Git-backed history (survives cache loss + Pages wipes)
   try {
-    await hydratePerformanceFromMirror({ lookbackDays: 21 });
+    await hydratePerformanceFromDurable();
   } catch (e) {
-    console.warn("  racing ledger: hydrate failed", e);
+    console.warn("  racing ledger: durable hydrate failed", e);
+  }
+  // 2) Live-site mirror as a secondary recovery for the current deploy window
+  try {
+    await hydratePerformanceFromMirror({ lookbackDays: 90 });
+  } catch (e) {
+    console.warn("  racing ledger: mirror hydrate failed", e);
   }
 
   // Optional historical backfill (5 days per export to protect API quota)

@@ -10,6 +10,29 @@ const LEDGER_DIR = path.join(process.cwd(), ".cache", "racing-performance");
 const LEDGER_FILE = path.join(LEDGER_DIR, "ledger.json");
 const PREDICTIONS_DIR = path.join(process.cwd(), ".cache", "racing-predictions");
 
+/**
+ * Git-backed source of truth. Actions cache + Pages mirrors are lossy;
+ * this directory is committed on every deploy so pick logs survive forever.
+ */
+const DURABLE_DIR = path.join(process.cwd(), "data", "racing-performance");
+const DURABLE_LEDGER = path.join(DURABLE_DIR, "ledger.json");
+const DURABLE_PREDICTIONS = path.join(DURABLE_DIR, "predictions");
+const SEED_LEDGER = path.join(
+  process.cwd(),
+  "data",
+  "racing-performance-seed",
+  "ledger.json"
+);
+const SEED_PREDICTIONS = path.join(
+  process.cwd(),
+  "data",
+  "racing-performance-seed",
+  "predictions"
+);
+
+const PREDICTION_RETENTION_DAYS = 90;
+const LEDGER_RETENTION_DAYS = 120;
+
 export interface PerformanceLedgerEntry {
   date: string;
   raceId: string;
@@ -38,42 +61,255 @@ interface LedgerFile {
   updatedAt: string;
 }
 
-async function loadLedger(): Promise<LedgerFile> {
+async function readLedgerFile(filePath: string): Promise<LedgerFile | null> {
   try {
-    const raw = await readFile(LEDGER_FILE, "utf8");
+    const raw = await readFile(filePath, "utf8");
     const file = JSON.parse(raw) as LedgerFile;
-    if (file.entries?.length) return file;
+    return file.entries?.length ? file : null;
   } catch {
-    // fall through to seed
+    return null;
   }
+}
 
-  try {
-    const seedPath = path.join(
-      process.cwd(),
-      "data",
-      "racing-performance-seed",
-      "ledger.json"
-    );
-    const raw = await readFile(seedPath, "utf8");
-    const seeded = JSON.parse(raw) as LedgerFile;
-    if (seeded.entries?.length) {
-      console.log(
-        `  racing ledger: loaded seed (${seeded.entries.length} entries)`
-      );
-      await saveLedger(seeded);
-      return seeded;
+function richerLedger(a: LedgerFile | null, b: LedgerFile | null): LedgerFile | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a.entries.length >= b.entries.length ? a : b;
+}
+
+async function loadLedger(): Promise<LedgerFile> {
+  const cached = await readLedgerFile(LEDGER_FILE);
+  const durable = await readLedgerFile(DURABLE_LEDGER);
+  const seed = await readLedgerFile(SEED_LEDGER);
+  const best = richerLedger(richerLedger(cached, durable), seed);
+  if (best) {
+    if (!cached || cached.entries.length < best.entries.length) {
+      const src =
+        durable && durable.entries.length === best.entries.length
+          ? "durable"
+          : seed && seed.entries.length === best.entries.length
+            ? "seed"
+            : "cache";
+      if (src !== "cache") {
+        console.log(
+          `  racing ledger: loaded ${src} (${best.entries.length} entries)`
+        );
+      }
+      await saveLedger(best);
     }
-  } catch {
-    // fall through
+    return best;
   }
-
   return { entries: [], updatedAt: new Date().toISOString() };
 }
 
 async function saveLedger(file: LedgerFile): Promise<void> {
   await mkdir(LEDGER_DIR, { recursive: true });
+  await mkdir(DURABLE_DIR, { recursive: true });
   file.updatedAt = new Date().toISOString();
-  await writeFile(LEDGER_FILE, JSON.stringify(file, null, 2), "utf8");
+  const cutoff = toIsoDate(addDays(ukToday(), -LEDGER_RETENTION_DAYS));
+  file.entries = file.entries.filter((e) => e.date >= cutoff);
+  const body = JSON.stringify(file, null, 2);
+  await writeFile(LEDGER_FILE, body, "utf8");
+  await writeFile(DURABLE_LEDGER, body, "utf8");
+}
+
+async function predictionRaceCount(filePath: string): Promise<number> {
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const json = JSON.parse(raw) as { races?: unknown[] };
+    return json.races?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Write a prediction log to cache + git-backed durable store. */
+export async function writePredictionLogFile(
+  date: string,
+  body: string
+): Promise<void> {
+  await mkdir(PREDICTIONS_DIR, { recursive: true });
+  await mkdir(DURABLE_PREDICTIONS, { recursive: true });
+  const cachePath = path.join(PREDICTIONS_DIR, `${date}.json`);
+  const durablePath = path.join(DURABLE_PREDICTIONS, `${date}.json`);
+  const incoming = (() => {
+    try {
+      return (JSON.parse(body) as { races?: unknown[] }).races?.length ?? 0;
+    } catch {
+      return 0;
+    }
+  })();
+  // Never overwrite a richer log with a sparse mid-day export
+  const existing = Math.max(
+    await predictionRaceCount(cachePath),
+    await predictionRaceCount(durablePath)
+  );
+  if (existing > 0 && incoming > 0 && incoming < existing) {
+    console.warn(
+      `  racing predictions: keep ${date} (${existing} races) — refusing sparse write (${incoming})`
+    );
+    return;
+  }
+  await writeFile(cachePath, body, "utf8");
+  await writeFile(durablePath, body, "utf8");
+}
+
+async function writeSideLog(
+  kind: "naps" | "confident",
+  date: string,
+  body: string
+): Promise<void> {
+  await mkdir(LEDGER_DIR, { recursive: true });
+  await mkdir(DURABLE_DIR, { recursive: true });
+  const name = `${kind}-${date}.json`;
+  await writeFile(path.join(LEDGER_DIR, name), body, "utf8");
+  await writeFile(path.join(DURABLE_DIR, name), body, "utf8");
+}
+
+/**
+ * Copy git-backed history into `.cache` before learning/settlement.
+ * This is the primary recovery path — mirror/Pages is only a backup.
+ */
+export async function hydratePerformanceFromDurable(): Promise<{
+  ledgerLoaded: boolean;
+  predictionsLoaded: number;
+}> {
+  await mkdir(PREDICTIONS_DIR, { recursive: true });
+  await mkdir(LEDGER_DIR, { recursive: true });
+
+  let ledgerLoaded = false;
+  const durableLedger = await readLedgerFile(DURABLE_LEDGER);
+  const cachedLedger = await readLedgerFile(LEDGER_FILE);
+  const best = richerLedger(durableLedger, cachedLedger);
+  if (best) {
+    await saveLedger(best);
+    ledgerLoaded = true;
+  }
+
+  let predictionsLoaded = 0;
+  for (const dir of [DURABLE_PREDICTIONS, SEED_PREDICTIONS]) {
+    let files: string[] = [];
+    try {
+      files = await readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
+      const src = path.join(dir, f);
+      const dest = path.join(PREDICTIONS_DIR, f);
+      const srcCount = await predictionRaceCount(src);
+      const destCount = await predictionRaceCount(dest);
+      if (srcCount > destCount) {
+        await writeFile(dest, await readFile(src, "utf8"), "utf8");
+        // Keep durable in sync when seed/cache had richer data
+        await mkdir(DURABLE_PREDICTIONS, { recursive: true });
+        await writeFile(path.join(DURABLE_PREDICTIONS, f), await readFile(src, "utf8"), "utf8");
+        predictionsLoaded += 1;
+      }
+    }
+  }
+
+  // Side logs (naps / confident)
+  try {
+    const sideFiles = await readdir(DURABLE_DIR);
+    for (const f of sideFiles) {
+      if (!/^(naps|confident)-\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
+      const dest = path.join(LEDGER_DIR, f);
+      try {
+        await readFile(dest, "utf8");
+      } catch {
+        await writeFile(dest, await readFile(path.join(DURABLE_DIR, f), "utf8"), "utf8");
+      }
+    }
+  } catch {
+    // no durable dir yet
+  }
+
+  if (ledgerLoaded || predictionsLoaded) {
+    console.log(
+      `  racing ledger: durable hydrate ledger=${ledgerLoaded} predictions=+${predictionsLoaded}`
+    );
+  }
+  return { ledgerLoaded, predictionsLoaded };
+}
+
+/**
+ * Sync runtime cache → git-backed store after export (also prunes retention window).
+ */
+export async function persistPerformanceToDurable(): Promise<{
+  ledger: boolean;
+  predictions: number;
+}> {
+  await mkdir(DURABLE_DIR, { recursive: true });
+  await mkdir(DURABLE_PREDICTIONS, { recursive: true });
+
+  let ledger = false;
+  try {
+    const file = await loadLedger();
+    await saveLedger(file);
+    ledger = file.entries.length > 0;
+  } catch (e) {
+    console.warn("  racing ledger: durable persist failed", e);
+  }
+
+  let predictions = 0;
+  const cutoff = toIsoDate(addDays(ukToday(), -PREDICTION_RETENTION_DAYS));
+  try {
+    const files = await readdir(PREDICTIONS_DIR);
+    for (const f of files) {
+      if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
+      const date = f.replace(".json", "");
+      if (date < cutoff) continue;
+      const src = path.join(PREDICTIONS_DIR, f);
+      const dest = path.join(DURABLE_PREDICTIONS, f);
+      const srcCount = await predictionRaceCount(src);
+      const destCount = await predictionRaceCount(dest);
+      if (srcCount >= destCount && srcCount > 0) {
+        await writeFile(dest, await readFile(src, "utf8"), "utf8");
+        predictions += 1;
+      } else if (destCount > 0) {
+        predictions += 1;
+      }
+    }
+  } catch {
+    // no cache preds
+  }
+
+  try {
+    const sideFiles = await readdir(LEDGER_DIR);
+    for (const f of sideFiles) {
+      if (!/^(naps|confident)-\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
+      const date = f.replace(/^(naps|confident)-/, "").replace(".json", "");
+      if (date < cutoff) continue;
+      await writeFile(
+        path.join(DURABLE_DIR, f),
+        await readFile(path.join(LEDGER_DIR, f), "utf8"),
+        "utf8"
+      );
+    }
+  } catch {
+    // ignore
+  }
+
+  // Drop durable prediction files outside retention
+  try {
+    const durablePreds = await readdir(DURABLE_PREDICTIONS);
+    for (const f of durablePreds) {
+      if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
+      const date = f.replace(".json", "");
+      if (date < cutoff) {
+        // leave pruning to git history — don't delete here (safer)
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  console.log(
+    `  racing ledger: durable persist ledger=${ledger} predictionLogs=${predictions}`
+  );
+  return { ledger, predictions };
 }
 
 function performanceMirrorBase(): string | null {
@@ -143,11 +379,13 @@ export async function hydratePerformanceFromMirror(
     const date = toIsoDate(addDays(ukToday(), -i));
     if (date > yesterday) continue;
     const localPred = path.join(PREDICTIONS_DIR, `${date}.json`);
+    let localRaceCount = 0;
     try {
-      await readFile(localPred, "utf8");
-      continue;
+      const localRaw = await readFile(localPred, "utf8");
+      const localJson = JSON.parse(localRaw) as { races?: unknown[] };
+      localRaceCount = localJson.races?.length ?? 0;
     } catch {
-      // fetch remote
+      // missing locally — try remote
     }
     try {
       const res = await fetch(
@@ -160,6 +398,15 @@ export async function hydratePerformanceFromMirror(
       if (!res.ok) continue;
       const body = await res.text();
       if (!body.includes("raceId") && !body.includes('"races"')) continue;
+      let remoteRaceCount = 0;
+      try {
+        const remoteJson = JSON.parse(body) as { races?: unknown[] };
+        remoteRaceCount = remoteJson.races?.length ?? 0;
+      } catch {
+        continue;
+      }
+      // Prefer the richer log — sparse early-day locals used to block full mirrors
+      if (localRaceCount > 0 && remoteRaceCount <= localRaceCount) continue;
       await writeFile(localPred, body, "utf8");
       predictionsFetched += 1;
     } catch {
@@ -220,32 +467,62 @@ export async function exportPerformanceArtifacts(
   }
 
   let predictions = 0;
-  const cutoff = toIsoDate(addDays(ukToday(), -90));
-  try {
-    const files = await readdir(PREDICTIONS_DIR);
-    for (const f of files) {
-      if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
-      const date = f.replace(".json", "");
-      if (date < cutoff) continue;
-      const raw = await readFile(path.join(PREDICTIONS_DIR, f), "utf8");
-      await writeFile(path.join(predOut, f), raw, "utf8");
-      predictions += 1;
+  const cutoff = toIsoDate(addDays(ukToday(), -PREDICTION_RETENTION_DAYS));
+  const predNames = new Set<string>();
+  for (const dir of [PREDICTIONS_DIR, DURABLE_PREDICTIONS, SEED_PREDICTIONS]) {
+    try {
+      for (const f of await readdir(dir)) {
+        if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
+        const date = f.replace(".json", "");
+        if (date < cutoff) continue;
+        predNames.add(f);
+      }
+    } catch {
+      // missing dir
     }
-  } catch {
-    // no prediction dir yet
+  }
+  for (const f of [...predNames].sort()) {
+    let bestRaw: string | null = null;
+    let bestCount = 0;
+    for (const dir of [PREDICTIONS_DIR, DURABLE_PREDICTIONS, SEED_PREDICTIONS]) {
+      const count = await predictionRaceCount(path.join(dir, f));
+      if (count > bestCount) {
+        try {
+          bestRaw = await readFile(path.join(dir, f), "utf8");
+          bestCount = count;
+        } catch {
+          // skip
+        }
+      }
+    }
+    if (!bestRaw) continue;
+    await writeFile(path.join(predOut, f), bestRaw, "utf8");
+    predictions += 1;
   }
 
-  try {
-    const sideFiles = await readdir(LEDGER_DIR);
-    for (const f of sideFiles) {
-      if (!/^(naps|confident)-\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
-      const date = f.replace(/^(naps|confident)-/, "").replace(".json", "");
-      if (date < cutoff) continue;
-      const raw = await readFile(path.join(LEDGER_DIR, f), "utf8");
-      await writeFile(path.join(outDir, f), raw, "utf8");
+  const sideNames = new Set<string>();
+  for (const dir of [LEDGER_DIR, DURABLE_DIR]) {
+    try {
+      for (const f of await readdir(dir)) {
+        if (!/^(naps|confident)-\d{4}-\d{2}-\d{2}\.json$/.test(f)) continue;
+        const date = f.replace(/^(naps|confident)-/, "").replace(".json", "");
+        if (date < cutoff) continue;
+        sideNames.add(f);
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
+  }
+  for (const f of sideNames) {
+    for (const dir of [LEDGER_DIR, DURABLE_DIR]) {
+      try {
+        const raw = await readFile(path.join(dir, f), "utf8");
+        await writeFile(path.join(outDir, f), raw, "utf8");
+        break;
+      } catch {
+        // try next
+      }
+    }
   }
 
   return { ledger: ledgerOk, predictions };
@@ -276,15 +553,23 @@ interface PredictionLogFile {
 }
 
 async function loadPredictionLog(date: string): Promise<PredictionLogFile | null> {
-  try {
-    const raw = await readFile(
-      path.join(PREDICTIONS_DIR, `${date}.json`),
-      "utf8"
-    );
-    return JSON.parse(raw) as PredictionLogFile;
-  } catch {
-    return null;
+  const candidates = [
+    path.join(PREDICTIONS_DIR, `${date}.json`),
+    path.join(DURABLE_PREDICTIONS, `${date}.json`),
+    path.join(SEED_PREDICTIONS, `${date}.json`),
+  ];
+  let best: PredictionLogFile | null = null;
+  for (const filePath of candidates) {
+    try {
+      const raw = await readFile(filePath, "utf8");
+      const parsed = JSON.parse(raw) as PredictionLogFile;
+      if (!parsed?.races?.length) continue;
+      if (!best || parsed.races.length > best.races.length) best = parsed;
+    } catch {
+      // try next
+    }
   }
+  return best;
 }
 
 function runnerFinishedPosition(
@@ -302,18 +587,22 @@ function runnerFinishedPosition(
 }
 
 function normaliseName(n: string): string {
-  return n.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+  return n
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export async function saveNapLog(
   date: string,
   naps: RacingNapPick[]
 ): Promise<void> {
-  await mkdir(LEDGER_DIR, { recursive: true });
-  await writeFile(
-    path.join(LEDGER_DIR, `naps-${date}.json`),
-    JSON.stringify(naps.map((n) => n.raceId)),
-    "utf8"
+  await writeSideLog(
+    "naps",
+    date,
+    JSON.stringify(naps.map((n) => n.raceId))
   );
 }
 
@@ -321,36 +610,35 @@ export async function saveConfidentLog(
   date: string,
   raceIds: string[]
 ): Promise<void> {
-  await mkdir(LEDGER_DIR, { recursive: true });
-  await writeFile(
-    path.join(LEDGER_DIR, `confident-${date}.json`),
-    JSON.stringify([...new Set(raceIds)]),
-    "utf8"
+  await writeSideLog(
+    "confident",
+    date,
+    JSON.stringify([...new Set(raceIds)])
   );
 }
 
-async function loadNapRaceIds(date: string): Promise<Set<string>> {
-  try {
-    const raw = await readFile(
-      path.join(LEDGER_DIR, `naps-${date}.json`),
-      "utf8"
-    );
-    return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    return new Set();
+async function loadSideRaceIds(
+  kind: "naps" | "confident",
+  date: string
+): Promise<Set<string>> {
+  const name = `${kind}-${date}.json`;
+  for (const dir of [LEDGER_DIR, DURABLE_DIR]) {
+    try {
+      const raw = await readFile(path.join(dir, name), "utf8");
+      return new Set(JSON.parse(raw) as string[]);
+    } catch {
+      // try next
+    }
   }
+  return new Set();
+}
+
+async function loadNapRaceIds(date: string): Promise<Set<string>> {
+  return loadSideRaceIds("naps", date);
 }
 
 async function loadConfidentRaceIds(date: string): Promise<Set<string>> {
-  try {
-    const raw = await readFile(
-      path.join(LEDGER_DIR, `confident-${date}.json`),
-      "utf8"
-    );
-    return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    return new Set();
-  }
+  return loadSideRaceIds("confident", date);
 }
 
 function raceKey(course: string, time: string): string {
@@ -358,6 +646,13 @@ function raceKey(course: string, time: string): string {
 }
 
 /** Prefer SP for settled ROI; fall back to card price only if SP missing. */
+function saneOdds(odds: number | null | undefined): number | null {
+  if (odds == null || !Number.isFinite(odds) || odds <= 1 || odds > 501) {
+    return null;
+  }
+  return odds;
+}
+
 function resolvePickOdds(
   cardOdds: number | null | undefined,
   result: ResultRace,
@@ -365,9 +660,9 @@ function resolvePickOdds(
 ): number | null {
   const norm = normaliseName(horseName);
   const row = result.runners.find((r) => normaliseName(r.name) === norm);
-  if (row?.sp != null && row.sp > 1) return row.sp;
-  if (cardOdds != null && cardOdds > 1) return cardOdds;
-  return null;
+  const sp = saneOdds(row?.sp);
+  if (sp != null) return sp;
+  return saneOdds(cardOdds);
 }
 
 /**
@@ -422,6 +717,14 @@ export async function recordDayOutcomes(
     const pickFinish = runnerFinishedPosition(result, pick.id, pick.name);
     const isNap = napIds.has(result.raceId) || napIds.has(logged.raceId);
     const loggedConfidence = logged.topPickConfidence;
+    const saneEdge =
+      pick.modelEdge != null &&
+      pick.modelEdge > 0 &&
+      pick.modelEdge < 50 &&
+      pickOdds != null &&
+      pickOdds <= 501
+        ? pick.modelEdge
+        : null;
     const isConfident =
       isNap ||
       confidentIds.has(result.raceId) ||
@@ -429,9 +732,12 @@ export async function recordDayOutcomes(
       loggedConfidence === "confident" ||
       loggedConfidence === "nap" ||
       // Backfill heuristic for days before confident logs existed
-      (loggedConfidence == null &&
-        pick.modelEdge != null &&
-        pick.modelEdge >= 1.08);
+      (loggedConfidence == null && saneEdge != null && saneEdge >= 1.08);
+
+    const winHit =
+      pickFinish === 1 ||
+      winnerRank === 1 ||
+      normaliseName(pick.name) === winnerNorm;
 
     ledger.entries.push({
       date,
@@ -441,12 +747,12 @@ export async function recordDayOutcomes(
       pick: pick.name,
       pickOdds,
       pickProb: pick.winProbability ?? null,
-      pickEdge: pick.modelEdge ?? null,
+      pickEdge: saneEdge,
       pickRank: 1,
       winner: winner.name,
       winnerSp: winner.sp ?? null,
-      winnerRank,
-      winHit: winnerRank === 1,
+      winnerRank: winnerRank ?? (pickFinish === 1 ? 1 : null),
+      winHit,
       // Honest "in frame": our #1 pick finished in the top 3
       top3Hit: pickFinish != null && pickFinish <= 3,
       isNap,
@@ -505,7 +811,8 @@ export async function enrichLedgerPickOdds(
   const ledger = await loadLedger();
   const needByDate = new Map<string, PerformanceLedgerEntry[]>();
   for (const e of ledger.entries) {
-    if (e.pickOdds != null && e.pickOdds > 1) continue;
+    // Also repair placeholder odds (e.g. 9999999 from bad HRN attrs)
+    if (saneOdds(e.pickOdds) != null) continue;
     const list = needByDate.get(e.date) ?? [];
     list.push(e);
     needByDate.set(e.date, list);

@@ -417,7 +417,8 @@ function parseOddsFromRow(row: string): number | null {
     attrNum(row, "data-oddsdecimal") ??
     attrNum(row, "data-odds") ??
     attrNum(row, "data-price");
-  if (fromAttr != null && fromAttr > 1) return fromAttr;
+  // HRN sometimes emits placeholder decimals like 9999999 when price is missing
+  if (fromAttr != null && fromAttr > 1 && fromAttr <= 501) return fromAttr;
 
   // e.g. <span class="odds">5/2</span> or bare 5/2 near price widgets
   for (const m of row.matchAll(

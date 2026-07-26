@@ -33,7 +33,10 @@ import {
 } from "../src/lib/stats/sample-mode";
 import { buildHorseRacingPayload } from "../src/lib/horse-racing/engine";
 import { buildRacingCalendarPayload } from "../src/lib/horse-racing/calendar";
-import { exportPerformanceArtifacts } from "../src/lib/horse-racing/performance-ledger";
+import {
+  exportPerformanceArtifacts,
+  persistPerformanceToDurable,
+} from "../src/lib/horse-racing/performance-ledger";
 import { buildNbaPayload } from "../src/lib/nba/client";
 import { SPORTS } from "../src/lib/sports/config";
 import {
@@ -282,6 +285,10 @@ async function main() {
     );
     console.log(
       `  racing performance: exported ledger=${perf.ledger} predictionLogs=${perf.predictions}`
+    );
+    const durable = await persistPerformanceToDurable();
+    console.log(
+      `  racing performance: durable ledger=${durable.ledger} predictionLogs=${durable.predictions}`
     );
   } catch (e) {
     console.warn("  racing calendar: export failed", e);

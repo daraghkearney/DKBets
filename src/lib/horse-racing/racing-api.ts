@@ -3,7 +3,7 @@
  * https://api.theracingapi.com/documentation/
  */
 
-import { toIsoDate, to24hTime, ukToday } from "./dates";
+import { courseSlug, toIsoDate, to24hTime, ukToday } from "./dates";
 import { distanceYards, enrichRunner, parseFormPositions } from "./form-analysis";
 import { fetchAtrResultsForDate } from "./atr-results";
 import { fetchHrnResultsForDate } from "./hrnet";
@@ -315,10 +315,32 @@ function mapResultRace(api: ApiResultRace): ResultRace {
   };
 }
 
+function resultRaceKey(r: ResultRace): string {
+  return `${courseSlug(r.course)}|${to24hTime(r.time)}`;
+}
+
+/** Union result sources by course|time — never let a sparse API page block scrapers. */
+function mergeResultRaces(sets: ResultRace[][]): ResultRace[] {
+  const byKey = new Map<string, ResultRace>();
+  for (const set of sets) {
+    for (const race of set) {
+      const key = resultRaceKey(race);
+      const prev = byKey.get(key);
+      if (!prev || race.runners.length > prev.runners.length) {
+        byKey.set(key, race);
+      }
+    }
+  }
+  return [...byKey.values()];
+}
+
 /**
  * Full results for a calendar date (used for next-day learning).
  * The results endpoints are paginated (max 50/page), so we page through
  * until the day is complete — a full UK+IRE day can be 60+ races.
+ *
+ * Always consult scrape fallbacks too: a partial API response used to
+ * short-circuit settlement and freeze hit rates on 1–2 races.
  */
 export async function fetchResultsForDate(
   isoDate: string
@@ -327,6 +349,7 @@ export async function fetchResultsForDate(
   const q = encodeURIComponent(isoDate);
   const today = toIsoDate(ukToday());
   const notes: string[] = [];
+  const sets: ResultRace[][] = [];
 
   if (creds) {
     const endpoints = [
@@ -362,33 +385,31 @@ export async function fetchResultsForDate(
         .filter((r) => !r.date || r.date.startsWith(isoDate))
         .filter((r) => r.runners.some((x) => x.position === 1));
       if (races.length) {
-        notes.push(`${races.length} races over ${Math.ceil(all.length / PAGE)} pages`);
-        return { races, debug: notes.join("; ") };
+        notes.push(
+          `api ${races.length} races over ${Math.ceil(all.length / PAGE)} pages`
+        );
+        sets.push(races);
+        break;
       }
     }
   } else {
     notes.push("no API credentials — using scrape fallbacks");
   }
 
-  // Fallback: At The Races — free, works when API quota is exhausted
   try {
     const atr = await fetchAtrResultsForDate(isoDate);
-    if (atr.races.length) {
-      notes.push(atr.debug);
-      return { races: atr.races, debug: notes.join("; ") };
-    }
     notes.push(atr.debug);
+    if (atr.races.length) sets.push(atr.races);
   } catch (e) {
     notes.push(`atr scrape failed: ${e}`);
   }
 
-  // Fallback: scrape horseracing.net results — works on any API plan
   try {
     const hrn = await fetchHrnResultsForDate(isoDate);
     if (hrn.length) {
       notes.push(`hrn scrape → ${hrn.length} races`);
-      return {
-        races: hrn.map((r) => ({
+      sets.push(
+        hrn.map((r) => ({
           raceId: `hrn-${r.courseSlug}-${isoDate}-${r.time}`,
           date: isoDate,
           course: r.course,
@@ -405,15 +426,18 @@ export async function fetchResultsForDate(
             jockey: x.jockey,
             trainer: x.trainer,
           })),
-        })),
-        debug: notes.join("; "),
-      };
+        }))
+      );
     }
   } catch (e) {
     notes.push(`hrn scrape failed: ${e}`);
   }
 
-  return { races: [], debug: notes.join("; ") };
+  const races = mergeResultRaces(sets);
+  if (races.length) {
+    notes.push(`merged → ${races.length} unique races`);
+  }
+  return { races, debug: notes.join("; ") };
 }
 
 function mapRace(api: ApiRace): HorseRace {

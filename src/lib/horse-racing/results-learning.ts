@@ -33,7 +33,11 @@ import {
   type ResultRace,
 } from "./racing-api";
 import { addDays, courseSlug, to24hTime, toIsoDate, ukToday } from "./dates";
-import { getLedgerEntries, recordDayOutcomes } from "./performance-ledger";
+import {
+  getLedgerEntries,
+  recordDayOutcomes,
+  writePredictionLogFile,
+} from "./performance-ledger";
 import type {
   HorseRace,
   RacingFactorKey,
@@ -231,24 +235,41 @@ export async function savePredictionLog(
           : undefined,
       })),
   };
-  await mkdir(PREDICTIONS_DIR, { recursive: true });
-  await writeFile(
-    path.join(PREDICTIONS_DIR, `${date}.json`),
-    JSON.stringify(log),
-    "utf8"
-  );
+  await writePredictionLogFile(date, JSON.stringify(log));
 }
 
 async function loadPredictionLog(date: string): Promise<PredictionLog | null> {
-  try {
-    const raw = await readFile(
-      path.join(PREDICTIONS_DIR, `${date}.json`),
-      "utf8"
-    );
-    return JSON.parse(raw) as PredictionLog;
-  } catch {
-    return null;
+  const durable = path.join(
+    process.cwd(),
+    "data",
+    "racing-performance",
+    "predictions",
+    `${date}.json`
+  );
+  const seed = path.join(
+    process.cwd(),
+    "data",
+    "racing-performance-seed",
+    "predictions",
+    `${date}.json`
+  );
+  const candidates = [
+    path.join(PREDICTIONS_DIR, `${date}.json`),
+    durable,
+    seed,
+  ];
+  let best: PredictionLog | null = null;
+  for (const filePath of candidates) {
+    try {
+      const raw = await readFile(filePath, "utf8");
+      const parsed = JSON.parse(raw) as PredictionLog;
+      if (!parsed?.races?.length) continue;
+      if (!best || parsed.races.length > best.races.length) best = parsed;
+    } catch {
+      // try next
+    }
   }
+  return best;
 }
 
 // ------------------------------------------------------------------ learning
@@ -562,6 +583,27 @@ export async function learnFromYesterday(): Promise<{
     console.warn("  racing stats: archive update failed", e);
   }
 
+  // Always re-fetch results for settlement — the people-stats archive path can
+  // return a sparse early scrape, which used to freeze hit rates on 1–2 races.
+  if (!results.length) {
+    console.log(`  racing learn: fetching results for ${yesterday} …`);
+  }
+  try {
+    const fetched = await fetchResultsForDate(yesterday);
+    if (fetched.races.length >= results.length) {
+      if (fetched.races.length > results.length) {
+        console.log(
+          `  racing learn: results ${results.length || 0} → ${fetched.races.length} (${fetched.debug})`
+        );
+      }
+      results = fetched.races;
+    } else if (!results.length) {
+      console.warn(`  racing learn: no results — ${fetched.debug}`);
+    }
+  } catch (e) {
+    console.warn("  racing learn: results fetch failed", e);
+  }
+
   // The export runs hourly — only learn from each race day once,
   // otherwise one day's results would be counted ~24 times.
   if (model.lastLearnedDate === yesterday) {
@@ -572,19 +614,13 @@ export async function learnFromYesterday(): Promise<{
   }
 
   if (!results.length) {
-    console.log(`  racing learn: fetching results for ${yesterday} …`);
-    const fetched = await fetchResultsForDate(yesterday);
-    results = fetched.races;
-    if (!results.length) {
-      console.warn(`  racing learn: no results — ${fetched.debug}`);
-      const review = await resolveReview(yesterday);
-      if (review) {
-        console.log(
-          `  racing learn: showing cached review from ${review.date} (no ${yesterday} results yet)`
-        );
-      }
-      return { model, review };
+    const review = await resolveReview(yesterday);
+    if (review) {
+      console.log(
+        `  racing learn: showing cached review from ${review.date} (no ${yesterday} results yet)`
+      );
     }
+    return { model, review };
   }
   console.log(`  racing learn: ${results.length} completed races`);
 
@@ -603,6 +639,8 @@ export async function learnFromYesterday(): Promise<{
       `  racing learn: could not analyse ${yesterday} — keeping previous review`
     );
     const review = await resolveReview(yesterday);
+    // Still settle hit rates when we have results + a prediction log
+    await recordLedgerIfPossible(yesterday, results);
     return { model, review };
   }
 
