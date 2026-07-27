@@ -855,19 +855,23 @@ export async function backfillPerformanceLedger(
   const maxPerRun =
     opts.maxPerRun ?? Number(process.env.RACING_LEDGER_BACKFILL_MAX ?? 14);
 
-  let files: string[] = [];
-  try {
-    files = await readdir(PREDICTIONS_DIR);
-  } catch {
-    return { recorded: 0, dates: [] };
+  const fileSet = new Set<string>();
+  for (const dir of [PREDICTIONS_DIR, DURABLE_PREDICTIONS, SEED_PREDICTIONS]) {
+    try {
+      for (const f of await readdir(dir)) {
+        if (/^\d{4}-\d{2}-\d{2}\.json$/.test(f)) fileSet.add(f);
+      }
+    } catch {
+      // missing dir
+    }
   }
+  if (!fileSet.size) return { recorded: 0, dates: [] };
 
   const ledger = await loadLedger();
   const cutoff = toIsoDate(addDays(ukToday(), -windowDays));
   const yesterday = toIsoDate(addDays(ukToday(), -1));
 
-  const candidateDates = files
-    .filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f))
+  const candidateDates = [...fileSet]
     .map((f) => f.replace(".json", ""))
     .filter((d) => d >= cutoff && d <= yesterday)
     .sort()
