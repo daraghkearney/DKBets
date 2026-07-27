@@ -208,6 +208,13 @@ export interface RacingCalendarPayload {
    * UI shows a degraded-data banner; CI can fail the export when set.
    */
   enrichmentWarning?: string;
+  /**
+   * True when this file kept a previous same-day export because the latest
+   * HorseRacing.net scrape was too thin to publish.
+   */
+  servedPriorExport?: boolean;
+  /** Human-readable note when servedPriorExport is set */
+  priorExportNote?: string;
 }
 
 export type RacingFactorKey =

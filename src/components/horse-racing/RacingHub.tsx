@@ -556,6 +556,14 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
               </p>
             </div>
           )}
+          {calendar?.servedPriorExport && calendar.priorExportNote && (
+            <div className="mt-3 rounded-xl border border-sky-500/35 bg-sky-500/10 px-3 py-2.5 text-xs text-sky-100/90">
+              <p className="font-semibold text-sky-200">
+                Showing last good racecards
+              </p>
+              <p className="mt-1 text-sky-100/75">{calendar.priorExportNote}</p>
+            </div>
+          )}
           {calendar?.source &&
             !calendar.source.startsWith("demo") && (
             <span className="mt-2 inline-block rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">

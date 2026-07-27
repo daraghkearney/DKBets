@@ -18,6 +18,12 @@ import {
   saveConfidentLog,
 } from "./performance-ledger";
 import {
+  calendarOddsCoverage,
+  isCalendarEnrichmentDegraded,
+  loadPreviousRacingCalendar,
+  publicCalendarPath,
+} from "./calendar-quality";
+import {
   annotateRacePickTiers,
   buildValuePicks,
   confidentRaceIds,
@@ -316,15 +322,40 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     return loadPerformanceStats(90);
   })();
 
-  // Log today's predictions so tomorrow's run can learn from results
+  // Log today's predictions so tomorrow's run can learn from results.
+  // Never overwrite a healthier same-day log with a failed-enrichment card.
   if (todayIso && todayRaces.some((r) => r.runners.length)) {
-    try {
-      await savePredictionLog(todayIso, todayRaces);
-      console.log(
-        `  racing model: logged predictions for ${todayRaces.length} races (${todayIso})`
-      );
-    } catch (e) {
-      console.warn("  racing model: failed to log predictions", e);
+    const degraded = Boolean(
+      enrichmentWarning ||
+        (todayRunners.length >= 8 && oddsRate < 0.25)
+    );
+    let skipLog = false;
+    if (degraded) {
+      try {
+        const prev = await loadPreviousRacingCalendar(publicCalendarPath());
+        if (prev && !isCalendarEnrichmentDegraded(prev)) {
+          const prevCov = calendarOddsCoverage(prev);
+          if (prevCov.date === todayIso && prevCov.rate > oddsRate + 0.05) {
+            skipLog = true;
+            console.warn(
+              `  racing model: keeping prior prediction log for ${todayIso} ` +
+                `(new odds ${(oddsRate * 100).toFixed(0)}% < prior ${(prevCov.rate * 100).toFixed(0)}%)`
+            );
+          }
+        }
+      } catch {
+        // still attempt log
+      }
+    }
+    if (!skipLog) {
+      try {
+        await savePredictionLog(todayIso, todayRaces);
+        console.log(
+          `  racing model: logged predictions for ${todayRaces.length} races (${todayIso})`
+        );
+      } catch (e) {
+        console.warn("  racing model: failed to log predictions", e);
+      }
     }
   }
 

@@ -34,9 +34,17 @@ import {
 import { buildHorseRacingPayload } from "../src/lib/horse-racing/engine";
 import { buildRacingCalendarPayload } from "../src/lib/horse-racing/calendar";
 import {
+  calendarOddsCoverage,
+  loadPreviousRacingCalendar,
+  mergeKeptRacingCalendar,
+  publicCalendarPath,
+  shouldPreferPreviousCalendar,
+} from "../src/lib/horse-racing/calendar-quality";
+import {
   exportPerformanceArtifacts,
   persistPerformanceToDurable,
 } from "../src/lib/horse-racing/performance-ledger";
+import type { RacingCalendarPayload } from "../src/lib/horse-racing/types";
 import { buildNbaPayload } from "../src/lib/nba/client";
 import { SPORTS } from "../src/lib/sports/config";
 import {
@@ -274,11 +282,45 @@ async function main() {
 
   console.log("\n  [horse-racing] exporting week calendar …");
   try {
-    const calendar = await buildRacingCalendarPayload();
+    const previous = await loadPreviousRacingCalendar(publicCalendarPath());
+    let calendar: RacingCalendarPayload;
+    try {
+      calendar = await buildRacingCalendarPayload();
+    } catch (buildErr) {
+      if (previous) {
+        console.warn(
+          "  racing calendar: build failed — keeping previous export",
+          buildErr
+        );
+        calendar = {
+          ...previous,
+          exportedAt: new Date().toISOString(),
+          servedPriorExport: true,
+          priorExportNote:
+            `Serving last good racecards from ${previous.exportedAt} — this export failed to build a new calendar.`,
+          enrichmentWarning: undefined,
+        };
+      } else {
+        throw buildErr;
+      }
+    }
+
+    if (shouldPreferPreviousCalendar(calendar, previous)) {
+      const nextCov = calendarOddsCoverage(calendar);
+      const prevCov = calendarOddsCoverage(previous!);
+      console.warn(
+        `  racing calendar: keeping previous export for ${prevCov.date} ` +
+          `(new odds ${nextCov.withOdds}/${nextCov.runners}, ` +
+          `prior ${prevCov.withOdds}/${prevCov.runners})`
+      );
+      calendar = mergeKeptRacingCalendar(previous!, calendar);
+    }
+
     await writeJson("horse-racing/todays-races/calendar.json", calendar);
     const dayCount = calendar.days.filter((d) => d.meetings.length).length;
     console.log(
-      `  racing calendar: ${dayCount} days with meetings, ${calendar.tipsters.length} tipsters`
+      `  racing calendar: ${dayCount} days with meetings, ${calendar.tipsters.length} tipsters` +
+        (calendar.servedPriorExport ? " (served prior export)" : "")
     );
     const perf = await exportPerformanceArtifacts(
       path.join(ROOT, "horse-racing", "performance")
