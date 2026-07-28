@@ -172,11 +172,49 @@ export interface EachWayGem {
   placeImplied?: number;
 }
 
+/** One leg of a meeting "top finish" multi. */
+export interface TopFinishLeg {
+  raceId: string;
+  time: string;
+  raceName: string;
+  course: string;
+  runnerId: string;
+  horse: string;
+  /** Win-market decimal odds the estimate was derived from */
+  winOdds: number | null;
+  /** Finish band — horse to finish in the top `target` */
+  target: number;
+  fieldSize: number;
+  /** Model P(finish ≤ target) */
+  modelProb: number;
+  /** Market-derived fair P(finish ≤ target) from win odds */
+  marketProb: number;
+  /** Estimated bookmaker decimal for the top-`target` market */
+  estPrice: number;
+  /** modelProb − implied(estPrice) */
+  edge: number;
+  rationale: string;
+}
+
+/** Meeting-level multi of high-probability underpriced finish bands. */
+export interface TopFinishSlip {
+  date: string;
+  course: string;
+  legs: TopFinishLeg[];
+  /** Product of leg model probabilities */
+  combinedProb: number;
+  /** Product of estimated leg prices (decimal) */
+  combinedPrice: number;
+  note: string;
+}
+
 export interface RacingMeeting {
   id: string;
   name: string;
   region?: string;
   races: HorseRace[];
+  /** Model top-finish multi for this meeting's card */
+  topFinish?: TopFinishSlip;
 }
 
 export interface RacingCalendarDay {

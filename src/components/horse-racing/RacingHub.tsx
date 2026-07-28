@@ -7,6 +7,7 @@ import type {
   RacingNapPick,
   RacingPerformanceStats,
   TipsterPick,
+  TopFinishSlip,
 } from "@/lib/horse-racing/types";
 import PremiumGate from "@/components/subscription/PremiumGate";
 import { usePremiumAccess } from "@/lib/subscription/access";
@@ -222,6 +223,75 @@ function NapPicksPanel({
             )}
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function TopFinishPanel({
+  slip,
+  oddsFormat,
+}: {
+  slip: TopFinishSlip;
+  oddsFormat: OddsDisplayFormat;
+}) {
+  return (
+    <section className="rounded-2xl border border-violet-500/40 bg-violet-500/5 p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-bold">
+          <span className="text-violet-300">🎯</span> Top finish multi ·{" "}
+          {slip.course}
+        </h2>
+        <span className="text-xs text-muted">
+          High-probability finish bands, underpriced by the market
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {slip.legs.map((leg) => (
+          <div
+            key={`${leg.raceId}-${leg.runnerId}`}
+            className="rounded-xl border border-violet-500/30 bg-background/30 px-4 py-3"
+          >
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+              {leg.time} · {leg.raceName}
+            </p>
+            <p className="mt-1 text-sm font-bold">
+              {leg.horse}
+              <span className="ml-2 rounded-full border border-violet-500/45 bg-violet-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-300">
+                Top {leg.target} finish
+              </span>
+            </p>
+            <p className="mt-1.5 text-[11px] font-semibold text-violet-300 tabular">
+              Model {pct(leg.modelProb)} · est.{" "}
+              {formatOdds(leg.estPrice, oddsFormat)} · +
+              {Math.round(leg.edge * 100)} pts edge
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">
+              {leg.rationale}
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-violet-500/35 bg-violet-500/10 px-4 py-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-violet-300">
+            Combined est. odds
+          </p>
+          <p className="text-xl font-bold tabular text-violet-200">
+            {formatOdds(slip.combinedPrice, oddsFormat)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-violet-300">
+            Combined model probability
+          </p>
+          <p className="text-xl font-bold tabular text-violet-200">
+            {pct(slip.combinedProb)}
+          </p>
+        </div>
+        <p className="min-w-[12rem] flex-1 text-[11px] leading-relaxed text-muted">
+          {slip.note}
+        </p>
       </div>
     </section>
   );
@@ -607,6 +677,15 @@ function RacingHubBody({ showPremium }: { showPremium: boolean }) {
 
           {calendar?.performance && showPremium && (
             <PerformancePanel stats={calendar.performance} />
+          )}
+
+          {selectedMeeting?.topFinish && (
+            <PremiumGate feature={FEATURES.racingIntel}>
+              <TopFinishPanel
+                slip={selectedMeeting.topFinish}
+                oddsFormat={oddsFormat}
+              />
+            </PremiumGate>
           )}
 
           {selectedRace ? (

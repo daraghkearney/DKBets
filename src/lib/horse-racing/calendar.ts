@@ -28,6 +28,7 @@ import {
   buildValuePicks,
   confidentRaceIds,
 } from "./value-picks";
+import { buildTopFinishSlip } from "./top-finish";
 import { fetchHrnRacecards, hrnLinksFromRaces } from "./hrnet";
 import {
   buildHrnTipsterPicks,
@@ -269,6 +270,15 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
       for (const race of meeting.races) {
         race.runners.sort((a, b) => b.overallScore - a.overallScore);
       }
+      // Meeting "top finish" multi — high-probability underpriced finish bands
+      meeting.topFinish =
+        buildTopFinishSlip(meeting.races, day.date, meeting.name) ?? undefined;
+    }
+    const slipCount = day.meetings.filter((m) => m.topFinish).length;
+    if (slipCount) {
+      console.log(
+        `  racing top-finish (${day.date}): ${slipCount} meeting slips`
+      );
     }
     // Strict EW gems: require odds + place edge; few per day (football-gem style)
     const dayRaces = day.meetings.flatMap((m) => m.races);
