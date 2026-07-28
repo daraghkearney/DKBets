@@ -4242,7 +4242,45 @@
       "isNap": false,
       "isConfident": false,
       "isEwGem": false
+    },
+    {
+      "date": "2026-07-28",
+      "raceId": "atr-galway-2026-07-28-17:10",
+      "course": "Galway",
+      "time": "17:10",
+      "pick": "My Great Mate",
+      "pickOdds": 1.58,
+      "pickProb": 0.1508295377544219,
+      "pickEdge": 0.23831066965198663,
+      "pickRank": 1,
+      "winner": "Witches Familiar",
+      "winnerSp": 2.625,
+      "winnerRank": null,
+      "winHit": false,
+      "top3Hit": false,
+      "isNap": false,
+      "isConfident": false,
+      "isEwGem": false
+    },
+    {
+      "date": "2026-07-28",
+      "raceId": "atr-galway-2026-07-28-19:15",
+      "course": "Galway",
+      "time": "19:15",
+      "pick": "Eddie G",
+      "pickOdds": 5,
+      "pickProb": 0.07259733421424608,
+      "pickEdge": 0.3629866710712304,
+      "pickRank": 1,
+      "winner": "Dancing Saxon",
+      "winnerSp": 2.625,
+      "winnerRank": null,
+      "winHit": false,
+      "top3Hit": false,
+      "isNap": false,
+      "isConfident": false,
+      "isEwGem": false
     }
   ],
-  "updatedAt": "2026-07-28T21:20:49.629Z"
+  "updatedAt": "2026-07-28T23:19:01.364Z"
 }
