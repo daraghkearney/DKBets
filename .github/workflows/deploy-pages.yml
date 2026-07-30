@@ -39,6 +39,9 @@ jobs:
       REFRESH_BET365_ODDS: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.refresh_odds) }}
       REFRESH_WEB_RESEARCH: ${{ github.event_name == 'schedule' && 'false' || (github.event_name == 'workflow_dispatch' && !inputs.web_research && 'false') || 'true' }}
       HRN_FETCH_TOMORROW: ${{ github.event_name == 'workflow_dispatch' && inputs.web_research && 'true' || 'false' }}
+      # Hourly schedule must not burn Tavily racing quota. Push/manual can use it.
+      HRN_ALLOW_TAVILY: ${{ github.event_name == 'schedule' && 'false' || 'true' }}
+      HRN_TAVILY_RACE_CAP: "8"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -93,10 +96,10 @@ jobs:
           path: |
             .cache/racing-hrnet
             .cache/atr-results
-          # v14: invalidate sticky ATR partial-result caches that froze hit rates
-          key: racing-scrape-v14-${{ github.run_id }}
+          # v15: drop odds-thin HRN caches; healthy cards now keep a 4h TTL
+          key: racing-scrape-v15-${{ github.run_id }}
           restore-keys: |
-            racing-scrape-v14-
+            racing-scrape-v15-
 
       - name: Seed racing model if cache empty
         run: |

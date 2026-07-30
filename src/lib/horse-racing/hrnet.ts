@@ -18,14 +18,25 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v10";
+const CARDS_CACHE_VERSION = "v11";
+/** Soft TTL — used for sparse / odds-thin scrapes that should be retried soon. */
 const CARDS_TTL_MS = 30 * 60 * 1000;
+/**
+ * Once a day has real live odds, keep it for hours. Hourly CI deploys used to
+ * re-scrape every 30m, burn Tavily quota, then fail enrichment for the rest
+ * of the day once the quota was gone.
+ */
+const CARDS_HEALTHY_TTL_MS = 4 * 60 * 60 * 1000;
 const RESULTS_TTL_MS = 30 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
 const FETCH_RETRIES = 3;
 const TAVILY_BATCH = 8;
 const TAVILY_MIN_CONTENT = 400;
 const DAY_CACHE_MIN_COVERAGE = 0.85;
+/** Min share of runners with sane live odds to treat a race/day as enriched. */
+const ODDS_COVERAGE_OK = 0.25;
+/** Hard cap on per-race Tavily extracts after meeting-page attempts. */
+const DEFAULT_TAVILY_RACE_CAP = 8;
 
 export type HrnFetchMode = "direct" | "tavily" | "mixed";
 
@@ -102,6 +113,51 @@ export interface HrnResultRace {
 
 function isHtmlContent(content: string): boolean {
   return /<div\s+data-tip=|<h4 class="chase-title">/i.test(content);
+}
+
+function isCloudflareChallenge(content: string): boolean {
+  const head = content.slice(0, 6000).toLowerCase();
+  return (
+    head.includes("just a moment") ||
+    head.includes("cf-challenge") ||
+    head.includes("cf-browser-verification") ||
+    head.includes("attention required") ||
+    head.includes("enable javascript and cookies")
+  );
+}
+
+function raceOddsRate(race: HrnRace): number {
+  const active = race.runners.filter((r) => !r.nonRunner);
+  if (!active.length) return 0;
+  const priced = active.filter(
+    (r) => r.odds != null && r.odds > 1 && r.odds <= 501
+  ).length;
+  return priced / active.length;
+}
+
+function dayOddsRate(races: HrnRace[]): number {
+  let total = 0;
+  let priced = 0;
+  for (const race of races) {
+    for (const r of race.runners) {
+      if (r.nonRunner) continue;
+      total += 1;
+      if (r.odds != null && r.odds > 1 && r.odds <= 501) priced += 1;
+    }
+  }
+  return total ? priced / total : 0;
+}
+
+function tavilyAllowed(): boolean {
+  return (
+    Boolean(process.env.TAVILY_API_KEY) &&
+    process.env.HRN_ALLOW_TAVILY !== "false"
+  );
+}
+
+function tavilyRaceCap(): number {
+  const n = Number(process.env.HRN_TAVILY_RACE_CAP ?? DEFAULT_TAVILY_RACE_CAP);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_TAVILY_RACE_CAP;
 }
 
 function fracToDecimal(frac: string): number | null {
@@ -181,11 +237,29 @@ async function hrnFetchViaHtmlProxy(pathname: string): Promise<string | null> {
       const text = await res.text();
       return text.length > 1000 ? text : null;
     },
+    async () => {
+      const res = await fetch(
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`,
+        {
+          headers: { "User-Agent": UA },
+          signal: AbortSignal.timeout(45_000),
+          cache: "no-store",
+        }
+      );
+      if (!res.ok) return null;
+      const text = await res.text();
+      return text.length > 1000 ? text : null;
+    },
   ];
 
   for (const attempt of attempts) {
     try {
       const html = await attempt();
+      if (!html) continue;
+      if (isCloudflareChallenge(html)) {
+        console.warn(`  hrn proxy: Cloudflare challenge for ${pathname}`);
+        continue;
+      }
       if (html && isHtmlContent(html)) return html;
       // Even without data-tip markers, keep long HTML for downstream parsers
       if (html && html.includes("data-oddsdecimal")) return html;
@@ -962,7 +1036,12 @@ async function loadRaceFromCache(
     raceCacheFile(isoDate, slug, time),
     CARDS_TTL_MS
   );
-  return cached?.race ?? null;
+  const race = cached?.race ?? null;
+  // Odds-thin caches from overnight/blocked scrapes must not stick for 30m
+  if (race && raceOddsRate(race) < ODDS_COVERAGE_OK && race.runners.length >= 4) {
+    return null;
+  }
+  return race;
 }
 
 async function saveRaceToCache(
@@ -1021,8 +1100,32 @@ export async function fetchHrnRacecards(
   });
 
   const cacheFile = `cards-${CARDS_CACHE_VERSION}-${isoDate}.json`;
+  // Prefer a healthy (odds-rich) day cache for hours; fall back to short TTL.
+  const cachedHealthy = await loadCache<CardsCacheEntry>(
+    cacheFile,
+    CARDS_HEALTHY_TTL_MS
+  );
+  if (
+    cachedHealthy?.races.length &&
+    dayOddsRate(cachedHealthy.races) >= ODDS_COVERAGE_OK
+  ) {
+    console.log(
+      `  hrn cards: healthy day cache hit ${isoDate} (${cachedHealthy.races.length} races, odds ${(dayOddsRate(cachedHealthy.races) * 100).toFixed(0)}%)`
+    );
+    return {
+      races: cachedHealthy.races,
+      stats: {
+        links: cachedHealthy.races.length,
+        cached: cachedHealthy.races.length,
+        extracted: 0,
+        parsed: cachedHealthy.races.length,
+        fetchMode: cachedHealthy.fetchMode ?? "direct",
+        failedSamples: [],
+      },
+    };
+  }
   const cached = await loadCache<CardsCacheEntry>(cacheFile, CARDS_TTL_MS);
-  if (cached && cached.races.length) {
+  if (cached && cached.races.length && dayOddsRate(cached.races) >= ODDS_COVERAGE_OK) {
     console.log(
       `  hrn cards: day cache hit ${isoDate} (${cached.races.length} races)`
     );
@@ -1057,7 +1160,7 @@ export async function fetchHrnRacecards(
       (await hrnFetchRetry(`/racecards/${d}`)) ??
       (await hrnFetchRetry("/racecards"));
 
-    if (!index && process.env.TAVILY_API_KEY) {
+    if (!index && tavilyAllowed()) {
       console.log(`  hrn cards: direct blocked — trying Tavily for index (${isoDate})`);
       index =
         (await tavilyExtractOne(`${HRN_BASE}/racecards/${d}`)) ??
@@ -1157,34 +1260,85 @@ export async function fetchHrnRacecards(
       }
     }
 
-    // Tavily only for races direct/proxy HTML still missed
+    // Tavily: meeting pages first (1 extract/course), then a hard-capped
+    // per-race pass. Hourly CI used to fire 100+ extracts and exhaust quota.
     const stillMissing = links.filter((l) => !raceByLink.has(l));
-    if (stillMissing.length && process.env.TAVILY_API_KEY) {
+    if (stillMissing.length && tavilyAllowed()) {
       fetchMode = raceByLink.size ? "mixed" : "tavily";
-      const urls = stillMissing.map((link) => linkToUrl(d, link));
-      const contents = await tavilyExtractWithRetry(urls);
-      extracted = contents.size;
-      console.log(
-        `  hrn tavily: extracted ${contents.size}/${stillMissing.length} race pages (direct miss)`
-      );
 
-      const { races: parsed } = await parseLinksToRaces(
-        stillMissing,
-        d,
-        isoDate,
-        contents
+      const missingByCourse = new Map<string, string[]>();
+      for (const link of stillMissing) {
+        const [slug, time] = link.split("|");
+        const list = missingByCourse.get(slug) ?? [];
+        list.push(time);
+        missingByCourse.set(slug, list);
+      }
+
+      const meetingUrls = [...missingByCourse.keys()].map(
+        (slug) => `${HRN_BASE}/${slug}/${d}`
       );
-      for (const race of parsed) {
-        raceByLink.set(`${race.courseSlug}|${race.time}`, race);
+      console.log(
+        `  hrn tavily: meeting pages first (${meetingUrls.length} courses, ${stillMissing.length} races still missing)`
+      );
+      const meetingContents = await tavilyExtractWithRetry(meetingUrls);
+      extracted += meetingContents.size;
+      for (const [slug, times] of missingByCourse) {
+        const content = meetingContents.get(`${HRN_BASE}/${slug}/${d}`);
+        if (!content) continue;
+        const races = parseMeetingPage(content, slug, new Set(times));
+        for (const race of races) {
+          raceByLink.set(`${race.courseSlug}|${race.time}`, race);
+          await saveRaceToCache(isoDate, race);
+        }
+        // Also try whole-page HTML race parse if meeting sections missing
+        if (!races.length && isHtmlContent(content)) {
+          for (const time of times) {
+            const race = parseRacePage(content, slug, time);
+            if (!race) continue;
+            raceByLink.set(`${race.courseSlug}|${race.time}`, race);
+            await saveRaceToCache(isoDate, race);
+          }
+        }
+      }
+
+      const afterMeetings = links.filter((l) => !raceByLink.has(l));
+      const cap = tavilyRaceCap();
+      const raceTargets = afterMeetings.slice(0, cap);
+      if (afterMeetings.length > cap) {
+        console.warn(
+          `  hrn tavily: capping per-race extracts at ${cap}/${afterMeetings.length} (set HRN_TAVILY_RACE_CAP to raise)`
+        );
+      }
+
+      if (raceTargets.length) {
+        const urls = raceTargets.map((link) => linkToUrl(d, link));
+        const contents = await tavilyExtractWithRetry(urls);
+        extracted += contents.size;
+        console.log(
+          `  hrn tavily: extracted ${contents.size}/${raceTargets.length} race pages (direct miss)`
+        );
+
+        const { races: parsed } = await parseLinksToRaces(
+          raceTargets,
+          d,
+          isoDate,
+          contents
+        );
+        for (const race of parsed) {
+          raceByLink.set(`${race.courseSlug}|${race.time}`, race);
+        }
       }
 
       const stillAfterExtract = links.filter((l) => !raceByLink.has(l));
-      if (stillAfterExtract.length) {
+      // Search fallback is expensive — only for a tiny remainder
+      const searchCap = Math.min(4, tavilyRaceCap());
+      if (stillAfterExtract.length && searchCap > 0) {
+        const searchTargets = stillAfterExtract.slice(0, searchCap);
         console.log(
-          `  hrn tavily: search fallback for ${stillAfterExtract.length} races`
+          `  hrn tavily: search fallback for ${searchTargets.length}/${stillAfterExtract.length} races`
         );
         const searchParsed = await mapPool(
-          stillAfterExtract,
+          searchTargets,
           4,
           async (link) => {
             const [slug, time] = link.split("|");
@@ -1195,12 +1349,16 @@ export async function fetchHrnRacecards(
             return race;
           }
         );
-        for (let i = 0; i < stillAfterExtract.length; i++) {
+        for (let i = 0; i < searchTargets.length; i++) {
           const race = searchParsed[i];
-          if (race) raceByLink.set(stillAfterExtract[i]!, race);
+          if (race) raceByLink.set(searchTargets[i]!, race);
         }
         extracted += searchParsed.filter(Boolean).length;
       }
+    } else if (stillMissing.length && !tavilyAllowed()) {
+      console.warn(
+        `  hrn cards: ${stillMissing.length} races still missing and Tavily disabled/unavailable`
+      );
     }
   }
 
@@ -1226,8 +1384,15 @@ export async function fetchHrnRacecards(
     `  hrn cards: ${races.length}/${links.length} parsed for ${isoDate} (${fetchMode}, cached=${cachedCount}, extracted=${extracted})`
   );
 
-  if (races.length >= links.length * DAY_CACHE_MIN_COVERAGE) {
+  if (
+    races.length >= links.length * DAY_CACHE_MIN_COVERAGE &&
+    dayOddsRate(races) >= ODDS_COVERAGE_OK
+  ) {
     await saveCache(cacheFile, { races, fetchMode });
+  } else if (races.length) {
+    console.warn(
+      `  hrn cards: not caching day ${isoDate} — coverage ${races.length}/${links.length}, odds ${(dayOddsRate(races) * 100).toFixed(0)}%`
+    );
   }
 
   return { races, stats };
