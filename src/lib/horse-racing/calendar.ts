@@ -19,7 +19,6 @@ import {
 } from "./performance-ledger";
 import {
   calendarOddsCoverage,
-  isCalendarEnrichmentDegraded,
   loadPreviousRacingCalendar,
   publicCalendarPath,
 } from "./calendar-quality";
@@ -333,29 +332,29 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
   })();
 
   // Log today's predictions so tomorrow's run can learn from results.
-  // Never overwrite a healthier same-day log with a failed-enrichment card.
+  // Never overwrite a richer same-day log with a failed/thinner enrichment.
   if (todayIso && todayRaces.some((r) => r.runners.length)) {
-    const degraded = Boolean(
-      enrichmentWarning ||
-        (todayRunners.length >= 8 && oddsRate < 0.25)
-    );
     let skipLog = false;
-    if (degraded) {
-      try {
-        const prev = await loadPreviousRacingCalendar(publicCalendarPath());
-        if (prev && !isCalendarEnrichmentDegraded(prev)) {
-          const prevCov = calendarOddsCoverage(prev);
-          if (prevCov.date === todayIso && prevCov.rate > oddsRate + 0.05) {
-            skipLog = true;
-            console.warn(
-              `  racing model: keeping prior prediction log for ${todayIso} ` +
-                `(new odds ${(oddsRate * 100).toFixed(0)}% < prior ${(prevCov.rate * 100).toFixed(0)}%)`
-            );
-          }
+    try {
+      const prev = await loadPreviousRacingCalendar(publicCalendarPath());
+      if (prev) {
+        const prevCov = calendarOddsCoverage(prev);
+        if (
+          prevCov.date === todayIso &&
+          prevCov.withOdds > 0 &&
+          (todayWithOdds === 0 ||
+            prevCov.withOdds >= todayWithOdds + 3 ||
+            prevCov.rate >= oddsRate + 0.03)
+        ) {
+          skipLog = true;
+          console.warn(
+            `  racing model: keeping prior prediction log for ${todayIso} ` +
+              `(new odds ${todayWithOdds}/${todayRunners.length} < prior ${prevCov.withOdds}/${prevCov.runners})`
+          );
         }
-      } catch {
-        // still attempt log
       }
+    } catch {
+      // still attempt log
     }
     if (!skipLog) {
       try {
