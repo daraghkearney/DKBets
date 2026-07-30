@@ -4287,7 +4287,7 @@
       "course": "Goodwood",
       "time": "13:50",
       "pick": "Hatteen",
-      "pickOdds": null,
+      "pickOdds": 3.25,
       "pickProb": 0.1340514077658627,
       "pickEdge": null,
       "pickRank": 1,
@@ -4306,7 +4306,7 @@
       "course": "Goodwood",
       "time": "14:25",
       "pick": "Wild Blossom",
-      "pickOdds": null,
+      "pickOdds": 2.25,
       "pickProb": 0.1324368450015061,
       "pickEdge": null,
       "pickRank": 1,
@@ -4325,7 +4325,7 @@
       "course": "Goodwood",
       "time": "15:00",
       "pick": "Flora Of Bermuda",
-      "pickOdds": null,
+      "pickOdds": 3.5,
       "pickProb": 0.09257234761948872,
       "pickEdge": null,
       "pickRank": 1,
@@ -4344,7 +4344,7 @@
       "course": "Goodwood",
       "time": "15:35",
       "pick": "Pershaada",
-      "pickOdds": null,
+      "pickOdds": 3.75,
       "pickProb": 0.11007953897373747,
       "pickEdge": null,
       "pickRank": 1,
@@ -4363,7 +4363,7 @@
       "course": "Goodwood",
       "time": "16:10",
       "pick": "Opera Ballo",
-      "pickOdds": null,
+      "pickOdds": 5.5,
       "pickProb": 0.11071040827613533,
       "pickEdge": null,
       "pickRank": 1,
@@ -5612,5 +5612,5 @@
       "isEwGem": false
     }
   ],
-  "updatedAt": "2026-07-30T11:27:31.078Z"
+  "updatedAt": "2026-07-30T13:58:52.719Z"
 }
