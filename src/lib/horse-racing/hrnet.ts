@@ -1308,13 +1308,22 @@ export async function fetchHrnResultsForDate(
   if (cached) return cached.races;
 
   const d = hrnDate(isoDate);
-  const index = await hrnFetch(`/results/${d}`);
-  if (!index) return [];
+  // Direct + HTML proxies; CI runner IPs are frequently blocked
+  let index = await hrnFetchRetry(`/results/${d}`);
+  if (!index && process.env.TAVILY_API_KEY) {
+    console.log(`  hrn results: index blocked — trying Tavily (${isoDate})`);
+    index = await tavilyExtractOne(`${HRN_BASE}/results/${d}`);
+  }
+  if (!index) {
+    console.warn(`  hrn results: index fetch failed for ${isoDate}`);
+    return [];
+  }
 
+  // Match hrefs in HTML and absolute URLs in proxy/Tavily markdown alike
   const slugs = [
     ...new Set(
       [...index.matchAll(
-        new RegExp(`href="/results/([a-z-]+)/${d}#`, "g")
+        new RegExp(`/results/([a-z-]+)/${d}\\b`, "g")
       )].map((m) => m[1])
     ),
   ];

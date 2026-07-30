@@ -154,14 +154,31 @@ export async function writePredictionLogFile(
   await writeFile(durablePath, body, "utf8");
 }
 
+/**
+ * Side logs accumulate across the day's exports — a degraded evening
+ * export (e.g. odds enrichment failed → zero confident picks) must never
+ * shrink or wipe ids captured by an earlier healthy export.
+ */
 async function writeSideLog(
   kind: "naps" | "confident",
   date: string,
-  body: string
+  ids: string[]
 ): Promise<void> {
   await mkdir(LEDGER_DIR, { recursive: true });
   await mkdir(DURABLE_DIR, { recursive: true });
   const name = `${kind}-${date}.json`;
+
+  const merged = new Set(ids);
+  for (const dir of [LEDGER_DIR, DURABLE_DIR]) {
+    try {
+      const raw = await readFile(path.join(dir, name), "utf8");
+      for (const id of JSON.parse(raw) as string[]) merged.add(id);
+    } catch {
+      // no existing log in this location
+    }
+  }
+
+  const body = JSON.stringify([...merged]);
   await writeFile(path.join(LEDGER_DIR, name), body, "utf8");
   await writeFile(path.join(DURABLE_DIR, name), body, "utf8");
 }
@@ -599,22 +616,14 @@ export async function saveNapLog(
   date: string,
   naps: RacingNapPick[]
 ): Promise<void> {
-  await writeSideLog(
-    "naps",
-    date,
-    JSON.stringify(naps.map((n) => n.raceId))
-  );
+  await writeSideLog("naps", date, naps.map((n) => n.raceId));
 }
 
 export async function saveConfidentLog(
   date: string,
   raceIds: string[]
 ): Promise<void> {
-  await writeSideLog(
-    "confident",
-    date,
-    JSON.stringify([...new Set(raceIds)])
-  );
+  await writeSideLog("confident", date, raceIds);
 }
 
 async function loadSideRaceIds(
@@ -622,15 +631,16 @@ async function loadSideRaceIds(
   date: string
 ): Promise<Set<string>> {
   const name = `${kind}-${date}.json`;
+  const ids = new Set<string>();
   for (const dir of [LEDGER_DIR, DURABLE_DIR]) {
     try {
       const raw = await readFile(path.join(dir, name), "utf8");
-      return new Set(JSON.parse(raw) as string[]);
+      for (const id of JSON.parse(raw) as string[]) ids.add(id);
     } catch {
       // try next
     }
   }
-  return new Set();
+  return ids;
 }
 
 async function loadNapRaceIds(date: string): Promise<Set<string>> {
