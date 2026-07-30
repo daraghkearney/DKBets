@@ -204,22 +204,38 @@ jobs:
           NEXT_PUBLIC_WORLD_CUP_FREE_UNTIL: "2026-07-20T23:59:59Z"
 
       # Commit pick logs + ledger so the next run never depends on Actions cache / Pages.
+      # Never block the Pages deploy on a concurrent push race — export already succeeded.
       - name: Persist racing performance to git
+        continue-on-error: true
         run: |
-          if [ -n "$(git status --porcelain data/racing-performance)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add data/racing-performance
-            git commit -m "$(cat <<'EOF'
+          if [ -z "$(git status --porcelain data/racing-performance)" ]; then
+            echo "No racing performance history changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/racing-performance
+          git commit -m "$(cat <<'EOF'
           Persist racing prediction logs and performance ledger.
 
           [skip ci]
           EOF
           )"
-            git push
-          else
-            echo "No racing performance history changes to commit"
-          fi
+          # Concurrent deploys often push the same path — rebase and retry.
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            if git pull --rebase origin main; then
+              if git push origin HEAD:main; then
+                echo "Persisted racing performance to git"
+                exit 0
+              fi
+            fi
+            echo "Persist push attempt $i failed — retrying"
+            sleep $((i * 3))
+            git rebase --abort 2>/dev/null || true
+          done
+          echo "::warning::Could not persist racing performance after retries (deploy continues)"
+          exit 1
 
       - name: Set base path
         id: base_path
