@@ -340,6 +340,10 @@ async function tavilyExtractBatch(
   return { ok, failed };
 }
 
+function tavilyLightMode(): boolean {
+  return process.env.HRN_TAVILY_LIGHT === "true";
+}
+
 /** Extract with smaller batches, then per-URL retries (advanced → basic). */
 async function tavilyExtractWithRetry(
   urls: string[]
@@ -348,6 +352,7 @@ async function tavilyExtractWithRetry(
   if (!urls.length || !process.env.TAVILY_API_KEY) return out;
 
   const pending = new Set(urls);
+  const light = tavilyLightMode();
 
   async function absorb(batch: Map<string, string>): Promise<void> {
     for (const [url, content] of batch) {
@@ -356,7 +361,7 @@ async function tavilyExtractWithRetry(
     }
   }
 
-  // Pass 1 — batched advanced
+  // Pass 1 — batched advanced (this alone is what used to work for CI)
   for (let i = 0; i < urls.length; i += TAVILY_BATCH) {
     const batch = urls.slice(i, i + TAVILY_BATCH);
     const { ok } = await tavilyExtractBatch(batch, "advanced");
@@ -366,32 +371,49 @@ async function tavilyExtractWithRetry(
     }
   }
 
-  // Pass 2 — individual advanced retries (up to 2 rounds)
-  for (let round = 0; round < 2 && pending.size; round++) {
-    const retry = [...pending];
-    console.log(
-      `  hrn tavily: retry ${round + 1} — ${retry.length} urls (advanced, single)`
-    );
-    for (const url of retry) {
-      const { ok } = await tavilyExtractBatch([url], "advanced");
-      await absorb(ok);
-      await new Promise((r) => setTimeout(r, 250));
+  if (light) {
+    // Hourly schedule: one cheap basic batch for leftovers — no per-URL storm
+    if (pending.size) {
+      const retry = [...pending];
+      console.log(
+        `  hrn tavily: light mode — basic batch for ${retry.length} leftovers`
+      );
+      for (let i = 0; i < retry.length; i += TAVILY_BATCH) {
+        const batch = retry.slice(i, i + TAVILY_BATCH);
+        const { ok } = await tavilyExtractBatch(batch, "basic");
+        await absorb(ok);
+      }
+    }
+  } else {
+    // Pass 2 — individual advanced retries (up to 2 rounds)
+    for (let round = 0; round < 2 && pending.size; round++) {
+      const retry = [...pending];
+      console.log(
+        `  hrn tavily: retry ${round + 1} — ${retry.length} urls (advanced, single)`
+      );
+      for (const url of retry) {
+        const { ok } = await tavilyExtractBatch([url], "advanced");
+        await absorb(ok);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+
+    // Pass 3 — basic depth for stubborn URLs
+    if (pending.size) {
+      const retry = [...pending];
+      console.log(`  hrn tavily: final pass — ${retry.length} urls (basic)`);
+      for (const url of retry) {
+        const { ok } = await tavilyExtractBatch([url], "basic");
+        await absorb(ok);
+        await new Promise((r) => setTimeout(r, 250));
+      }
     }
   }
 
-  // Pass 3 — basic depth for stubborn URLs
   if (pending.size) {
-    const retry = [...pending];
-    console.log(`  hrn tavily: final pass — ${retry.length} urls (basic)`);
-    for (const url of retry) {
-      const { ok } = await tavilyExtractBatch([url], "basic");
-      await absorb(ok);
-      await new Promise((r) => setTimeout(r, 250));
-    }
-  }
-
-  if (pending.size) {
-    const sample = [...pending].slice(0, 5).map((u) => u.split("/").slice(-3).join("/"));
+    const sample = [...pending]
+      .slice(0, 5)
+      .map((u) => u.split("/").slice(-3).join("/"));
     console.warn(
       `  hrn tavily: ${pending.size} urls still failed extract (e.g. ${sample.join(", ")})`
     );
@@ -1330,8 +1352,10 @@ export async function fetchHrnRacecards(
       }
 
       const stillAfterExtract = links.filter((l) => !raceByLink.has(l));
-      // Search fallback is expensive — only for a tiny remainder
-      const searchCap = Math.min(4, tavilyRaceCap());
+      // Search fallback is expensive — skip in light/hourly mode
+      const searchCap = tavilyLightMode()
+        ? 0
+        : Math.min(4, tavilyRaceCap());
       if (stillAfterExtract.length && searchCap > 0) {
         const searchTargets = stillAfterExtract.slice(0, searchCap);
         console.log(
