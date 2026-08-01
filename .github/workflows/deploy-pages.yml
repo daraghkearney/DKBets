@@ -41,11 +41,11 @@ jobs:
       HRN_FETCH_TOMORROW: ${{ github.event_name == 'workflow_dispatch' && inputs.web_research && 'true' || 'false' }}
       # Tavily is the free CI path when Actions IPs are blocked by HRN.
       # Always on — but light mode on hourly schedule (meetings first, tiny race cap).
-      HRN_ALLOW_TAVILY: "true"
-      # Light = no per-URL retry storm. Cap must cover a full UK/IRE day when
-      # meeting-page extracts come back as markdown (common) — 4 was far too low.
-      HRN_TAVILY_LIGHT: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
-      HRN_TAVILY_RACE_CAP: ${{ github.event_name == 'schedule' && '55' || '60' }}
+      HRN_ALLOW_TAVILY: ${{ github.event_name == 'schedule' && 'false' || 'true' }}
+      # Schedule must NOT burn Tavily until markdown parse is proven in a push deploy.
+      # Push / manual: full-day cap, light retries.
+      HRN_TAVILY_LIGHT: "true"
+      HRN_TAVILY_RACE_CAP: "55"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -830,13 +830,17 @@ function parseRacePageMarkdown(
   courseSlug: string,
   time: string
 ): HrnRace | null {
-  const racecardIdx = content.search(/^##\s*Racecard$/im);
+  // Prefer the Racecard section when present (Tavily/Jina markdown).
+  const racecardIdx = content.search(/^#{1,3}\s*Racecard\b/im);
   const slice = racecardIdx >= 0 ? content.slice(racecardIdx) : content;
 
   const verdictMatch =
-    slice.match(/## Racecard\s*\n+([^\n#][^\n]+)/i) ??
+    slice.match(/Racecard\s*\n+([^\n#][^\n]+)/i) ??
     slice.match(/Progressive[\s\S]{20,300}\./i);
-  const verdict = verdictMatch ? verdictMatch[0].replace(/^## Racecard\s*/i, "").trim() : "";
+  const verdict = verdictMatch
+    ? verdictMatch[1]?.trim() ??
+      verdictMatch[0].replace(/^#{0,3}\s*Racecard\s*/i, "").trim()
+    : "";
 
   const titleMatch =
     content.match(/##\s+[^\n]+\d{1,2}:\d{2}\s*\n+####\s+([^\n]+)/) ??
@@ -860,12 +864,23 @@ function parseRacePageMarkdown(
   const classMatch = content.match(/\bCL(\d)\b/i);
   const raceClass = classMatch ? `Class ${classMatch[1]}` : "";
 
-  const blocks = slice.split(/\n(?=\d+\(\d+\)\n)/).slice(1);
+  // Legacy layout: "1(3)\nform\nHorse"
+  const legacyBlocks = slice.split(/\n(?=\d+\(\d+\)\n)/).slice(1);
   const runners: HrnRunner[] = [];
-  for (const block of blocks) {
-    const runner = parseRunnerMarkdown(block);
-    if (runner && !runner.nonRunner) runners.push(runner);
+  if (legacyBlocks.length) {
+    for (const block of legacyBlocks) {
+      const runner = parseRunnerMarkdown(block);
+      if (runner && !runner.nonRunner) runners.push(runner);
+    }
   }
+
+  // Current Tavily/Jina layout: cloth#, optional form/tips, name, then "Jockey"
+  if (!runners.length) {
+    for (const runner of parseRunnersMarkdownV2(slice)) {
+      if (!runner.nonRunner) runners.push(runner);
+    }
+  }
+
   if (!runners.length) return null;
 
   return {
@@ -881,6 +896,175 @@ function parseRacePageMarkdown(
     verdictPicks: verdictPicksFrom(verdict),
     runners,
   };
+}
+
+/**
+ * Parse modern HRN markdown extracts where each runner looks like:
+ *   2
+ *   2 Tips
+ *   Columbus
+ *   82
+ *   Jockey
+ *   Paul Townend21%
+ *   ...
+ *   10/11
+ */
+function parseRunnersMarkdownV2(content: string): HrnRunner[] {
+  const lines = content.split(/\r?\n/).map((l) => l.trim());
+  const out: HrnRunner[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] !== "Jockey") continue;
+    if (!lines[i + 1]) continue;
+
+    // Walk back over days-since-run / tip lines to the horse name + cloth
+    let j = i - 1;
+    while (j >= 0 && (/^\d+$/.test(lines[j]!) || /^(?:\d+\s+)?(?:Tips?|Naps?)$/i.test(lines[j]!))) {
+      j--;
+    }
+    if (j < 0) continue;
+    const name = lines[j]!.replace(/\([^)]*\)/g, "").trim();
+    if (!name || name.length < 2 || name.length > 40) continue;
+    if (/^(jockey|trainer|age|weight|sort|stats|racecard|or:)/i.test(name)) {
+      continue;
+    }
+
+    let tipCount = 0;
+    let lastRanDays: number | null = null;
+    let form = "";
+    let number: number | null = null;
+
+    for (let k = j + 1; k < i; k++) {
+      const line = lines[k]!;
+      const tipsM = line.match(/^(\d+)\s+Tips?$/i);
+      if (tipsM) {
+        tipCount = Number(tipsM[1]);
+        continue;
+      }
+      if (/^(?:\d+\s+)?Naps?$/i.test(line)) continue;
+      if (/^\d+$/.test(line)) {
+        const n = Number(line);
+        // Days since run is usually the bare number immediately above Jockey
+        if (k === i - 1 && n >= 0 && n <= 999) lastRanDays = n;
+        continue;
+      }
+    }
+
+    // Cloth + form sit above the horse name
+    for (let k = j - 1; k >= Math.max(0, j - 4); k--) {
+      const line = lines[k]!;
+      if (/^\d+$/.test(line) && number == null) {
+        number = Number(line);
+        continue;
+      }
+      if (/^[\d\-/pfpux]+$/i.test(line) && line.length <= 12 && !form) {
+        form = line;
+        continue;
+      }
+      const tipsM = line.match(/^(\d+)\s+Tips?$/i);
+      if (tipsM) {
+        tipCount = Number(tipsM[1]);
+        continue;
+      }
+    }
+
+    const jockeyLine = lines[i + 1]!;
+    const jm = jockeyLine.match(/^(.+?)(?:\s+(\d+)%)?$/);
+    const jockey = (jm?.[1] ?? jockeyLine).replace(/\([^)]*\)/g, "").trim();
+    const jockeyPct = jm?.[2] != null ? Number(jm[2]) : null;
+
+    let trainer = "";
+    let trainerPct: number | null = null;
+    let age: number | null = null;
+    let weight = "";
+    let officialRating: number | null = null;
+    let rpr: number | null = null;
+    let topspeed: number | null = null;
+    let odds: number | null = null;
+    const tippedBy: string[] = [];
+    const spotlightParts: string[] = [];
+
+    for (let k = i + 2; k < Math.min(lines.length, i + 40); k++) {
+      const line = lines[k]!;
+      if (line === "Jockey") break; // next runner
+      if (line === "Trainer" && lines[k + 1]) {
+        const tm = lines[k + 1]!.match(/^(.+?)(?:\s+(\d+)%)?$/);
+        trainer = (tm?.[1] ?? lines[k + 1]!).trim();
+        trainerPct = tm?.[2] != null ? Number(tm[2]) : null;
+        k++;
+        continue;
+      }
+      const ageM = line.match(/^Age:\s*(\d+)/i);
+      if (ageM) {
+        age = Number(ageM[1]);
+        continue;
+      }
+      const wtM = line.match(/^Weight:\s*(.+)$/i);
+      if (wtM) {
+        weight = wtM[1].trim();
+        continue;
+      }
+      const ratM = line.match(
+        /^(?:OR:\s*([\d-]+)?,?\s*)?RPR:\s*([\d-]+),?\s*Topspeed:\s*([\d-]+)/i
+      );
+      if (ratM) {
+        const or = ratM[1] ? Number(ratM[1]) : NaN;
+        officialRating = Number.isFinite(or) && or > 0 ? or : null;
+        const r = Number(ratM[2]);
+        const t = Number(ratM[3]);
+        rpr = Number.isFinite(r) && r > 0 ? r : null;
+        topspeed = Number.isFinite(t) && t > 0 ? t : null;
+        continue;
+      }
+      if (!odds) {
+        const frac = line.match(/^(\d{1,3}\s*\/\s*\d{1,3})$/);
+        if (frac) {
+          odds = fracToDecimal(frac[1]!.replace(/\s+/g, ""));
+          continue;
+        }
+      }
+      if (
+        line &&
+        !/^\d+\s*\/\s*\d+/.test(line) &&
+        !/^EW\b/i.test(line) &&
+        line.length > 12 &&
+        !/^(OR:|RPR:|Age:|Weight:)/i.test(line)
+      ) {
+        spotlightParts.push(line);
+      }
+    }
+
+    if (!odds) continue; // worthless for enrichment — skip credit-wasting shells
+
+    const spotlight = spotlightParts.join(" ").trim();
+    const ptr = pointersFromSpotlight(spotlight);
+    out.push({
+      name,
+      number,
+      draw: null,
+      form,
+      lastRanDays,
+      jockey,
+      jockeyPct,
+      trainer,
+      trainerPct,
+      age,
+      weight,
+      odds,
+      officialRating,
+      rpr,
+      topspeed,
+      tipCount: tipCount || tippedBy.length,
+      tippedBy,
+      courseWinner: ptr.courseWinner,
+      distanceWinner: ptr.distanceWinner,
+      wonLastTimeOut: ptr.wonLastTimeOut,
+      spotlight,
+      nonRunner: false,
+    });
+  }
+
+  return out;
 }
 
 // ------------------------------------------------------------ cards parsing
@@ -1137,7 +1321,7 @@ async function parseLinksToRaces(
     const content = contentByNormalizedUrl(contents, url);
     if (!content) continue;
     const race = parseRacePage(content, slug, time);
-    if (race?.runners.length) {
+    if (race?.runners.length && raceOddsRate(race) >= ODDS_COVERAGE_OK) {
       races.push(race);
       await saveRaceToCache(isoDate, race);
     } else {
@@ -1366,12 +1550,14 @@ export async function fetchHrnRacecards(
           }
         }
         for (const race of races) {
+          if (raceOddsRate(race) < ODDS_COVERAGE_OK) continue;
           raceByLink.set(`${race.courseSlug}|${race.time}`, race);
           await saveRaceToCache(isoDate, race);
         }
         if (races.length) {
+          const kept = races.filter((r) => raceOddsRate(r) >= ODDS_COVERAGE_OK);
           console.log(
-            `  hrn tavily: meeting ${slug} → ${races.length}/${times.length} races`
+            `  hrn tavily: meeting ${slug} → ${kept.length}/${times.length} races with odds`
           );
         }
       }
@@ -1400,6 +1586,7 @@ export async function fetchHrnRacecards(
           contents
         );
         for (const race of parsed) {
+          if (raceOddsRate(race) < ODDS_COVERAGE_OK) continue;
           raceByLink.set(`${race.courseSlug}|${race.time}`, race);
         }
       }
