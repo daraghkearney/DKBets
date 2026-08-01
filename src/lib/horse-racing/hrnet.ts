@@ -18,7 +18,7 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 const CACHE_DIR = path.join(process.cwd(), ".cache", "racing-hrnet");
-const CARDS_CACHE_VERSION = "v11";
+const CARDS_CACHE_VERSION = "v12";
 /** Soft TTL — used for sparse / odds-thin scrapes that should be retried soon. */
 const CARDS_TTL_MS = 30 * 60 * 1000;
 /**
@@ -112,7 +112,11 @@ export interface HrnResultRace {
 // ------------------------------------------------------------------ helpers
 
 function isHtmlContent(content: string): boolean {
-  return /<div\s+data-tip=|<h4 class="chase-title">/i.test(content);
+  return (
+    /<div\s+data-tip=/i.test(content) ||
+    /<h4 class="chase-title">/i.test(content) ||
+    /data-oddsdecimal="/i.test(content)
+  );
 }
 
 function isCloudflareChallenge(content: string): boolean {
@@ -290,6 +294,39 @@ interface TavilyExtractResponse {
   failed_results?: { url: string; error?: string }[];
 }
 
+/** Normalize HRN URLs so Tavily result keys match our request URLs. */
+function normalizeHrnUrl(url: string): string {
+  try {
+    const u = new URL(url.trim());
+    u.hash = "";
+    u.search = "";
+    let path = u.pathname.replace(/\/+$/, "") || "";
+    return `${u.protocol}//${u.host}${path}`.toLowerCase();
+  } catch {
+    return url.trim().replace(/\/+$/, "").toLowerCase();
+  }
+}
+
+function contentByNormalizedUrl(
+  contents: Map<string, string>,
+  wantedUrl: string
+): string | undefined {
+  const direct = contents.get(wantedUrl);
+  if (direct) return direct;
+  const want = normalizeHrnUrl(wantedUrl);
+  for (const [url, content] of contents) {
+    if (normalizeHrnUrl(url) === want) return content;
+  }
+  // Fallback: match by course slug + date path segment
+  const m = want.match(/horseracing\.net\/([a-z0-9-]+)\/(\d{2}-\d{2}-\d{2})/);
+  if (!m) return undefined;
+  const needle = `/${m[1]}/${m[2]}`;
+  for (const [url, content] of contents) {
+    if (normalizeHrnUrl(url).includes(needle)) return content;
+  }
+  return undefined;
+}
+
 type TavilyDepth = "basic" | "advanced";
 
 async function tavilyExtractBatch(
@@ -319,15 +356,25 @@ async function tavilyExtractBatch(
       return { ok, failed };
     }
     const data = (await res.json()) as TavilyExtractResponse;
+    // Index results by normalized URL, and also under each requested URL
+    const byNorm = new Map<string, string>();
     for (const row of data.results ?? []) {
       if (row.raw_content && row.raw_content.length >= TAVILY_MIN_CONTENT) {
+        byNorm.set(normalizeHrnUrl(row.url), row.raw_content);
         ok.set(row.url, row.raw_content);
       } else if (row.url) {
         failed.set(row.url, "content too short");
       }
     }
+    for (const url of urls) {
+      const hit = byNorm.get(normalizeHrnUrl(url));
+      if (hit) {
+        ok.set(url, hit);
+        failed.delete(url);
+      }
+    }
     for (const row of data.failed_results ?? []) {
-      failed.set(row.url, row.error ?? "extract failed");
+      if (!ok.has(row.url)) failed.set(row.url, row.error ?? "extract failed");
     }
     for (const url of urls) {
       if (!ok.has(url) && !failed.has(url)) failed.set(url, "no result");
@@ -1087,10 +1134,10 @@ async function parseLinksToRaces(
   for (const link of links) {
     const [slug, time] = link.split("|");
     const url = linkToUrl(d, link);
-    const content = contents.get(url);
+    const content = contentByNormalizedUrl(contents, url);
     if (!content) continue;
     const race = parseRacePage(content, slug, time);
-    if (race) {
+    if (race?.runners.length) {
       races.push(race);
       await saveRaceToCache(isoDate, race);
     } else {
@@ -1305,21 +1352,27 @@ export async function fetchHrnRacecards(
       const meetingContents = await tavilyExtractWithRetry(meetingUrls);
       extracted += meetingContents.size;
       for (const [slug, times] of missingByCourse) {
-        const content = meetingContents.get(`${HRN_BASE}/${slug}/${d}`);
+        const content = contentByNormalizedUrl(
+          meetingContents,
+          `${HRN_BASE}/${slug}/${d}`
+        );
         if (!content) continue;
-        const races = parseMeetingPage(content, slug, new Set(times));
+        let races = parseMeetingPage(content, slug, new Set(times));
+        // Tavily often returns markdown — fall back to per-time race parse
+        if (!races.length) {
+          for (const time of times) {
+            const race = parseRacePage(content, slug, time);
+            if (race?.runners.length) races.push(race);
+          }
+        }
         for (const race of races) {
           raceByLink.set(`${race.courseSlug}|${race.time}`, race);
           await saveRaceToCache(isoDate, race);
         }
-        // Also try whole-page HTML race parse if meeting sections missing
-        if (!races.length && isHtmlContent(content)) {
-          for (const time of times) {
-            const race = parseRacePage(content, slug, time);
-            if (!race) continue;
-            raceByLink.set(`${race.courseSlug}|${race.time}`, race);
-            await saveRaceToCache(isoDate, race);
-          }
+        if (races.length) {
+          console.log(
+            `  hrn tavily: meeting ${slug} → ${races.length}/${times.length} races`
+          );
         }
       }
 

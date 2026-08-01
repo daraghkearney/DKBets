@@ -42,8 +42,10 @@ jobs:
       # Tavily is the free CI path when Actions IPs are blocked by HRN.
       # Always on — but light mode on hourly schedule (meetings first, tiny race cap).
       HRN_ALLOW_TAVILY: "true"
+      # Light = no per-URL retry storm. Cap must cover a full UK/IRE day when
+      # meeting-page extracts come back as markdown (common) — 4 was far too low.
       HRN_TAVILY_LIGHT: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
-      HRN_TAVILY_RACE_CAP: ${{ github.event_name == 'schedule' && '4' || '12' }}
+      HRN_TAVILY_RACE_CAP: ${{ github.event_name == 'schedule' && '55' || '60' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
