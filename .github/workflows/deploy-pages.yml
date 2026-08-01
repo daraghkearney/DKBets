@@ -39,11 +39,11 @@ jobs:
       REFRESH_BET365_ODDS: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.refresh_odds) }}
       REFRESH_WEB_RESEARCH: ${{ github.event_name == 'schedule' && 'false' || (github.event_name == 'workflow_dispatch' && !inputs.web_research && 'false') || 'true' }}
       HRN_FETCH_TOMORROW: ${{ github.event_name == 'workflow_dispatch' && inputs.web_research && 'true' || 'false' }}
-      # Tavily is the free CI path when Actions IPs are blocked by HRN.
-      # Always on — but light mode on hourly schedule (meetings first, tiny race cap).
+      # GitHub Actions IPs are Cloudflare-blocked on HorseRacing.net.
+      # Hourly schedule: do NOT scrape / burn Tavily — keep last good / git seed.
+      # Push + manual: allow Tavily as last-resort enrichment.
       HRN_ALLOW_TAVILY: ${{ github.event_name == 'schedule' && 'false' || 'true' }}
-      # Schedule must NOT burn Tavily until markdown parse is proven in a push deploy.
-      # Push / manual: full-day cap, light retries.
+      HRN_SKIP_SCRAPE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
       HRN_TAVILY_LIGHT: "true"
       HRN_TAVILY_RACE_CAP: "55"
     steps:

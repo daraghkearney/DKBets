@@ -135,46 +135,53 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     }
 
     if (day.offset <= (process.env.HRN_FETCH_TOMORROW === "true" ? 1 : 0)) {
-      try {
-        const courseFilter = races.length
-          ? [...new Set(races.map((r) => courseSlug(r.course)))]
-          : undefined;
-        const seedLinks = races.length ? hrnLinksFromRaces(races) : undefined;
-        const { races: hrn, stats: hrnStats } = await fetchHrnRacecards(
-          day.date,
-          courseFilter,
-          seedLinks
-        );
-        if (hrn.length) {
-          anyHrn = true;
-          if (races.length && races.some((r) => r.runners.length)) {
-            const { races: rm, runners: um } = mergeHrnIntoRaces(races, hrn);
-            const scrapeNote = `scraped ${hrnStats.parsed}/${hrnStats.links} (${hrnStats.fetchMode}${hrnStats.cached ? `, ${hrnStats.cached} cached` : ""})`;
-            hrnNotes.push(
-              `${day.date}: ${rm}/${races.length} merged, ${um} runners · ${scrapeNote}`
-            );
-            console.log(
-              `  hrn merge: ${day.date} — ${rm}/${races.length} races, ${um} runners`
-            );
+      if (process.env.HRN_SKIP_SCRAPE === "true") {
+        hrnNotes.push(`${day.date}: scrape skipped (HRN_SKIP_SCRAPE)`);
+        console.log(`  hrn cards: skipped for ${day.date} (HRN_SKIP_SCRAPE)`);
+      } else {
+        try {
+          const courseFilter = races.length
+            ? [...new Set(races.map((r) => courseSlug(r.course)))]
+            : undefined;
+          const seedLinks = races.length ? hrnLinksFromRaces(races) : undefined;
+          const { races: hrn, stats: hrnStats } = await fetchHrnRacecards(
+            day.date,
+            courseFilter,
+            seedLinks
+          );
+          if (hrn.length) {
+            anyHrn = true;
+            if (races.length && races.some((r) => r.runners.length)) {
+              const { races: rm, runners: um } = mergeHrnIntoRaces(races, hrn);
+              const scrapeNote = `scraped ${hrnStats.parsed}/${hrnStats.links} (${hrnStats.fetchMode}${hrnStats.cached ? `, ${hrnStats.cached} cached` : ""})`;
+              hrnNotes.push(
+                `${day.date}: ${rm}/${races.length} merged, ${um} runners · ${scrapeNote}`
+              );
+              console.log(
+                `  hrn merge: ${day.date} — ${rm}/${races.length} races, ${um} runners`
+              );
+            } else {
+              races = racesFromHrn(hrn, day.date);
+              hrnNotes.push(
+                `${day.date}: built ${races.length} races from scrape`
+              );
+              console.log(
+                `  hrn cards: ${day.date} — built ${races.length} races from scrape`
+              );
+            }
           } else {
-            races = racesFromHrn(hrn, day.date);
-            hrnNotes.push(`${day.date}: built ${races.length} races from scrape`);
-            console.log(
-              `  hrn cards: ${day.date} — built ${races.length} races from scrape`
+            hrnNotes.push(
+              `${day.date}: scrape 0/${hrnStats.links} (${hrnStats.fetchMode})` +
+                (hrnStats.failedSamples.length
+                  ? ` · failed: ${hrnStats.failedSamples.join(", ")}`
+                  : "")
             );
           }
-        } else {
-          hrnNotes.push(
-            `${day.date}: scrape 0/${hrnStats.links} (${hrnStats.fetchMode})` +
-              (hrnStats.failedSamples.length
-                ? ` · failed: ${hrnStats.failedSamples.join(", ")}`
-                : "")
-          );
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          hrnNotes.push(`${day.date}: failed (${msg})`);
+          console.warn(`  hrn cards: failed for ${day.date}`, e);
         }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        hrnNotes.push(`${day.date}: failed (${msg})`);
-        console.warn(`  hrn cards: failed for ${day.date}`, e);
       }
     }
 

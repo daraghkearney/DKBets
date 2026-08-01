@@ -117,17 +117,43 @@ export function mergeKeptRacingCalendar(
   };
 }
 
+async function loadCalendarFile(
+  filePath: string
+): Promise<RacingCalendarPayload | null> {
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as RacingCalendarPayload;
+    return parsed?.days?.length ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Local seed written by `scripts/seed-racing-odds-local.ts` (non-blocked IP). */
+export function racingCalendarSeedPath(cwd = process.cwd()): string {
+  return path.join(cwd, "data", "racing-cards", "calendar-seed.json");
+}
+
+function pickRicherCalendar(
+  candidates: RacingCalendarPayload[]
+): RacingCalendarPayload | null {
+  const usable = candidates.filter((c) => c?.days?.length);
+  if (!usable.length) return null;
+  return usable.reduce((best, cur) => {
+    const a = calendarOddsCoverage(best);
+    const b = calendarOddsCoverage(cur);
+    if (a.date && b.date && a.date === b.date) {
+      return b.withOdds > a.withOdds ? cur : best;
+    }
+    return b.withOdds > a.withOdds ? cur : best;
+  });
+}
+
 export async function loadPreviousRacingCalendar(
   localPath: string
 ): Promise<RacingCalendarPayload | null> {
-  let local: RacingCalendarPayload | null = null;
-  try {
-    const raw = await readFile(localPath, "utf8");
-    const parsed = JSON.parse(raw) as RacingCalendarPayload;
-    if (parsed?.days?.length) local = parsed;
-  } catch {
-    // fall through to live site
-  }
+  const local = await loadCalendarFile(localPath);
+  const seed = await loadCalendarFile(racingCalendarSeedPath());
 
   let live: RacingCalendarPayload | null = null;
   const base = performanceMirrorBase();
@@ -150,17 +176,10 @@ export async function loadPreviousRacingCalendar(
     }
   }
 
-  // Prefer whichever same-day snapshot has more live odds
-  if (local && live) {
-    const a = calendarOddsCoverage(local);
-    const b = calendarOddsCoverage(live);
-    if (a.date && a.date === b.date) {
-      return b.withOdds > a.withOdds ? live : local;
-    }
-  }
-  // Live site is the deployed truth in CI (checkout has no public calendar)
-  if (live) return live;
-  return local;
+  // Prefer the same-day snapshot with the most live odds (seed wins when CI is blind)
+  return pickRicherCalendar(
+    [local, seed, live].filter((c): c is RacingCalendarPayload => c != null)
+  );
 }
 
 export function publicCalendarPath(cwd = process.cwd()): string {
