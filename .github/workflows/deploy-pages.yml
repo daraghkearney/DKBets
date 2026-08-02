@@ -38,11 +38,14 @@ jobs:
     env:
       REFRESH_BET365_ODDS: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.refresh_odds) }}
       REFRESH_WEB_RESEARCH: ${{ github.event_name == 'schedule' && 'false' || (github.event_name == 'workflow_dispatch' && !inputs.web_research && 'false') || 'true' }}
-      HRN_FETCH_TOMORROW: ${{ github.event_name == 'workflow_dispatch' && inputs.web_research && 'true' || 'false' }}
+      # Always enrich tomorrow when we scrape so midnight rollover has odds.
+      # Set false only for emergency today-only recovery.
+      HRN_FETCH_TOMORROW: "true"
       # GitHub Actions IPs are Cloudflare-blocked on HorseRacing.net.
-      # Hourly schedule: do NOT scrape / burn Tavily — keep last good / git seed.
-      # Push + manual: allow Tavily as last-resort enrichment.
-      HRN_ALLOW_TAVILY: ${{ github.event_name == 'schedule' && 'false' || 'true' }}
+      # Hourly schedule: prefer skip when git seed / prior already has healthy
+      # same-day odds (see shouldSkipHrnScrape). If prior is thin (e.g. day
+      # rollover), scrape is forced and Tavily is allowed as last resort.
+      HRN_ALLOW_TAVILY: "true"
       HRN_SKIP_SCRAPE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
       HRN_TAVILY_LIGHT: "true"
       HRN_TAVILY_RACE_CAP: "55"
@@ -207,20 +210,22 @@ jobs:
           NEXT_PUBLIC_WORLD_CUP_FREE_ENABLED: "false"
           NEXT_PUBLIC_WORLD_CUP_FREE_UNTIL: "2026-07-20T23:59:59Z"
 
-      # Commit pick logs + ledger so the next run never depends on Actions cache / Pages.
+      # Commit pick logs + ledger + odds seed so the next run never depends on
+      # Actions cache / Pages. Seed is critical after day rollover when schedule
+      # skips Cloudflare-blocked HorseRacing.net scrapes.
       # Never block the Pages deploy on a concurrent push race — export already succeeded.
       - name: Persist racing performance to git
         continue-on-error: true
         run: |
-          if [ -z "$(git status --porcelain data/racing-performance)" ]; then
-            echo "No racing performance history changes to commit"
+          if [ -z "$(git status --porcelain data/racing-performance data/racing-cards)" ]; then
+            echo "No racing performance/seed changes to commit"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/racing-performance
+          git add data/racing-performance data/racing-cards
           git commit -m "$(cat <<'EOF'
-          Persist racing prediction logs and performance ledger.
+          Persist racing prediction logs, performance ledger, and odds seed.
 
           [skip ci]
           EOF
@@ -230,7 +235,7 @@ jobs:
             git fetch origin main
             if git pull --rebase origin main; then
               if git push origin HEAD:main; then
-                echo "Persisted racing performance to git"
+                echo "Persisted racing performance/seed to git"
                 exit 0
               fi
             fi

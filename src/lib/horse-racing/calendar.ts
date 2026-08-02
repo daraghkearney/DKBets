@@ -19,8 +19,10 @@ import {
 } from "./performance-ledger";
 import {
   calendarOddsCoverage,
+  coverageForDate,
   loadPreviousRacingCalendar,
   publicCalendarPath,
+  shouldSkipHrnScrape,
 } from "./calendar-quality";
 import {
   annotateRacePickTiers,
@@ -134,10 +136,42 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
       debugNotes.push(`${day.date}: no racing API credentials`);
     }
 
-    if (day.offset <= (process.env.HRN_FETCH_TOMORROW === "true" ? 1 : 0)) {
-      if (process.env.HRN_SKIP_SCRAPE === "true") {
-        hrnNotes.push(`${day.date}: scrape skipped (HRN_SKIP_SCRAPE)`);
-        console.log(`  hrn cards: skipped for ${day.date} (HRN_SKIP_SCRAPE)`);
+    // Default: enrich today + tomorrow so midnight rollover still has odds.
+    // Set HRN_FETCH_TOMORROW=false to scrape today only.
+    const fetchThrough = process.env.HRN_FETCH_TOMORROW === "false" ? 0 : 1;
+    if (day.offset <= fetchThrough) {
+      const skip = await shouldSkipHrnScrape(day.date);
+      if (skip) {
+        // Hydrate priced runners from seed/prior BEFORE scoring so naps and
+        // market factors aren't computed on an odds-empty Racing API card.
+        const prior = await loadPreviousRacingCalendar(
+          publicCalendarPath(),
+          day.date
+        );
+        const priorDay = prior?.days.find((d) => d.date === day.date);
+        const priorCov = coverageForDate(
+          prior ?? { days: [], source: "", sourceLabel: "", exportedAt: "", tipsters: [] },
+          day.date
+        );
+        const apiWithOdds = races
+          .flatMap((r) => r.runners)
+          .filter((r) => r.odds != null && r.odds > 1).length;
+        if (priorDay && priorCov.withOdds > apiWithOdds) {
+          races = priorDay.meetings.flatMap((m) =>
+            m.races.map((r) => ({ ...r, date: day.date }))
+          );
+          anyHrn = true;
+          hrnNotes.push(
+            `${day.date}: scrape skipped — hydrated ${priorCov.withOdds}/${priorCov.runners} priced runners from prior/seed`
+          );
+          console.log(
+            `  hrn cards: ${day.date} — hydrated ${priorCov.withOdds}/${priorCov.runners} from prior/seed`
+          );
+        } else {
+          hrnNotes.push(
+            `${day.date}: scrape skipped (healthy prior / HRN_SKIP_SCRAPE)`
+          );
+        }
       } else {
         try {
           const courseFilter = races.length
@@ -343,11 +377,13 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
   if (todayIso && todayRaces.some((r) => r.runners.length)) {
     let skipLog = false;
     try {
-      const prev = await loadPreviousRacingCalendar(publicCalendarPath());
+      const prev = await loadPreviousRacingCalendar(
+        publicCalendarPath(),
+        todayIso
+      );
       if (prev) {
-        const prevCov = calendarOddsCoverage(prev);
+        const prevCov = coverageForDate(prev, todayIso);
         if (
-          prevCov.date === todayIso &&
           prevCov.withOdds > 0 &&
           (todayWithOdds === 0 ||
             prevCov.withOdds >= todayWithOdds + 3 ||

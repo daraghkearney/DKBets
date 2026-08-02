@@ -37,6 +37,7 @@ import {
   calendarOddsCoverage,
   loadPreviousRacingCalendar,
   mergeKeptRacingCalendar,
+  persistRacingCalendarSeed,
   publicCalendarPath,
   shouldPreferPreviousCalendar,
 } from "../src/lib/horse-racing/calendar-quality";
@@ -306,17 +307,23 @@ async function main() {
     }
 
     if (shouldPreferPreviousCalendar(calendar, previous)) {
+      const date = calendar.days[0]?.date;
       const nextCov = calendarOddsCoverage(calendar);
       const prevCov = calendarOddsCoverage(previous!);
       console.warn(
-        `  racing calendar: keeping previous export for ${prevCov.date} ` +
-          `(new odds ${nextCov.withOdds}/${nextCov.runners}, ` +
-          `prior ${prevCov.withOdds}/${prevCov.runners})`
+        `  racing calendar: keeping previous same-day odds for ${date ?? "?"} ` +
+          `(new ${nextCov.withOdds}/${nextCov.runners}, ` +
+          `prior snapshot first-day ${prevCov.withOdds}/${prevCov.runners})`
       );
       calendar = mergeKeptRacingCalendar(previous!, calendar);
     }
 
     await writeJson("horse-racing/todays-races/calendar.json", calendar);
+    try {
+      await persistRacingCalendarSeed(calendar);
+    } catch (e) {
+      console.warn("  racing calendar: failed to persist seed", e);
+    }
     const dayCount = calendar.days.filter((d) => d.meetings.length).length;
     console.log(
       `  racing calendar: ${dayCount} days with meetings, ${calendar.tipsters.length} tipsters` +
