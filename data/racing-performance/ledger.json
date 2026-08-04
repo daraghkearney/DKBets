@@ -6225,7 +6225,7 @@
       "course": "Goodwood",
       "time": "13:50",
       "pick": "Valiancy",
-      "pickOdds": null,
+      "pickOdds": 4,
       "pickProb": 0.06330432168359039,
       "pickEdge": null,
       "pickRank": 1,
@@ -6263,7 +6263,7 @@
       "course": "Goodwood",
       "time": "15:00",
       "pick": "Indalo",
-      "pickOdds": null,
+      "pickOdds": 4,
       "pickProb": 0.05490735783754962,
       "pickEdge": null,
       "pickRank": 1,
@@ -6282,7 +6282,7 @@
       "course": "Goodwood",
       "time": "15:35",
       "pick": "Spicy Marg",
-      "pickOdds": null,
+      "pickOdds": 10,
       "pickProb": 0.07780575763461749,
       "pickEdge": null,
       "pickRank": 1,
@@ -6301,7 +6301,7 @@
       "course": "Goodwood",
       "time": "16:10",
       "pick": "Dividend",
-      "pickOdds": null,
+      "pickOdds": 15,
       "pickProb": 0.12363243981473057,
       "pickEdge": null,
       "pickRank": 1,
@@ -6320,7 +6320,7 @@
       "course": "Goodwood",
       "time": "16:45",
       "pick": "Jaijai",
-      "pickOdds": null,
+      "pickOdds": 19,
       "pickProb": 0.06349401598626299,
       "pickEdge": null,
       "pickRank": 1,
@@ -8329,5 +8329,5 @@
       "isEwGem": false
     }
   ],
-  "updatedAt": "2026-08-04T09:59:01.395Z"
+  "updatedAt": "2026-08-04T12:21:00.327Z"
 }
