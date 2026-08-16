@@ -218,6 +218,13 @@ async function exportSampleMode(
 }
 
 async function main() {
+  // Optional football competition id (e.g. `premier-league`) to export only
+  // that competition's data and skip the NBA / horse-racing sections.
+  const onlyCompetition = process.argv[2];
+  if (onlyCompetition) {
+    console.log(`Exporting only football competition: ${onlyCompetition}`);
+  }
+
   console.log("Exporting live data to public/data/ …");
   await mkdir(ROOT, { recursive: true });
 
@@ -232,7 +239,10 @@ async function main() {
     exportedAt: new Date().toISOString(),
   });
 
-  for (const competition of liveFootballCompetitions()) {
+  const competitions = liveFootballCompetitions().filter(
+    (c) => !onlyCompetition || c.id === onlyCompetition
+  );
+  for (const competition of competitions) {
     console.log(`\n=== Football: ${competition.label} ===`);
     setActiveFootballCompetition(competition.id);
     for (const mode of SAMPLE_MODES) {
@@ -267,6 +277,11 @@ async function main() {
     })),
     exportedAt: new Date().toISOString(),
   });
+
+  if (onlyCompetition) {
+    console.log("\nDone (football-only export).");
+    return;
+  }
 
   console.log("\n  [nba] exporting NBA.com stats …");
   try {

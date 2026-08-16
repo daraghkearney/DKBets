@@ -52,6 +52,9 @@ export const FOOTBALL_COMPETITIONS: FootballCompetitionMeta[] = [
     oddsApiLeague: PRIMARY_ODDS_API_LEAGUE,
     live: true,
     dataRoot: "legacy",
+    // Community Shield (e.g. Arsenal v Man City) is a separate FotMob
+    // competition (id 247), not under league id 47 — pull it from the date feed.
+    dateFixtureNamePattern: /^community shield/i,
   },
   {
     id: CHAMPIONS_LEAGUE_COMPETITION_ID,
