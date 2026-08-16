@@ -59,12 +59,13 @@ jobs:
           node-version: "20"
           cache: npm
 
+      # run_id key: a static key is only saved once, freezing the first snapshot
       - name: Restore Bet365 odds cache
         uses: actions/cache@v4
         with:
           path: .cache/bet365-live-odds.json
-          key: bet365-live-v6
-          restore-keys: bet365-live-v
+          key: bet365-live-v7-${{ github.run_id }}
+          restore-keys: bet365-live-v7-
 
       - name: Restore web research cache
         uses: actions/cache@v4

@@ -54,7 +54,7 @@ async function loadDeployedBet365Prices(): Promise<Bet365LiveBundle | null> {
 }
 
 async function resolveLiveOdds(
-  fixtures: { id: number; home: string; away: string }[]
+  fixtures: { id: number; home: string; away: string; kickoff?: string }[]
 ): Promise<Bet365LiveBundle> {
   const empty: Bet365LiveBundle = { quotes: new Map(), eventUrls: new Map() };
   if (!process.env.ODDS_API_IO_KEY) return empty;
@@ -114,7 +114,12 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
   const teamHistory = getTeamHistory();
   const apiConfigured = Boolean(process.env.ODDS_API_IO_KEY);
   const liveBundle = await resolveLiveOdds(
-    fixtures.map((f) => ({ id: f.id, home: f.home, away: f.away }))
+    fixtures.map((f) => ({
+      id: f.id,
+      home: f.home,
+      away: f.away,
+      kickoff: f.kickoff,
+    }))
   );
 
   if (apiConfigured) {

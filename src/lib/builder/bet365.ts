@@ -20,6 +20,8 @@ export interface FixtureRef {
   id: number;
   home: string;
   away: string;
+  /** ISO kickoff — enables the cross-league event lookup for cup fixtures */
+  kickoff?: string;
 }
 
 function oddsApiLeague(): string {
@@ -305,14 +307,38 @@ function playersMatch(apiPlayer: string, statsPlayer: string): boolean {
   return false;
 }
 
+/** Canonical forms for names that differ between FotMob and bookmaker feeds. */
+const TEAM_ALIASES: Record<string, string> = {
+  "united states": "usa",
+  "manchester city": "man city",
+  "manchester united": "man united",
+  "man utd": "man united",
+  "tottenham hotspur": "tottenham",
+  spurs: "tottenham",
+  "wolverhampton wanderers": "wolves",
+  wolverhampton: "wolves",
+  "nottingham forest": "nottm forest",
+  "brighton and hove albion": "brighton",
+  "brighton hove albion": "brighton",
+  "west ham united": "west ham",
+  "newcastle united": "newcastle",
+  "leeds united": "leeds",
+  "afc bournemouth": "bournemouth",
+  "leicester city": "leicester",
+};
+
 export function normTeam(team: string): string {
-  const t = team.trim().toLowerCase().replace(/\./g, "");
-  if (t === "united states") return "usa";
-  return t
+  const t = team
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
     .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+fc$/, "")
     .trim();
+  return TEAM_ALIASES[t] ?? t;
 }
 
 /** Strip Bet365 line/market suffixes from player labels ("Haaland 2", "Magalhaes Booked"). */
@@ -617,22 +643,77 @@ async function resolveOddsApiEvents(
   leagueUrl.searchParams.set("limit", "500");
 
   const leagueEvents = await fetchJson(leagueUrl);
-  if (!Array.isArray(leagueEvents)) return out;
-
-  for (const fx of fixtures) {
-    const hit = leagueEvents.find((ev) => teamsMatch(fx.home, fx.away, ev));
-    if (hit?.id) out.set(fx.id, Number(hit.id));
+  if (Array.isArray(leagueEvents)) {
+    for (const fx of fixtures) {
+      const hit = leagueEvents.find((ev) => teamsMatch(fx.home, fx.away, ev));
+      if (hit?.id) out.set(fx.id, Number(hit.id));
+    }
   }
 
-  const unmatched = fixtures.filter((fx) => !out.has(fx.id));
+  await resolveCrossLeagueEvents(key, fixtures, out);
+
+  const unmatched = imminentFixtures(fixtures).filter((fx) => !out.has(fx.id));
   if (unmatched.length) {
     console.warn(
-      `  bet365 live: ${unmatched.length} fixture(s) not in odds-api.io league list:`,
+      `  bet365 live: ${unmatched.length} imminent fixture(s) not in odds-api.io league list:`,
       unmatched.map((fx) => `${fx.home} v ${fx.away}`).join(", ")
     );
   }
 
   return out;
+}
+
+/** Unmatched fixtures kicking off soon enough for odds-api.io to list them. */
+function imminentFixtures(fixtures: FixtureRef[]): FixtureRef[] {
+  const now = Date.now();
+  const PAST_GRACE_MS = 12 * 60 * 60 * 1000;
+  const LOOKAHEAD_MS = 7 * 24 * 60 * 60 * 1000;
+  return fixtures.filter((fx) => {
+    const ts = Date.parse(fx.kickoff ?? "");
+    if (!Number.isFinite(ts)) return false;
+    return ts > now - PAST_GRACE_MS && ts < now + LOOKAHEAD_MS;
+  });
+}
+
+/**
+ * Cup fixtures merged into a competition (Community Shield, CL qualifiers)
+ * live under different odds-api.io league slugs. One cross-league /events call
+ * bounded to their kickoff window finds them without hardcoding slugs.
+ */
+async function resolveCrossLeagueEvents(
+  key: string,
+  fixtures: FixtureRef[],
+  out: Map<number, number>
+): Promise<void> {
+  const targets = imminentFixtures(fixtures).filter((fx) => !out.has(fx.id));
+  if (!targets.length) return;
+
+  await sleep(API_DELAY_MS);
+
+  const PAD_MS = 12 * 60 * 60 * 1000;
+  const kickoffs = targets.map((fx) => Date.parse(fx.kickoff!));
+  const url = new URL("https://api.odds-api.io/v3/events");
+  url.searchParams.set("apiKey", key);
+  url.searchParams.set("sport", "football");
+  url.searchParams.set("bookmaker", "Bet365");
+  url.searchParams.set("status", "pending");
+  url.searchParams.set("from", new Date(Math.min(...kickoffs) - PAD_MS).toISOString());
+  url.searchParams.set("to", new Date(Math.max(...kickoffs) + PAD_MS).toISOString());
+  url.searchParams.set("limit", "5000");
+
+  const events = await fetchJson(url);
+  if (!Array.isArray(events)) return;
+
+  for (const fx of targets) {
+    const hit = events.find((ev) => teamsMatch(fx.home, fx.away, ev));
+    if (hit?.id) {
+      out.set(fx.id, Number(hit.id));
+      const leagueName = hit?.league?.name ?? hit?.league?.slug ?? "unknown league";
+      console.log(
+        `  bet365 live: matched ${fx.home} v ${fx.away} via cross-league lookup (${leagueName})`
+      );
+    }
+  }
 }
 
 async function fetchOddsMulti(
@@ -664,7 +745,7 @@ export async function fetchBet365LiveOdds(
   try {
     const eventMap = await resolveOddsApiEvents(key, fixtures);
     if (eventMap.size === 0) {
-      console.warn("  bet365 live: no odds-api.io events matched for Premier League fixtures");
+      console.warn("  bet365 live: no odds-api.io events matched for upcoming fixtures");
       return empty;
     }
 
