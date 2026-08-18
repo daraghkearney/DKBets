@@ -12431,7 +12431,45 @@
       "isNap": false,
       "isConfident": false,
       "isEwGem": false
+    },
+    {
+      "date": "2026-08-18",
+      "raceId": "atr-lingfield-2026-08-18-14:30",
+      "course": "Lingfield",
+      "time": "14:30",
+      "pick": "Circuit Breaker",
+      "pickOdds": 1.2,
+      "pickProb": 0.16482730227174955,
+      "pickEdge": 0.19779276272609944,
+      "pickRank": 1,
+      "winner": "Poppy Foxy",
+      "winnerSp": 8.5,
+      "winnerRank": null,
+      "winHit": false,
+      "top3Hit": false,
+      "isNap": false,
+      "isConfident": false,
+      "isEwGem": false
+    },
+    {
+      "date": "2026-08-18",
+      "raceId": "atr-lingfield-2026-08-18-15:00",
+      "course": "Lingfield",
+      "time": "15:00",
+      "pick": "Last Dandelion",
+      "pickOdds": 1.2,
+      "pickProb": 0.11358627668805983,
+      "pickEdge": 0.1363035320256718,
+      "pickRank": 1,
+      "winner": "Rapide Vega",
+      "winnerSp": 3,
+      "winnerRank": null,
+      "winHit": false,
+      "top3Hit": false,
+      "isNap": false,
+      "isConfident": false,
+      "isEwGem": false
     }
   ],
-  "updatedAt": "2026-08-18T22:39:19.838Z"
+  "updatedAt": "2026-08-18T23:47:53.235Z"
 }
