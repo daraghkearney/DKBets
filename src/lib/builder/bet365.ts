@@ -644,10 +644,7 @@ async function resolveOddsApiEvents(
 
   const leagueEvents = await fetchJson(leagueUrl);
   if (Array.isArray(leagueEvents)) {
-    for (const fx of fixtures) {
-      const hit = leagueEvents.find((ev) => teamsMatch(fx.home, fx.away, ev));
-      if (hit?.id) out.set(fx.id, Number(hit.id));
-    }
+    assignEventsToFixtures(leagueEvents, fixtures, out);
   }
 
   await resolveCrossLeagueEvents(key, fixtures, out);
@@ -661,6 +658,54 @@ async function resolveOddsApiEvents(
   }
 
   return out;
+}
+
+/** Reject event↔fixture pairs more than this far apart when both dates are known. */
+const EVENT_MATCH_MAX_GAP_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Assign each odds-api.io event to the not-yet-assigned fixture whose kickoff
+ * is closest to the event date. League pairings repeat within a season
+ * (reverse fixtures), so team-name matching alone can bind an event — and all
+ * its odds — to the wrong leg of the pairing months away.
+ */
+function assignEventsToFixtures(
+  events: any[],
+  fixtures: FixtureRef[],
+  out: Map<number, number>
+): { fixture: FixtureRef; event: any }[] {
+  const assignments: { fixture: FixtureRef; event: any }[] = [];
+  const taken = new Set(out.keys());
+
+  for (const ev of events) {
+    if (!ev?.id) continue;
+    const evTime = Date.parse(String(ev?.date ?? ""));
+
+    const gap = (fx: FixtureRef): number => {
+      const ts = Date.parse(fx.kickoff ?? "");
+      if (!Number.isFinite(ts) || !Number.isFinite(evTime)) {
+        return Number.MAX_SAFE_INTEGER;
+      }
+      return Math.abs(ts - evTime);
+    };
+
+    const candidates = fixtures
+      .filter((fx) => !taken.has(fx.id) && teamsMatch(fx.home, fx.away, ev))
+      .sort((a, b) => gap(a) - gap(b));
+    if (!candidates.length) continue;
+
+    const best = candidates[0]!;
+    const bestGap = gap(best);
+    if (bestGap !== Number.MAX_SAFE_INTEGER && bestGap > EVENT_MATCH_MAX_GAP_MS) {
+      continue;
+    }
+
+    taken.add(best.id);
+    out.set(best.id, Number(ev.id));
+    assignments.push({ fixture: best, event: ev });
+  }
+
+  return assignments;
 }
 
 /** Unmatched fixtures kicking off soon enough for odds-api.io to list them. */
@@ -704,15 +749,12 @@ async function resolveCrossLeagueEvents(
   const events = await fetchJson(url);
   if (!Array.isArray(events)) return;
 
-  for (const fx of targets) {
-    const hit = events.find((ev) => teamsMatch(fx.home, fx.away, ev));
-    if (hit?.id) {
-      out.set(fx.id, Number(hit.id));
-      const leagueName = hit?.league?.name ?? hit?.league?.slug ?? "unknown league";
-      console.log(
-        `  bet365 live: matched ${fx.home} v ${fx.away} via cross-league lookup (${leagueName})`
-      );
-    }
+  const assignments = assignEventsToFixtures(events, targets, out);
+  for (const { fixture: fx, event: ev } of assignments) {
+    const leagueName = ev?.league?.name ?? ev?.league?.slug ?? "unknown league";
+    console.log(
+      `  bet365 live: matched ${fx.home} v ${fx.away} via cross-league lookup (${leagueName})`
+    );
   }
 }
 

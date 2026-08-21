@@ -6,7 +6,7 @@ import { PRIMARY_FOOTBALL_COMPETITION_ID } from "@/lib/sports/football";
 /** Fresh cache for routine push deploys (hourly refresh keeps this valid). */
 const CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 /** Bump when parser logic changes — invalidates stale wrong-price caches. */
-export const BET365_CACHE_VERSION = 7;
+export const BET365_CACHE_VERSION = 8;
 
 function cacheFileForCompetition(competitionId?: string): string {
   let id = competitionId;
