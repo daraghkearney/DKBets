@@ -24389,7 +24389,7 @@
       "course": "Newcastle",
       "time": "14:52",
       "pick": "Quiet Summer",
-      "pickOdds": null,
+      "pickOdds": 3,
       "pickProb": 0.29004674480758214,
       "pickEdge": null,
       "pickRank": 1,
@@ -25106,5 +25106,5 @@
       "isEwGem": false
     }
   ],
-  "updatedAt": "2026-09-04T05:53:44.866Z"
+  "updatedAt": "2026-09-04T10:45:03.183Z"
 }
