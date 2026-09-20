@@ -37150,7 +37150,45 @@
       "isNap": false,
       "isConfident": false,
       "isEwGem": false
+    },
+    {
+      "date": "2026-09-19",
+      "raceId": "atr-ayr-2026-09-19-13:20",
+      "course": "Ayr",
+      "time": "13:20",
+      "pick": "McMurray",
+      "pickOdds": 4,
+      "pickProb": 0.11737201994093209,
+      "pickEdge": 0.46948807976372836,
+      "pickRank": 1,
+      "winner": "Naval Light",
+      "winnerSp": 17,
+      "winnerRank": 8,
+      "winHit": false,
+      "top3Hit": false,
+      "isNap": false,
+      "isConfident": false,
+      "isEwGem": false
+    },
+    {
+      "date": "2026-09-19",
+      "raceId": "atr-ayr-2026-09-19-13:55",
+      "course": "Ayr",
+      "time": "13:55",
+      "pick": "Ice Max",
+      "pickOdds": 4.5,
+      "pickProb": 0.19586310940877236,
+      "pickEdge": 0.7344866602828963,
+      "pickRank": 1,
+      "winner": "Fast Tracker",
+      "winnerSp": 3.75,
+      "winnerRank": 4,
+      "winHit": false,
+      "top3Hit": true,
+      "isNap": false,
+      "isConfident": false,
+      "isEwGem": false
     }
   ],
-  "updatedAt": "2026-09-20T00:49:44.578Z"
+  "updatedAt": "2026-09-20T06:01:16.887Z"
 }
