@@ -325,7 +325,56 @@ const TEAM_ALIASES: Record<string, string> = {
   "leeds united": "leeds",
   "afc bournemouth": "bournemouth",
   "leicester city": "leicester",
+  "bayern munich": "bayern",
+  "fc bayern munich": "bayern",
+  internazionale: "inter",
+  "inter milan": "inter",
+  "inter milano": "inter",
+  "fc internazionale": "inter",
+  "viking fk": "viking",
+  "como 1907": "como",
+  "lask linz": "lask",
+  "sporting cp": "sporting",
+  "sporting lisbon": "sporting",
+  "sporting lisboa": "sporting",
+  "sporting portugal": "sporting",
+  shakhtar: "shakhtar donetsk",
+  "fc shakhtar donetsk": "shakhtar donetsk",
+  "galatasaray istanbul": "galatasaray",
+  "galatasaray sk": "galatasaray",
+  "club brugge kv": "club brugge",
+  "racing club de lens": "lens",
+  "rc lens": "lens",
+  "feyenoord rotterdam": "feyenoord",
+  "lille osc": "lille",
+  "losc lille": "lille",
+  "rb leipzig": "leipzig",
+  "rasenballsport leipzig": "leipzig",
+  "real betis seville": "betis",
+  "real betis sevilla": "betis",
+  "real betis": "betis",
+  "psv eindhoven": "psv",
+  "paris saint germain": "psg",
+  "paris sg": "psg",
+  "atletico madrid": "atletico",
+  "atletico de madrid": "atletico",
+  "borussia dortmund": "dortmund",
 };
+
+const TEAM_STOPWORDS = new Set([
+  "fc",
+  "cf",
+  "sc",
+  "ac",
+  "as",
+  "fk",
+  "kv",
+  "sk",
+  "the",
+  "de",
+  "von",
+  "del",
+]);
 
 export function normTeam(team: string): string {
   const t = team
@@ -336,9 +385,28 @@ export function normTeam(team: string): string {
     .replace(/\p{M}/gu, "")
     .replace(/[^a-z0-9\s]/g, "")
     .replace(/\s+/g, " ")
+    .replace(/\bmunchen\b/g, "munich")
     .replace(/\s+fc$/, "")
     .trim();
   return TEAM_ALIASES[t] ?? t;
+}
+
+function teamTokens(name: string): string[] {
+  return normTeam(name)
+    .split(" ")
+    .filter((tok) => tok.length > 2 && !TEAM_STOPWORDS.has(tok));
+}
+
+/** Exact alias match, or shorter name's tokens are a subset of the longer (Como vs Como 1907). */
+function teamsSimilar(a: string, b: string): boolean {
+  const na = normTeam(a);
+  const nb = normTeam(b);
+  if (na === nb) return true;
+  const ta = teamTokens(a);
+  const tb = teamTokens(b);
+  if (!ta.length || !tb.length) return false;
+  const [small, large] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  return small.every((tok) => large.includes(tok));
 }
 
 /** Strip Bet365 line/market suffixes from player labels ("Haaland 2", "Magalhaes Booked"). */
@@ -620,11 +688,12 @@ async function fetchJson(url: URL, attempt = 0): Promise<any | null> {
 }
 
 function teamsMatch(home: string, away: string, ev: any): boolean {
-  const eh = normTeam(String(ev.home ?? ""));
-  const ea = normTeam(String(ev.away ?? ""));
-  const h = normTeam(home);
-  const a = normTeam(away);
-  return (eh === h && ea === a) || (eh === a && ea === h);
+  const eh = String(ev.home ?? "");
+  const ea = String(ev.away ?? "");
+  return (
+    (teamsSimilar(eh, home) && teamsSimilar(ea, away)) ||
+    (teamsSimilar(eh, away) && teamsSimilar(ea, home))
+  );
 }
 
 /** Map FotMob fixtures → odds-api.io event IDs (one league /events call only). */
@@ -785,11 +854,20 @@ export async function fetchBet365LiveOdds(
   const eventUrls = new Map<number, string>();
 
   try {
-    const eventMap = await resolveOddsApiEvents(key, fixtures);
+    const priced = imminentFixtures(fixtures);
+    if (!priced.length) {
+      console.warn("  bet365 live: no fixtures in the next 7 days to price");
+      return empty;
+    }
+
+    const eventMap = await resolveOddsApiEvents(key, priced);
     if (eventMap.size === 0) {
       console.warn("  bet365 live: no odds-api.io events matched for upcoming fixtures");
       return empty;
     }
+    console.log(
+      `  bet365 live: matched ${eventMap.size}/${priced.length} imminent fixtures to odds-api.io events`
+    );
 
     await sleep(API_DELAY_MS);
 

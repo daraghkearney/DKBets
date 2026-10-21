@@ -1,5 +1,10 @@
 import { loadFixtures, loadMatchDetail } from "@/lib/stats/engine";
-import { ensurePlayerIndex, getTeamHistory } from "@/lib/stats/store";
+import {
+  ensurePlayerIndex,
+  getActiveFootballCompetitionId,
+  getTeamHistory,
+} from "@/lib/stats/store";
+import { PRIMARY_FOOTBALL_COMPETITION_ID } from "@/lib/sports/football";
 import {
   buildContextPayload,
   enrichLegsWithContext,
@@ -30,6 +35,10 @@ function normalizeQuote(raw: Bet365LiveQuote | number): Bet365LiveQuote {
 
 async function loadDeployedBet365Prices(): Promise<Bet365LiveBundle | null> {
   try {
+    // The public snapshot is Premier League only — never reuse it for CL.
+    if (getActiveFootballCompetitionId() !== PRIMARY_FOOTBALL_COMPETITION_ID) {
+      return null;
+    }
     const res = await fetch(DEPLOYED_PRICES_URL, {
       signal: AbortSignal.timeout(15_000),
     });
@@ -129,8 +138,15 @@ export async function loadBuilderPayload(): Promise<BuilderPayload> {
   const allLegs: import("./types").BuilderLeg[] = [];
   const contextReports: import("./context-types").MatchContextReport[] = [];
 
+  const pricedMatchIds = new Set<number>();
+  for (const key of liveBundle.quotes.keys()) {
+    const id = Number(key.split("|")[0]);
+    if (Number.isFinite(id)) pricedMatchIds.add(id);
+  }
+
   if (apiConfigured && liveBundle.quotes.size > 0) {
     for (const fx of fixtures) {
+      if (!pricedMatchIds.has(fx.id)) continue;
       const detail = await loadMatchDetail(fx.id);
       if (detail) {
         let report = buildMatchContextReport(detail, teamHistory);
