@@ -109,15 +109,13 @@ function pushNote(runner: HorseRunner, note: string): void {
 function mergeRunner(runner: HorseRunner, hr: HrnRunner): void {
   if (hr.nonRunner) return;
 
-  // Prefer live HRN prices whenever the API card has no usable odds
-  if (hr.odds != null && hr.odds > 1) {
-    const apiWeak = runner.odds == null || runner.odds <= 1 || runner.marketScore <= 0.46;
-    if (apiWeak) {
-      runner.odds = hr.odds;
-      const mk = scoreMarket(hr.odds);
-      runner.marketScore = mk.score;
-      for (const n of mk.notes) pushNote(runner, n);
-    }
+  // Live HRN prices always win — the free Racing API often stamps 1.20/1.25
+  // placeholders that look like short favourites and would otherwise stick.
+  if (hr.odds != null && hr.odds > 1 && hr.odds <= 501) {
+    runner.odds = hr.odds;
+    const mk = scoreMarket(hr.odds);
+    runner.marketScore = mk.score;
+    for (const n of mk.notes) pushNote(runner, n);
   }
 
   if (runner.officialRating == null && hr.officialRating != null) {

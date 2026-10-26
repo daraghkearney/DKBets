@@ -6,7 +6,8 @@
  */
 import { readFile, writeFile, mkdir } from "fs/promises";
 import path from "path";
-import type { RacingCalendarDay, RacingCalendarPayload } from "./types";
+import { isLiveDecimalOdds, raceHasPlausibleOdds } from "./odds-sanity";
+import type { RacingCalendarPayload } from "./types";
 
 /** Soft "healthy" bar used for UI / logging — NOT a gate for keep-last-good. */
 const ODDS_COVERAGE_HEALTHY = 0.25;
@@ -30,10 +31,6 @@ function performanceMirrorBase(): string | null {
   return raw.replace(/\/$/, "");
 }
 
-function dayRunners(day: RacingCalendarDay | undefined) {
-  return day?.meetings.flatMap((m) => m.races.flatMap((r) => r.runners)) ?? [];
-}
-
 /** Odds coverage for a specific ISO date inside a multi-day calendar. */
 export function coverageForDate(
   calendar: RacingCalendarPayload,
@@ -41,15 +38,21 @@ export function coverageForDate(
 ): CalendarOddsCoverage {
   if (!date) return { runners: 0, withOdds: 0, rate: 0 };
   const day = calendar.days.find((d) => d.date === date);
-  const runners = dayRunners(day);
-  const withOdds = runners.filter(
-    (r) => r.odds != null && r.odds > 1 && r.odds <= 501
-  ).length;
+  const races = day?.meetings.flatMap((m) => m.races) ?? [];
+  let runners = 0;
+  let withOdds = 0;
+  for (const race of races) {
+    runners += race.runners.length;
+    if (!raceHasPlausibleOdds(race)) continue;
+    for (const r of race.runners) {
+      if (isLiveDecimalOdds(r.odds)) withOdds += 1;
+    }
+  }
   return {
     date,
-    runners: runners.length,
+    runners,
     withOdds,
-    rate: runners.length ? withOdds / runners.length : 0,
+    rate: runners ? withOdds / runners : 0,
   };
 }
 

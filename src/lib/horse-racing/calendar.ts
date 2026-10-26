@@ -36,6 +36,10 @@ import {
   mergeHrnIntoRaces,
   racesFromHrn,
 } from "./hrn-merge";
+import {
+  countPlausiblePricedRunners,
+  stripImplausibleRaces,
+} from "./odds-sanity";
 import type { TipsterPick } from "./types";
 import type {
   HorseRace,
@@ -129,7 +133,9 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
     if (isRacingApiConfigured()) {
       const result = await fetchRacecardsForDate(day.date, day.offset);
       debugNotes.push(`${day.date}: ${result.debug}`);
-      races = result.races.map((r) => ({ ...r, date: day.date }));
+      races = stripImplausibleRaces(
+        result.races.map((r) => ({ ...r, date: day.date }))
+      );
       if (result.races.length) anyLive = true;
       await new Promise((r) => setTimeout(r, 400));
     } else {
@@ -157,8 +163,10 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
           .flatMap((r) => r.runners)
           .filter((r) => r.odds != null && r.odds > 1).length;
         if (priorDay && priorCov.withOdds > apiWithOdds) {
-          races = priorDay.meetings.flatMap((m) =>
-            m.races.map((r) => ({ ...r, date: day.date }))
+          races = stripImplausibleRaces(
+            priorDay.meetings.flatMap((m) =>
+              m.races.map((r) => ({ ...r, date: day.date }))
+            )
           );
           anyHrn = true;
           hrnNotes.push(
@@ -187,6 +195,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
             anyHrn = true;
             if (races.length && races.some((r) => r.runners.length)) {
               const { races: rm, runners: um } = mergeHrnIntoRaces(races, hrn);
+              races = stripImplausibleRaces(races);
               const scrapeNote = `scraped ${hrnStats.parsed}/${hrnStats.links} (${hrnStats.fetchMode}${hrnStats.cached ? `, ${hrnStats.cached} cached` : ""})`;
               hrnNotes.push(
                 `${day.date}: ${rm}/${races.length} merged, ${um} runners · ${scrapeNote}`
@@ -195,7 +204,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
                 `  hrn merge: ${day.date} — ${rm}/${races.length} races, ${um} runners`
               );
             } else {
-              races = racesFromHrn(hrn, day.date);
+              races = stripImplausibleRaces(racesFromHrn(hrn, day.date));
               hrnNotes.push(
                 `${day.date}: built ${races.length} races from scrape`
               );
@@ -246,19 +255,18 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
 
   const todayIso = week[0]?.date;
   const todayDay = days.find((d) => d.date === todayIso) ?? days[0];
-  const todayRunners =
-    todayDay?.meetings.flatMap((m) => m.races.flatMap((r) => r.runners)) ?? [];
-  const todayWithOdds = todayRunners.filter(
-    (r) => r.odds != null && r.odds > 1
-  ).length;
-  const oddsRate = todayRunners.length
-    ? todayWithOdds / todayRunners.length
+  const todayRacesForOdds =
+    todayDay?.meetings.flatMap((m) => m.races) ?? [];
+  const { runners: todayRunnerCount, withOdds: todayWithOdds } =
+    countPlausiblePricedRunners(todayRacesForOdds);
+  const oddsRate = todayRunnerCount
+    ? todayWithOdds / todayRunnerCount
     : 0;
 
   let enrichmentWarning: string | undefined;
-  if (todayRunners.length >= 8 && oddsRate < 0.25) {
+  if (todayRunnerCount >= 8 && oddsRate < 0.25) {
     enrichmentWarning =
-      `Live odds missing for most runners (${todayWithOdds}/${todayRunners.length}). ` +
+      `Live odds missing for most runners (${todayWithOdds}/${todayRunnerCount}). ` +
       `HorseRacing.net enrichment failed in this export — Market/Ground/Form scores stay near defaults until the next successful scrape.`;
     console.warn(`  racing enrichment: ${enrichmentWarning}`);
     if (process.env.HRN_REQUIRE_TODAY === "true") {
@@ -392,7 +400,7 @@ export async function buildRacingCalendarPayload(): Promise<RacingCalendarPayloa
           skipLog = true;
           console.warn(
             `  racing model: keeping prior prediction log for ${todayIso} ` +
-              `(new odds ${todayWithOdds}/${todayRunners.length} < prior ${prevCov.withOdds}/${prevCov.runners})`
+              `(new odds ${todayWithOdds}/${todayRunnerCount} < prior ${prevCov.withOdds}/${prevCov.runners})`
           );
         }
       }
